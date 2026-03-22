@@ -1,0 +1,8 @@
+# dependencies
+node_modules/
+server/node_modules/
+
+# environment files
+.env
+*.env
+server/src/config/.env
