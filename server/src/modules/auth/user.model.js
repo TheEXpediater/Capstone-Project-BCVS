@@ -1,3 +1,4 @@
+// server/src/modules/auth/user.model.js
 import mongoose from 'mongoose';
 import { getIdentityConnection } from '../../config/db.js';
 
@@ -7,31 +8,32 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['web', 'mobile'],
       required: true,
-      index: true,
     },
     role: {
       type: String,
+      enum: ['admin', 'super_admin', 'developer', 'cashier', 'student'],
       required: true,
-      trim: true,
-      lowercase: true,
-      index: true,
     },
     username: {
       type: String,
-      required: true,
       trim: true,
+      minlength: 2,
+      maxlength: 100,
+      required: true,
     },
     fullName: {
       type: String,
-      default: '',
       trim: true,
+      minlength: 2,
+      maxlength: 200,
+      required: true,
     },
     email: {
       type: String,
+      trim: true,
+      lowercase: true,
       required: true,
       unique: true,
-      lowercase: true,
-      trim: true,
       index: true,
     },
     password: {
@@ -41,38 +43,28 @@ const userSchema = new mongoose.Schema(
     },
     contactNo: {
       type: String,
-      default: '',
       trim: true,
+      default: '',
     },
     address: {
       type: String,
-      default: '',
       trim: true,
-    },
-    gender: {
-      type: String,
-      enum: ['male', 'female', 'other', ''],
       default: '',
-    },
-    age: {
-      type: Number,
-      min: 0,
-      max: 150,
-      default: null,
     },
     profilePicture: {
       type: String,
+      trim: true,
       default: '',
     },
     studentId: {
       type: String,
-      default: '',
+      trim: true,
+      default: null,
       index: true,
     },
     verified: {
       type: String,
-      enum: ['unverified', 'verified', 'rejected'],
-      default: 'unverified',
+      default: null,
     },
     isActive: {
       type: Boolean,
@@ -85,9 +77,33 @@ const userSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    collection: 'users',
   }
 );
+
+userSchema.pre('validate', function () {
+  if (this.kind === 'web') {
+    if (!['admin', 'super_admin', 'developer', 'cashier'].includes(this.role)) {
+      throw new Error('Invalid web role');
+    }
+
+    this.studentId = null;
+    this.verified = null;
+  }
+
+  if (this.kind === 'mobile') {
+    if (this.role !== 'student') {
+      throw new Error('Mobile users must have student role');
+    }
+
+    if (!this.studentId) {
+      throw new Error('studentId is required for mobile users');
+    }
+
+    if (this.verified === null || this.verified === undefined) {
+      this.verified = 'unverified';
+    }
+  }
+});
 
 export function getUserModel() {
   const connection = getIdentityConnection();

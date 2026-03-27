@@ -1,3 +1,4 @@
+// server/src/modules/auth/service.js
 import bcrypt from 'bcryptjs';
 import { Types } from 'mongoose';
 import { env } from '../../config/env.js';
@@ -46,7 +47,7 @@ const DEFAULT_ROLES = [
 ];
 
 function sanitizeUser(user) {
-  return {
+  const baseUser = {
     _id: user._id,
     username: user.username,
     fullName: user.fullName || '',
@@ -54,12 +55,20 @@ function sanitizeUser(user) {
     role: user.role,
     kind: user.kind,
     profilePicture: user.profilePicture || '',
-    studentId: user.studentId || '',
-    verified: user.verified,
     isActive: user.isActive,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
+
+  if (user.kind === 'mobile') {
+    return {
+      ...baseUser,
+      studentId: user.studentId || '',
+      verified: user.verified ?? 'unverified',
+    };
+  }
+
+  return baseUser;
 }
 
 function getRequestContext(req) {
@@ -138,7 +147,8 @@ export async function bootstrapSuperAdmin(payload, req) {
     throw new ApiError(409, 'Email already exists');
   }
 
-  const passwordHash = await bcrypt.hash(payload.password, env.bcryptSaltRounds);
+  const passwordHash = await bcrypt.hash(payload.password, Number(env.bcryptSaltRounds || 10));
+
   const user = await User.create({
     kind: 'web',
     role: 'super_admin',
@@ -146,7 +156,7 @@ export async function bootstrapSuperAdmin(payload, req) {
     fullName: payload.fullName,
     email: payload.email.toLowerCase(),
     password: passwordHash,
-    verified: 'verified',
+    isActive: true,
   });
 
   return buildAuthResponse(user, req);
@@ -161,7 +171,7 @@ export async function createWebUser(payload) {
     throw new ApiError(409, 'Email already exists');
   }
 
-  const passwordHash = await bcrypt.hash(payload.password, env.bcryptSaltRounds);
+  const passwordHash = await bcrypt.hash(payload.password, Number(env.bcryptSaltRounds || 10));
 
   const user = await User.create({
     kind: 'web',
@@ -173,7 +183,7 @@ export async function createWebUser(payload) {
     contactNo: payload.contactNo || '',
     address: payload.address || '',
     profilePicture: payload.profilePicture || '',
-    verified: 'verified',
+    isActive: true,
   });
 
   return {
@@ -191,7 +201,8 @@ export async function registerMobile(payload, req) {
     throw new ApiError(409, 'Email already exists');
   }
 
-  const passwordHash = await bcrypt.hash(payload.password, env.bcryptSaltRounds);
+  const passwordHash = await bcrypt.hash(payload.password, Number(env.bcryptSaltRounds || 10));
+
   const user = await User.create({
     kind: 'mobile',
     role: 'student',
@@ -201,6 +212,7 @@ export async function registerMobile(payload, req) {
     password: passwordHash,
     studentId: payload.studentId || '',
     verified: 'unverified',
+    isActive: true,
   });
 
   return buildAuthResponse(user, req);
