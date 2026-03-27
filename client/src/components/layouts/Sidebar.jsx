@@ -39,7 +39,7 @@ function Sidebar() {
   });
   const toggleSidebar = () => setCollapsed((c) => !c);
   const isDevOrSuper =
-    user?.role === "developer" || user?.role === "superadmin";
+    user?.role === "developer" || user?.role === "super_admin";
 
   const routeLabel = useMemo(
     () => ({

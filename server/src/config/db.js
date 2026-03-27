@@ -1,27 +1,53 @@
-// config/db.js
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+import { env } from './env.js';
 
-let authConn, studentsConn, vcConn;
+let identityConnection;
+let credentialsConnection;
+let platformConnection;
 
-async function connectAll() {
+export async function connectDatabases() {
+  if (identityConnection && credentialsConnection && platformConnection) {
+    return {
+      identityConnection,
+      credentialsConnection,
+      platformConnection,
+    };
+  }
 
-  const commonOpts = {};
-
-  authConn     = await mongoose.createConnection(process.env.MONGO_URI_AUTH, commonOpts).asPromise();
-  studentsConn = await mongoose.createConnection(process.env.MONGO_URI_STUDENTS, commonOpts).asPromise();
-  vcConn       = await mongoose.createConnection(process.env.MONGO_URI_VC, commonOpts).asPromise();
+  identityConnection = await mongoose.createConnection(env.mongo.identity).asPromise();
+  credentialsConnection = await mongoose.createConnection(env.mongo.credentials).asPromise();
+  platformConnection = await mongoose.createConnection(env.mongo.platform).asPromise();
 
   console.log('Mongo connected:', {
-    auth: authConn.name,
-    students: studentsConn.name,
-    vc: vcConn.name,
+    identity: identityConnection.name,
+    credentials: credentialsConnection.name,
+    platform: platformConnection.name,
   });
 
-  return { authConn, studentsConn, vcConn };
+  return {
+    identityConnection,
+    credentialsConnection,
+    platformConnection,
+  };
 }
 
-const getAuthConn     = () => authConn;
-const getStudentsConn = () => studentsConn;
-const getVcConn       = () => vcConn;
+export function getIdentityConnection() {
+  if (!identityConnection) {
+    throw new Error('Identity DB connection is not initialized');
+  }
+  return identityConnection;
+}
 
-module.exports = { connectAll, getAuthConn, getStudentsConn, getVcConn };
+export function getCredentialsConnection() {
+  if (!credentialsConnection) {
+    throw new Error('Credentials DB connection is not initialized');
+  }
+  return credentialsConnection;
+}
+
+export function getPlatformConnection() {
+  if (!platformConnection) {
+    throw new Error('Platform DB connection is not initialized');
+  }
+  return platformConnection;
+}
