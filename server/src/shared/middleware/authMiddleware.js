@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const asyncHandler = require("express-async-handler");
-const User = require("../models/common/userModel"); // ✅ adjust path if needed
+const User = require("../../models/common/userModel"); // ✅ adjust path if needed
 
 // Protect routes (any logged-in user)
 const protect = asyncHandler(async (req, res, next) => {
@@ -35,7 +35,7 @@ const protect = asyncHandler(async (req, res, next) => {
 
 // Admin-only
 const admin = (req, res, next) => {
-  if (req.user && (req.user.role === "admin" || req.user.role === "superadmin")) {
+      if (req.user && (req.user.role === "admin" || req.user.role === "superadmin")) {
     next();
   } else {
     res.status(401);

@@ -6,10 +6,10 @@ const qs = require('qs');
 require('dotenv').config();
 
 const { connectAll } = require('./config/db');
-const { errorHandler } = require('./middleware/errorMiddleware');
+const { errorHandler } = require('./shared/middleware/errorMiddleware');
 const { redis } = require('./lib/redis');
-const { mongoSanitizeSafe } = require('./middleware/mongoSanitizeSafe');
-const paramPollutionGuard = require('./middleware/paramPollutionGuard');
+const { mongoSanitizeSafe } = require('./shared/middleware/mongoSanitizeSafe');
+const paramPollutionGuard = require('./shared/middleware/paramPollutionGuard');
 
 (async () => {
   await connectAll();

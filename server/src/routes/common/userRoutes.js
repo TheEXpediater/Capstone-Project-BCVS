@@ -20,11 +20,11 @@ const {
   requestOtp,
   verifyOtp,
 } = require("../../controllers/mobile/otpController");
-const { protect, allowRoles } = require("../../middleware/authMiddleware");
-const { rateLimitRedis } = require("../../middleware/rateLimitRedis");
-const { z, validate } = require("../../middleware/validate");
-const requestLogger = require("../../middleware/requestLogger");
-const requireOtpSession = require("../../middleware/requireOtpSession");
+const { protect, allowRoles } = require("../../shared/middleware/authMiddleware");
+const { rateLimitRedis } = require("../../shared/middleware/rateLimitRedis");
+const { z, validate } = require("../../shared/middleware/validate");
+const requestLogger = require("../../shared/middleware/requestLogger");
+const requireOtpSession = require("../../shared/middleware/requireOtpSession");
 
 // ---------- Schemas ----------
 const webLoginSchema = {
