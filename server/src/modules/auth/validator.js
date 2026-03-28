@@ -1,8 +1,14 @@
-import Joi from "joi";
+import Joi from 'joi';
 
-const email = Joi.string().trim().lowercase().email().max(254).required();
+const email = Joi.string()
+  .trim()
+  .lowercase()
+  .email({ tlds: { allow: false } })
+  .max(254)
+  .required();
+
 const password = Joi.string().min(8).max(128).required();
-const optionalString = Joi.string().trim().max(255).allow("", null);
+const optionalString = Joi.string().trim().max(255).allow('', null);
 
 export const bootstrapSuperAdminSchema = Joi.object({
   username: Joi.string().trim().min(2).max(100).required(),
@@ -17,11 +23,11 @@ export const createWebUserSchema = Joi.object({
   email,
   password,
   role: Joi.string()
-    .valid("admin", "super_admin", "developer", "cashier")
+    .valid('admin', 'super_admin', 'developer', 'cashier')
     .required(),
   contactNo: optionalString.optional(),
   address: optionalString.optional(),
-  profilePicture: Joi.string().trim().uri().optional().allow("", null),
+  profilePicture: Joi.string().trim().uri().optional().allow('', null),
 });
 
 export const webLoginSchema = Joi.object({
@@ -31,10 +37,10 @@ export const webLoginSchema = Joi.object({
 
 export const mobileRegisterSchema = Joi.object({
   username: Joi.string().trim().min(2).max(100).required(),
-  fullName: Joi.string().trim().min(2).max(200).optional().allow("", null),
+  fullName: Joi.string().trim().min(2).max(200).optional().allow('', null),
   email,
   password,
-  studentId: Joi.string().trim().max(100).optional().allow("", null),
+  studentId: Joi.string().trim().max(100).optional().allow('', null),
 });
 
 export const mobileLoginSchema = Joi.object({
