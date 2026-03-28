@@ -1,6 +1,7 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
+import { getPlatformConnection } from '../../config/db.js';
 
-const ROLE_VALUES = ['admin', 'super_admin', 'developer'];
+const ROLE_VALUES = ['admin', 'super_admin', 'developer', 'cashier'];
 
 const settingSchema = new mongoose.Schema(
   {
@@ -27,16 +28,25 @@ const settingSchema = new mongoose.Schema(
       selectedContractName: { type: String, default: '' },
       walletAddress: { type: String, default: '' },
       networkLabel: { type: String, default: 'Local Chain' },
+      walletBalance: { type: String, default: '0.0000' },
+    },
+    locks: {
+      anchorLocked: { type: Boolean, default: false },
+      qrEmailLocked: { type: Boolean, default: false },
+      contractLocked: { type: Boolean, default: false },
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
       default: null,
     },
   },
   {
     timestamps: true,
+    collection: 'system_settings',
   }
 );
 
-module.exports = mongoose.model('SystemSetting', settingSchema);
+export function getSystemSettingModel() {
+  const connection = getPlatformConnection();
+  return connection.models.SystemSetting || connection.model('SystemSetting', settingSchema);
+}

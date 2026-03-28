@@ -2,11 +2,21 @@ import { Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import RoleRoute from './RoleRoute';
 
+import AppShell from '../components/layouts/AppShell';
 import LoginPage from '../features/auth/pages/LoginPage';
+import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
+import UserManagementPage from '../features/users/pages/UserManagementPage';
 import Dashboard from '../pages/Dashboard';
 import NotFound from '../pages/NotFound';
 import Unauthorized from '../pages/Unauthorized';
-import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
+
+function ShellPage({ children }) {
+  return (
+    <ProtectedRoute>
+      <AppShell>{children}</AppShell>
+    </ProtectedRoute>
+  );
+}
 
 export default function AppRoutes() {
   return (
@@ -14,11 +24,17 @@ export default function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
 
+      <Route path="/" element={<ShellPage><Dashboard /></ShellPage>} />
+
       <Route
-        path="/"
+        path="/users"
         element={
           <ProtectedRoute>
-            <Dashboard />
+            <RoleRoute allowedRoles={['developer']}>
+              <AppShell>
+                <UserManagementPage />
+              </AppShell>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -28,7 +44,9 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <RoleRoute allowedRoles={['super_admin', 'developer']}>
-              <SystemSettingsPage />
+              <AppShell>
+                <SystemSettingsPage />
+              </AppShell>
             </RoleRoute>
           </ProtectedRoute>
         }

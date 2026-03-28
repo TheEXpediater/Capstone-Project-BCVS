@@ -23,7 +23,7 @@ function clearStoredAuth() {
 }
 
 export async function loginWeb(credentials) {
-  const { data } = await api.post('/api/auth/web/login', credentials);
+  const { data } = await api.post('/auth/web/login', credentials);
 
   const authPayload = {
     token: data.token,
@@ -36,7 +36,7 @@ export async function loginWeb(credentials) {
 }
 
 export async function getWebMe() {
-  const { data } = await api.get('/api/auth/web/me');
+  const { data } = await api.get('/auth/web/me');
   const stored = readStoredAuth();
 
   if (stored) {
@@ -57,7 +57,7 @@ export async function getWebMe() {
 
 export async function logout() {
   try {
-    await api.post('/api/auth/logout');
+    await api.post('/auth/logout');
   } finally {
     clearStoredAuth();
   }

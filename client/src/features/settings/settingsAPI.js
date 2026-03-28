@@ -5,8 +5,13 @@ export async function getSettingsDashboard() {
   return response.data.data;
 }
 
-export async function updateSystemSettings(payload) {
-  const response = await api.put('/settings', payload);
+export async function updateBusinessSettings(payload) {
+  const response = await api.put('/settings/business', payload);
+  return response.data.data;
+}
+
+export async function updateSystemLocks(payload) {
+  const response = await api.put('/settings/locks', payload);
   return response.data.data;
 }
 

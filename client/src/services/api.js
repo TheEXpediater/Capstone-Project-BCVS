@@ -8,10 +8,13 @@ api.interceptors.request.use((config) => {
   const raw = localStorage.getItem('auth');
 
   if (raw) {
-    const parsed = JSON.parse(raw);
-
-    if (parsed?.token) {
-      config.headers.Authorization = `Bearer ${parsed.token}`;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.token) {
+        config.headers.Authorization = `Bearer ${parsed.token}`;
+      }
+    } catch (_error) {
+      localStorage.removeItem('auth');
     }
   }
 

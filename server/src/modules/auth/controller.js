@@ -11,6 +11,11 @@ export const createWebUser = asyncHandler(async (req, res) => {
   res.status(201).json(result);
 });
 
+export const listWebUsers = asyncHandler(async (_req, res) => {
+  const result = await authService.listWebUsers();
+  res.status(200).json(result);
+});
+
 export const registerMobile = asyncHandler(async (req, res) => {
   const result = await authService.registerMobile(req.body, req);
   res.status(201).json(result);

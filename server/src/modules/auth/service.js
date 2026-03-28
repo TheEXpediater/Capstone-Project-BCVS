@@ -1,4 +1,3 @@
-// server/src/modules/auth/service.js
 import bcrypt from 'bcryptjs';
 import { Types } from 'mongoose';
 import { env } from '../../config/env.js';
@@ -81,7 +80,7 @@ function getRequestContext(req) {
   };
 }
 
-async function ensureRoles() {
+export async function ensureRoles() {
   const Role = getRoleModel();
   for (const role of DEFAULT_ROLES) {
     await Role.updateOne({ key: role.key }, { $setOnInsert: role }, { upsert: true });
@@ -162,10 +161,13 @@ export async function bootstrapSuperAdmin(payload, req) {
   return buildAuthResponse(user, req);
 }
 
-export async function createWebUser(payload) {
+export async function createWebUser(payload, actor) {
   await ensureRoles();
-  const User = getUserModel();
+  if (!actor || !['super_admin', 'developer'].includes(actor.role)) {
+    throw new ApiError(403, 'Only super admin or MIS developer can create web users');
+  }
 
+  const User = getUserModel();
   const existingEmail = await User.exists({ email: payload.email.toLowerCase() });
   if (existingEmail) {
     throw new ApiError(409, 'Email already exists');
@@ -189,6 +191,22 @@ export async function createWebUser(payload) {
   return {
     success: true,
     user: sanitizeUser(user),
+  };
+}
+
+export async function listWebUsers() {
+  await ensureRoles();
+  const User = getUserModel();
+  const users = await User.find(
+    { kind: 'web', role: { $in: ['super_admin', 'developer', 'admin', 'cashier'] } },
+    '-password'
+  )
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return {
+    success: true,
+    users: users.map((user) => sanitizeUser(user)),
   };
 }
 
