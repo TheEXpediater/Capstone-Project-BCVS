@@ -1,59 +1,212 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ethers } from 'ethers';
 import { ApiError } from '../../shared/utils/ApiError.js';
+import { getContractModel } from './model.js';
 
-const CONTRACT_SERVICE_URL = process.env.CONTRACT_SERVICE_URL || 'http://localhost:5001';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-function buildUrl(path) {
-  return `${CONTRACT_SERVICE_URL.replace(/\/$/, '')}${path}`;
+const RPC_URL = process.env.RPC_URL;
+const PRIVATE_KEY = process.env.CONTRACT_OPERATOR_PRIVATE_KEY;
+const DEFAULT_CHAIN_ID = Number(process.env.ANCHOR_CHAIN_ID || 80002);
+
+const artifactPath = path.resolve(__dirname, './artifacts/AdminContract.json');
+
+function requireBlockchainEnv() {
+  if (!RPC_URL) {
+    throw new ApiError(500, 'Missing RPC_URL in server .env');
+  }
+
+  if (!PRIVATE_KEY) {
+    throw new ApiError(500, 'Missing PRIVATE_KEY in server .env');
+  }
 }
 
-async function requestJson(path, options = {}) {
-  let response;
+function getProvider() {
+  requireBlockchainEnv();
+  return new ethers.JsonRpcProvider(RPC_URL);
+}
 
-  try {
-    response = await fetch(buildUrl(path), {
-      method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-  } catch (error) {
-    throw new ApiError(502, `Smart contract service is unreachable: ${error.message}`);
+function getWallet() {
+  const provider = getProvider();
+  return new ethers.Wallet(PRIVATE_KEY, provider);
+}
+
+function loadArtifact() {
+  if (!fs.existsSync(artifactPath)) {
+    throw new ApiError(
+      500,
+      'AdminContract artifact not found. Copy AdminContract.json into server/src/modules/contracts/artifacts/'
+    );
   }
 
-  let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+
+  if (!artifact.abi || !artifact.bytecode || artifact.bytecode === '0x') {
+    throw new ApiError(500, 'AdminContract artifact is invalid or bytecode is missing.');
   }
 
-  if (!response.ok) {
-    throw new ApiError(response.status || 500, payload?.error || payload?.message || 'Smart contract request failed');
+  return artifact;
+}
+
+function getExplorerBaseUrl(chainId) {
+  if (Number(chainId) === 80002) {
+    return 'https://amoy.polygonscan.com';
   }
 
-  return payload;
+  return null;
+}
+
+async function getAccountInfo(provider, wallet) {
+  const network = await provider.getNetwork();
+  const balanceWei = await provider.getBalance(wallet.address);
+
+  return {
+    address: wallet.address,
+    chainId: Number(network.chainId || DEFAULT_CHAIN_ID),
+    network: network.name,
+    balanceWei: balanceWei.toString(),
+    balanceNative: ethers.formatEther(balanceWei),
+    gasToken: 'POL',
+  };
+}
+
+async function getFeePerGas(provider) {
+  const feeData = await provider.getFeeData();
+  const feePerGas = feeData.maxFeePerGas ?? feeData.gasPrice;
+
+  if (!feePerGas) {
+    throw new ApiError(500, 'Could not fetch fee data.');
+  }
+
+  return feePerGas;
+}
+
+async function buildEstimateInternal() {
+  const provider = getProvider();
+  const wallet = getWallet();
+  const artifact = loadArtifact();
+
+  const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
+  const deployTx = await factory.getDeployTransaction();
+
+  const gasLimit = await provider.estimateGas({
+    ...deployTx,
+    from: wallet.address,
+  });
+
+  const feePerGas = await getFeePerGas(provider);
+  const totalCostWei = gasLimit * feePerGas;
+  const network = await provider.getNetwork();
+  const account = await getAccountInfo(provider, wallet);
+
+  return {
+    contractName: 'AdminContract',
+    chainId: Number(network.chainId || DEFAULT_CHAIN_ID),
+    network: network.name,
+    gasToken: 'POL',
+    walletAddress: wallet.address,
+    gasLimit: gasLimit.toString(),
+    feePerGasWei: feePerGas.toString(),
+    feePerGasGwei: ethers.formatUnits(feePerGas, 'gwei'),
+    totalCostWei: totalCostWei.toString(),
+    totalCostNative: ethers.formatEther(totalCostWei),
+    account,
+  };
 }
 
 export async function getContractsDashboard() {
-  const [health, account, contracts] = await Promise.all([
-    requestJson('/api/health'),
-    requestJson('/api/account'),
-    requestJson('/api/contracts'),
+  const provider = getProvider();
+  const wallet = getWallet();
+  const Contract = getContractModel();
+
+  const [network, account, contracts] = await Promise.all([
+    provider.getNetwork(),
+    getAccountInfo(provider, wallet),
+    Contract.find().sort({ createdAt: -1 }).lean(),
   ]);
 
   return {
-    health,
+    health: {
+      ok: true,
+      walletAddress: wallet.address,
+      chainId: Number(network.chainId || DEFAULT_CHAIN_ID),
+      network: network.name,
+    },
     account,
     contracts,
   };
 }
 
 export async function estimateDeployment() {
-  return requestJson('/api/estimate', { method: 'POST' });
+  return buildEstimateInternal();
 }
 
 export async function deployContract() {
-  return requestJson('/api/deploy', { method: 'POST' });
+  const provider = getProvider();
+  const wallet = getWallet();
+  const artifact = loadArtifact();
+  const Contract = getContractModel();
+
+  let deploymentRecord = null;
+
+  try {
+    const estimate = await buildEstimateInternal();
+    const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
+
+    deploymentRecord = await Contract.create({
+      contractName: estimate.contractName,
+      deployerAddress: wallet.address,
+      chainId: estimate.chainId,
+      network: estimate.network,
+      gasToken: estimate.gasToken,
+      estimatedCostNative: estimate.totalCostNative,
+      estimatedCostWei: estimate.totalCostWei,
+      status: 'pending',
+    });
+
+    const contract = await factory.deploy();
+    const deployTx = contract.deploymentTransaction();
+
+    await contract.waitForDeployment();
+
+    const address = await contract.getAddress();
+    const explorerBaseUrl = getExplorerBaseUrl(estimate.chainId);
+    const explorerUrl =
+      explorerBaseUrl && deployTx?.hash
+        ? `${explorerBaseUrl}/tx/${deployTx.hash}`
+        : null;
+
+    deploymentRecord.address = address;
+    deploymentRecord.txHash = deployTx?.hash ?? null;
+    deploymentRecord.explorerUrl = explorerUrl;
+    deploymentRecord.status = 'success';
+    deploymentRecord.errorMessage = null;
+    await deploymentRecord.save();
+
+    const account = await getAccountInfo(provider, wallet);
+
+    return {
+      success: true,
+      id: deploymentRecord._id,
+      contractName: estimate.contractName,
+      address,
+      owner: wallet.address,
+      txHash: deployTx?.hash ?? null,
+      chainId: estimate.chainId,
+      network: estimate.network,
+      explorerUrl,
+      account,
+    };
+  } catch (error) {
+    if (deploymentRecord) {
+      deploymentRecord.status = 'failed';
+      deploymentRecord.errorMessage = error.message || 'Deploy error';
+      await deploymentRecord.save();
+    }
+
+    throw new ApiError(500, error.message || 'Deploy error');
+  }
 }
