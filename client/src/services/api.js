@@ -10,6 +10,7 @@ api.interceptors.request.use((config) => {
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
+
       if (parsed?.token) {
         config.headers.Authorization = `Bearer ${parsed.token}`;
       }

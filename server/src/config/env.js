@@ -5,7 +5,6 @@ import dotenv from 'dotenv';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Always load server/.env no matter where node is executed from
 dotenv.config({
   path: path.resolve(__dirname, '../../.env'),
 });
@@ -40,10 +39,4 @@ export const env = {
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
   },
   bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 10),
-  keys: {
-    vcIssuerPrivateKey: process.env.VC_ISSUER_PRIVATE_KEY || '',
-    vcIssuerAddress: process.env.VC_ISSUER_ADDRESS || '',
-    contractOperatorPrivateKey: process.env.CONTRACT_OPERATOR_PRIVATE_KEY || '',
-    contractOperatorAddress: process.env.CONTRACT_OPERATOR_ADDRESS || '',
-  },
 };
