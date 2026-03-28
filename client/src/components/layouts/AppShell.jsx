@@ -38,6 +38,7 @@ export default function AppShell({ children }) {
 
   const isDeveloper = user?.role === 'developer';
   const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
+  const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
 
   return (
     <div className="d-flex min-vh-100 bg-body-tertiary">
@@ -63,22 +64,20 @@ export default function AppShell({ children }) {
         <nav className="d-flex flex-column gap-2">
           <SidebarLink to="/">Dashboard</SidebarLink>
           {isDeveloper ? <SidebarLink to="/users">Manage Users</SidebarLink> : null}
+          {canSeeContracts ? <SidebarLink to="/contracts">Contract Manager</SidebarLink> : null}
           {canSeeSettings ? <SidebarLink to="/system-settings">System Settings</SidebarLink> : null}
         </nav>
 
         <div className="mt-auto border-top pt-3" style={{ borderColor: '#1e293b' }}>
-          <div className="mb-2" style={{ fontSize: 14, color: '#94a3b8' }}>Signed in as</div>
-          <div style={{ fontWeight: 600 }}>{user?.fullName || 'User'}</div>
-          <div style={{ color: '#94a3b8', fontSize: 14 }}>{user?.role || 'unknown'}</div>
-          <button className="btn btn-outline-light btn-sm mt-3" onClick={handleLogout}>
-            Logout
-          </button>
+          <div className="mb-3">
+            <div className="fw-semibold">{user?.fullName || user?.username || 'Unknown user'}</div>
+            <div className="small text-uppercase" style={{ color: '#94a3b8' }}>{user?.role || 'unknown'}</div>
+          </div>
+          <button className="btn btn-outline-light w-100" onClick={handleLogout}>Logout</button>
         </div>
       </aside>
 
-      <main className="flex-grow-1 p-4">
-        {children}
-      </main>
+      <main className="flex-grow-1 p-4">{children}</main>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import AppShell from '../components/layouts/AppShell';
 import LoginPage from '../features/auth/pages/LoginPage';
 import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
 import UserManagementPage from '../features/users/pages/UserManagementPage';
+import ContractManagerPage from '../features/contracts/pages/ContractManagerPage';
 import Dashboard from '../pages/Dashboard';
 import NotFound from '../pages/NotFound';
 import Unauthorized from '../pages/Unauthorized';
@@ -33,6 +34,19 @@ export default function AppRoutes() {
             <RoleRoute allowedRoles={['developer']}>
               <AppShell>
                 <UserManagementPage />
+              </AppShell>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/contracts"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={['developer', 'super_admin']}>
+              <AppShell>
+                <ContractManagerPage />
               </AppShell>
             </RoleRoute>
           </ProtectedRoute>

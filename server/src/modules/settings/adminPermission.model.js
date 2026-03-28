@@ -13,7 +13,7 @@ const adminPermissionSchema = new mongoose.Schema(
       type: String,
       enum: ['admin', 'super_admin', 'developer', 'cashier'],
       required: true,
-    },
+    }, 
     permissions: {
       canIssueVC: { type: Boolean, default: true },
       canSendQrEmail: { type: Boolean, default: true },
