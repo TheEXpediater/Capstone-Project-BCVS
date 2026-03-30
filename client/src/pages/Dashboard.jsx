@@ -1,26 +1,51 @@
-import { useDispatch, useSelector } from 'react-redux';
-import { signOut } from '../features/auth/authSlice';
+import { useSelector } from 'react-redux';
 
 export default function Dashboard() {
-  const dispatch = useDispatch();
   const { user } = useSelector((state) => state.auth);
 
   return (
-    <div className="container py-5">
-      <div className="d-flex justify-content-between align-items-center mb-4">
+    <div className="dashboard-page">
+      <div className="dashboard-hero">
         <div>
-          <h1 className="h3 mb-1">BCVS Admin Dashboard</h1>
-          <p className="text-muted mb-0">You are logged in as {user?.fullName || user?.username} ({user?.role}).</p>
+          <h1 className="dashboard-title">BCVS Admin Dashboard</h1>
+          <p className="dashboard-subtitle">
+            Welcome back, {user?.fullName || user?.username}. You are logged in
+            as <strong> {user?.role}</strong>.
+          </p>
         </div>
-        <button className="btn btn-outline-danger" onClick={() => dispatch(signOut())}>
-          Logout
-        </button>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          <h2 className="h5">Auth is working</h2>
-          <pre className="mb-0 bg-light p-3 rounded">{JSON.stringify(user, null, 2)}</pre>
+      <div className="row g-4 mb-1">
+        <div className="col-md-4">
+          <div className="content-card stat-card">
+            <div className="stat-label">Role</div>
+            <div className="stat-value text-capitalize">{user?.role || '--'}</div>
+          </div>
+        </div>
+
+        <div className="col-md-4">
+          <div className="content-card stat-card">
+            <div className="stat-label">Username</div>
+            <div className="stat-value">{user?.username || '--'}</div>
+          </div>
+        </div>
+
+        <div className="col-md-4">
+          <div className="content-card stat-card">
+            <div className="stat-label">Full Name</div>
+            <div className="stat-value">{user?.fullName || '--'}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="content-card">
+        <div className="content-card-header">
+          <h2 className="h5 mb-0">Authenticated User Data</h2>
+        </div>
+        <div className="content-card-body">
+          <pre className="dashboard-json">
+            {JSON.stringify(user, null, 2)}
+          </pre>
         </div>
       </div>
     </div>

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   getSettingsDashboard,
   updateAdminPermissions,
   updateBusinessSettings,
   updateSystemLocks,
 } from '../settingsAPI';
+import { getContractsDashboard } from '../../contracts/contractsAPI';
 
 const ROLE_OPTIONS = ['admin', 'super_admin', 'developer', 'cashier'];
 
@@ -36,6 +37,7 @@ export default function SystemSettingsPage() {
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
   const [admins, setAdmins] = useState([]);
   const [wallet, setWallet] = useState(null);
+  const [availableContracts, setAvailableContracts] = useState([]);
   const [access, setAccess] = useState({
     canEditBusinessSettings: false,
     canEditSystemLocks: false,
@@ -48,17 +50,34 @@ export default function SystemSettingsPage() {
   const [savingUserId, setSavingUserId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
+  const selectedContractOption = useMemo(() => {
+    return availableContracts.find(
+      (item) =>
+        item._id === settings.blockchain.selectedContractId ||
+        item.address === settings.blockchain.selectedContractId
+    );
+  }, [availableContracts, settings.blockchain.selectedContractId]);
+
   async function loadDashboard() {
     try {
       setLoading(true);
-      const data = await getSettingsDashboard();
-      setSettings(data.settings || EMPTY_SETTINGS);
-      setAdmins(data.admins || []);
-      setWallet(data.wallet || null);
-      setAccess(data.access || {});
+
+      const [settingsData, contractsData] = await Promise.all([
+        getSettingsDashboard(),
+        getContractsDashboard(),
+      ]);
+
+      setSettings(settingsData.settings || EMPTY_SETTINGS);
+      setAdmins(settingsData.admins || []);
+      setWallet(settingsData.wallet || null);
+      setAccess(settingsData.access || {});
+      setAvailableContracts(contractsData.contracts || []);
       setFeedback({ type: '', text: '' });
     } catch (error) {
-      setFeedback({ type: 'danger', text: error.message || 'Failed to load settings dashboard.' });
+      setFeedback({
+        type: 'danger',
+        text: error.message || 'Failed to load settings dashboard.',
+      });
     } finally {
       setLoading(false);
     }
@@ -93,6 +112,38 @@ export default function SystemSettingsPage() {
     });
   }
 
+  function handleContractSelect(event) {
+    const value = event.target.value;
+
+    if (!value) {
+      setSettings((prev) => ({
+        ...prev,
+        blockchain: {
+          ...prev.blockchain,
+          selectedContractId: '',
+          selectedContractName: '',
+        },
+      }));
+      return;
+    }
+
+    const chosen = availableContracts.find(
+      (item) => item._id === value || item.address === value
+    );
+
+    if (!chosen) return;
+
+    setSettings((prev) => ({
+      ...prev,
+      blockchain: {
+        ...prev.blockchain,
+        selectedContractId: chosen.address || chosen._id || '',
+        selectedContractName: chosen.contractName || 'AdminContract',
+        networkLabel: chosen.network || prev.blockchain.networkLabel,
+      },
+    }));
+  }
+
   async function handleSaveBusiness() {
     try {
       setSavingBusiness(true);
@@ -104,7 +155,10 @@ export default function SystemSettingsPage() {
       setSettings((prev) => ({ ...prev, ...updated }));
       setFeedback({ type: 'success', text: 'Business settings saved.' });
     } catch (error) {
-      setFeedback({ type: 'danger', text: error.message || 'Failed to save business settings.' });
+      setFeedback({
+        type: 'danger',
+        text: error.message || 'Failed to save business settings.',
+      });
     } finally {
       setSavingBusiness(false);
     }
@@ -117,7 +171,10 @@ export default function SystemSettingsPage() {
       setSettings((prev) => ({ ...prev, locks: updated.locks }));
       setFeedback({ type: 'success', text: 'System locks saved.' });
     } catch (error) {
-      setFeedback({ type: 'danger', text: error.message || 'Failed to save system locks.' });
+      setFeedback({
+        type: 'danger',
+        text: error.message || 'Failed to save system locks.',
+      });
     } finally {
       setSavingLocks(false);
     }
@@ -143,24 +200,39 @@ export default function SystemSettingsPage() {
     try {
       setSavingUserId(admin._id);
       const updated = await updateAdminPermissions(admin._id, admin.permissions);
-      setAdmins((prev) => prev.map((item) => (item._id === admin._id ? { ...item, ...updated } : item)));
-      setFeedback({ type: 'success', text: `Permissions updated for ${admin.fullName}.` });
+      setAdmins((prev) =>
+        prev.map((item) => (item._id === admin._id ? { ...item, ...updated } : item))
+      );
+      setFeedback({
+        type: 'success',
+        text: `Permissions updated for ${admin.fullName}.`,
+      });
     } catch (error) {
-      setFeedback({ type: 'danger', text: error.message || 'Failed to save admin permissions.' });
+      setFeedback({
+        type: 'danger',
+        text: error.message || 'Failed to save admin permissions.',
+      });
     } finally {
       setSavingUserId('');
     }
   }
 
   if (loading) {
-    return <div className="card border-0 shadow-sm"><div className="card-body p-4">Loading settings...</div></div>;
+    return (
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">Loading settings...</div>
+      </div>
+    );
   }
 
   return (
     <div className="d-flex flex-column gap-4">
       <div>
         <h1 className="h3 mb-1">System Settings</h1>
-        <p className="text-muted mb-0">Super admin controls business defaults. MIS controls technical locks and permission overrides.</p>
+        <p className="text-muted mb-0">
+          Super admin controls business defaults. MIS controls technical locks and
+          permission overrides.
+        </p>
       </div>
 
       {feedback.text ? <div className={`alert alert-${feedback.type}`}>{feedback.text}</div> : null}
@@ -192,7 +264,9 @@ export default function SystemSettingsPage() {
                     className="form-control"
                     value={settings.anchoring.intervalDays}
                     disabled={!access.canEditBusinessSettings}
-                    onChange={(event) => updateNested('anchoring', 'intervalDays', Number(event.target.value || 1))}
+                    onChange={(event) =>
+                      updateNested('anchoring', 'intervalDays', Number(event.target.value || 1))
+                    }
                   />
                 </div>
                 <div className="col-md-6 d-flex align-items-end">
@@ -202,9 +276,13 @@ export default function SystemSettingsPage() {
                       type="checkbox"
                       checked={settings.anchoring.autoAnchor}
                       disabled={!access.canEditBusinessSettings}
-                      onChange={(event) => updateNested('anchoring', 'autoAnchor', event.target.checked)}
+                      onChange={(event) =>
+                        updateNested('anchoring', 'autoAnchor', event.target.checked)
+                      }
                     />
-                    <label className="form-check-label">Auto-anchor when interval is reached</label>
+                    <label className="form-check-label">
+                      Auto-anchor when interval is reached
+                    </label>
                   </div>
                 </div>
               </div>
@@ -215,7 +293,9 @@ export default function SystemSettingsPage() {
                   type="checkbox"
                   checked={settings.qrDelivery.allowEmail}
                   disabled={!access.canEditBusinessSettings}
-                  onChange={(event) => updateNested('qrDelivery', 'allowEmail', event.target.checked)}
+                  onChange={(event) =>
+                    updateNested('qrDelivery', 'allowEmail', event.target.checked)
+                  }
                 />
                 <label className="form-check-label">Allow QR delivery by email</label>
               </div>
@@ -237,47 +317,81 @@ export default function SystemSettingsPage() {
               </div>
 
               <div className="row g-3">
+                <div className="col-12">
+                  <label className="form-label">Current used contract</label>
+                  <select
+                    className="form-select"
+                    value={settings.blockchain.selectedContractId || ''}
+                    disabled={!access.canEditBusinessSettings}
+                    onChange={handleContractSelect}
+                  >
+                    <option value="">Select from deployed contracts</option>
+                    {availableContracts.map((item) => (
+                      <option
+                        key={item._id || item.address}
+                        value={item.address || item._id}
+                      >
+                        {(item.contractName || 'AdminContract')} — {item.address || 'Pending'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="form-text">
+                    Choose one deployed contract from Contract Manager and save it as the active contract.
+                  </div>
+                </div>
+
                 <div className="col-md-6">
                   <label className="form-label">Selected contract ID</label>
                   <input
                     className="form-control"
                     value={settings.blockchain.selectedContractId || ''}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={(event) => updateNested('blockchain', 'selectedContractId', event.target.value)}
+                    disabled
+                    readOnly
                   />
                 </div>
+
                 <div className="col-md-6">
                   <label className="form-label">Selected contract name</label>
                   <input
                     className="form-control"
                     value={settings.blockchain.selectedContractName || ''}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={(event) => updateNested('blockchain', 'selectedContractName', event.target.value)}
+                    disabled
+                    readOnly
                   />
                 </div>
+
                 <div className="col-md-6">
                   <label className="form-label">Wallet address</label>
                   <input
                     className="form-control"
                     value={settings.blockchain.walletAddress || ''}
                     disabled={!access.canEditBusinessSettings}
-                    onChange={(event) => updateNested('blockchain', 'walletAddress', event.target.value)}
+                    onChange={(event) =>
+                      updateNested('blockchain', 'walletAddress', event.target.value)
+                    }
                   />
                 </div>
+
                 <div className="col-md-6">
                   <label className="form-label">Network label</label>
                   <input
                     className="form-control"
                     value={settings.blockchain.networkLabel || ''}
                     disabled={!access.canEditBusinessSettings}
-                    onChange={(event) => updateNested('blockchain', 'networkLabel', event.target.value)}
+                    onChange={(event) =>
+                      updateNested('blockchain', 'networkLabel', event.target.value)
+                    }
                   />
                 </div>
               </div>
 
               {access.canEditBusinessSettings ? (
                 <div className="mt-4 d-flex justify-content-end">
-                  <button className="btn btn-primary" onClick={handleSaveBusiness} disabled={savingBusiness}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSaveBusiness}
+                    disabled={savingBusiness}
+                  >
                     {savingBusiness ? 'Saving...' : 'Save Business Settings'}
                   </button>
                 </div>
@@ -290,7 +404,9 @@ export default function SystemSettingsPage() {
               <div className="d-flex justify-content-between align-items-start mb-3">
                 <div>
                   <h2 className="h5 mb-1">MIS Technical Locks</h2>
-                  <p className="text-muted mb-0">These switches let MIS temporarily block anchoring, QR email, or contract actions system-wide.</p>
+                  <p className="text-muted mb-0">
+                    These switches let MIS temporarily block anchoring, QR email, or contract actions system-wide.
+                  </p>
                 </div>
               </div>
 
@@ -302,7 +418,9 @@ export default function SystemSettingsPage() {
                       type="checkbox"
                       checked={settings.locks.anchorLocked}
                       disabled={!access.canEditSystemLocks}
-                      onChange={(event) => updateNested('locks', 'anchorLocked', event.target.checked)}
+                      onChange={(event) =>
+                        updateNested('locks', 'anchorLocked', event.target.checked)
+                      }
                     />
                     <span className="form-check-label ms-2">Lock Anchoring</span>
                   </label>
@@ -314,7 +432,9 @@ export default function SystemSettingsPage() {
                       type="checkbox"
                       checked={settings.locks.qrEmailLocked}
                       disabled={!access.canEditSystemLocks}
-                      onChange={(event) => updateNested('locks', 'qrEmailLocked', event.target.checked)}
+                      onChange={(event) =>
+                        updateNested('locks', 'qrEmailLocked', event.target.checked)
+                      }
                     />
                     <span className="form-check-label ms-2">Lock QR Email</span>
                   </label>
@@ -326,7 +446,9 @@ export default function SystemSettingsPage() {
                       type="checkbox"
                       checked={settings.locks.contractLocked}
                       disabled={!access.canEditSystemLocks}
-                      onChange={(event) => updateNested('locks', 'contractLocked', event.target.checked)}
+                      onChange={(event) =>
+                        updateNested('locks', 'contractLocked', event.target.checked)
+                      }
                     />
                     <span className="form-check-label ms-2">Lock Contracts</span>
                   </label>
@@ -335,7 +457,11 @@ export default function SystemSettingsPage() {
 
               {access.canEditSystemLocks ? (
                 <div className="mt-4 d-flex justify-content-end">
-                  <button className="btn btn-dark" onClick={handleSaveLocks} disabled={savingLocks}>
+                  <button
+                    className="btn btn-dark"
+                    onClick={handleSaveLocks}
+                    disabled={savingLocks}
+                  >
                     {savingLocks ? 'Saving...' : 'Save Technical Locks'}
                   </button>
                 </div>
@@ -352,16 +478,43 @@ export default function SystemSettingsPage() {
                 <div className="d-flex flex-column gap-3">
                   <div>
                     <small className="text-muted d-block">Current Contract</small>
-                    <div className="fw-semibold">{wallet?.selectedContractName || 'Not selected yet'}</div>
-                    <div className="text-muted small">{wallet?.selectedContractId || 'No contract id yet'}</div>
+                    <div className="fw-semibold">
+                      {wallet?.selectedContractName || 'Not selected yet'}
+                    </div>
+                    <div className="text-muted small">
+                      {wallet?.selectedContractId || 'No contract id yet'}
+                    </div>
+                  </div>
+                  <div>
+                    <small className="text-muted d-block">Available Contracts</small>
+                    {availableContracts.length === 0 ? (
+                      <div className="text-muted small">No deployed contracts yet.</div>
+                    ) : (
+                      <div className="d-flex flex-column gap-2 mt-2">
+                        {availableContracts.slice(0, 5).map((item) => (
+                          <div key={item._id || item.address} className="border rounded p-2">
+                            <div className="fw-semibold small">
+                              {item.contractName || 'AdminContract'}
+                            </div>
+                            <div className="text-muted small text-break">
+                              {item.address || 'Pending'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <small className="text-muted d-block">Wallet Address</small>
-                    <div className="fw-semibold text-break">{wallet?.walletAddress || 'No wallet configured'}</div>
+                    <div className="fw-semibold text-break">
+                      {wallet?.walletAddress || 'No wallet configured'}
+                    </div>
                   </div>
                   <div>
                     <small className="text-muted d-block">Wallet Balance</small>
-                    <div className="fw-semibold">{wallet?.walletBalance || '0.0000'} ETH</div>
+                    <div className="fw-semibold">
+                      {wallet?.walletBalance || '0.0000'} ETH
+                    </div>
                   </div>
                   <div>
                     <small className="text-muted d-block">Network</small>
@@ -369,7 +522,9 @@ export default function SystemSettingsPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-muted mb-0">You do not have access to blockchain visibility.</p>
+                <p className="text-muted mb-0">
+                  You do not have access to blockchain visibility.
+                </p>
               )}
             </div>
           </div>
@@ -377,10 +532,14 @@ export default function SystemSettingsPage() {
           <div className="card border-0 shadow-sm">
             <div className="card-body p-4">
               <h2 className="h5 mb-1">Permission Overrides</h2>
-              <p className="text-muted mb-3">MIS can override per-user permissions on top of the role defaults saved in code.</p>
+              <p className="text-muted mb-3">
+                MIS can override per-user permissions on top of the role defaults saved in code.
+              </p>
 
               {!access.canEditPermissions ? (
-                <div className="alert alert-light border">Only the MIS developer can edit permission overrides.</div>
+                <div className="alert alert-light border">
+                  Only the MIS developer can edit permission overrides.
+                </div>
               ) : null}
 
               <div className="d-flex flex-column gap-3">
@@ -391,7 +550,9 @@ export default function SystemSettingsPage() {
                         <div className="fw-semibold">{admin.fullName}</div>
                         <div className="text-muted small">{admin.email}</div>
                       </div>
-                      <span className="badge text-bg-secondary text-uppercase">{admin.role}</span>
+                      <span className="badge text-bg-secondary text-uppercase">
+                        {admin.role}
+                      </span>
                     </div>
 
                     <div className="row g-2">
@@ -413,7 +574,11 @@ export default function SystemSettingsPage() {
 
                     {access.canEditPermissions ? (
                       <div className="mt-3 d-flex justify-content-end">
-                        <button className="btn btn-outline-primary btn-sm" disabled={savingUserId === admin._id} onClick={() => handleSaveAdmin(admin)}>
+                        <button
+                          className="btn btn-outline-primary btn-sm"
+                          disabled={savingUserId === admin._id}
+                          onClick={() => handleSaveAdmin(admin)}
+                        >
                           {savingUserId === admin._id ? 'Saving...' : 'Save Permissions'}
                         </button>
                       </div>
@@ -427,4 +592,4 @@ export default function SystemSettingsPage() {
       </div>
     </div>
   );
-}
+} 
