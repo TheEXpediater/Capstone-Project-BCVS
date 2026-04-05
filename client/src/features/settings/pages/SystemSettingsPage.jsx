@@ -72,6 +72,37 @@ function badgeClass(status) {
   return 'text-bg-light';
 }
 
+function ToggleCard({
+  checked,
+  disabled,
+  onChange,
+  title,
+  description = '',
+}) {
+  return (
+    <div className="border rounded-3 p-3 h-100 bg-white">
+      <div className="d-flex align-items-start gap-3">
+        <div className="form-check form-switch m-0 pt-1 flex-shrink-0">
+          <input
+            className="form-check-input m-0"
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        </div>
+
+        <div className="flex-grow-1">
+          <div className="fw-semibold">{title}</div>
+          {description ? (
+            <div className="text-muted small mt-1">{description}</div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SystemSettingsPage() {
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
   const [admins, setAdmins] = useState([]);
@@ -420,24 +451,42 @@ export default function SystemSettingsPage() {
 
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <h2 className="h5 mb-3">Business Defaults</h2>
-
-          <div className="form-check form-switch mb-3">
-            <input
-              className="form-check-input"
-              type="checkbox"
-              checked={settings.anchoring.enabled}
-              disabled={!access.canEditBusinessSettings}
-              onChange={(event) =>
-                updateNested('anchoring', 'enabled', event.target.checked)
-              }
-            />
-            <label className="form-check-label">Enable VC anchoring</label>
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 className="h5 mb-1">Business Defaults</h2>
+              <p className="text-muted mb-0 small">
+                Registrar-facing issuance defaults and delivery controls.
+              </p>
+            </div>
           </div>
 
-          <div className="row g-3 mb-3">
+          <div className="row g-3">
             <div className="col-md-6">
-              <label className="form-label">Anchor interval (days)</label>
+              <ToggleCard
+                checked={settings.anchoring.enabled}
+                disabled={!access.canEditBusinessSettings}
+                onChange={(event) =>
+                  updateNested('anchoring', 'enabled', event.target.checked)
+                }
+                title="Enable VC Anchoring"
+                description="Allow issued credentials to be prepared for blockchain anchoring."
+              />
+            </div>
+
+            <div className="col-md-6">
+              <ToggleCard
+                checked={settings.anchoring.autoAnchor}
+                disabled={!access.canEditBusinessSettings}
+                onChange={(event) =>
+                  updateNested('anchoring', 'autoAnchor', event.target.checked)
+                }
+                title="Auto Anchor"
+                description="Automatically anchor once the configured interval is reached."
+              />
+            </div>
+
+            <div className="col-md-6">
+              <label className="form-label small fw-semibold">Anchor Interval (days)</label>
               <input
                 type="number"
                 min="1"
@@ -455,51 +504,38 @@ export default function SystemSettingsPage() {
               />
             </div>
 
-            <div className="col-md-6 d-flex align-items-end">
-              <div className="form-check form-switch">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={settings.anchoring.autoAnchor}
-                  disabled={!access.canEditBusinessSettings}
-                  onChange={(event) =>
-                    updateNested('anchoring', 'autoAnchor', event.target.checked)
-                  }
-                />
-                <label className="form-check-label">
-                  Auto-anchor when interval is reached
-                </label>
-              </div>
+            <div className="col-md-6">
+              <ToggleCard
+                checked={settings.qrDelivery.allowEmail}
+                disabled={!access.canEditBusinessSettings}
+                onChange={(event) =>
+                  updateNested('qrDelivery', 'allowEmail', event.target.checked)
+                }
+                title="Allow QR Delivery by Email"
+                description="Permit credential QR delivery through email workflows."
+              />
             </div>
           </div>
 
-          <div className="form-check form-switch mb-3">
-            <input
-              className="form-check-input"
-              type="checkbox"
-              checked={settings.qrDelivery.allowEmail}
-              disabled={!access.canEditBusinessSettings}
-              onChange={(event) =>
-                updateNested('qrDelivery', 'allowEmail', event.target.checked)
-              }
-            />
-            <label className="form-check-label">Allow QR delivery by email</label>
-          </div>
-
-          <div className="row g-2 mb-3">
-            {ROLE_OPTIONS.map((role) => (
-              <div className="col-md-6" key={role}>
-                <label className="border rounded p-3 w-100 d-flex align-items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={settings.qrDelivery.allowedRoles.includes(role)}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={() => toggleAllowedRole(role)}
-                  />
-                  <span className="text-capitalize">{role.replace('_', ' ')}</span>
-                </label>
-              </div>
-            ))}
+          <div className="mt-4">
+            <label className="form-label fw-semibold mb-2">Allowed Roles for QR Delivery</label>
+            <div className="row g-2">
+              {ROLE_OPTIONS.map((role) => (
+                <div className="col-md-6 col-xl-3" key={role}>
+                  <label className="border rounded-3 px-3 py-2 w-100 d-flex align-items-center gap-2 bg-white">
+                    <input
+                      type="checkbox"
+                      checked={settings.qrDelivery.allowedRoles.includes(role)}
+                      disabled={!access.canEditBusinessSettings}
+                      onChange={() => toggleAllowedRole(role)}
+                    />
+                    <span className="small text-capitalize">
+                      {role.replace('_', ' ')}
+                    </span>
+                  </label>
+                </div>
+              ))}
+            </div>
           </div>
 
           {access.canEditBusinessSettings ? (
@@ -513,7 +549,7 @@ export default function SystemSettingsPage() {
               </button>
             </div>
           ) : (
-            <div className="alert alert-light border mb-0">
+            <div className="alert alert-light border mt-4 mb-0">
               Business defaults are read only for your role.
             </div>
           )}
@@ -525,57 +561,47 @@ export default function SystemSettingsPage() {
           <div className="d-flex justify-content-between align-items-start mb-3">
             <div>
               <h2 className="h5 mb-1">MIS Technical Locks</h2>
-              <p className="text-muted mb-0">
-                MIS can temporarily block anchoring, QR email, or contract actions
-                platform-wide.
+              <p className="text-muted mb-0 small">
+                Emergency controls for platform-wide operational restrictions.
               </p>
             </div>
           </div>
 
           <div className="row g-3">
             <div className="col-md-4">
-              <label className="form-check form-switch border rounded p-3 w-100">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={settings.locks.anchorLocked}
-                  disabled={!access.canEditSystemLocks}
-                  onChange={(event) =>
-                    updateNested('locks', 'anchorLocked', event.target.checked)
-                  }
-                />
-                <span className="form-check-label ms-2">Lock Anchoring</span>
-              </label>
+              <ToggleCard
+                checked={settings.locks.anchorLocked}
+                disabled={!access.canEditSystemLocks}
+                onChange={(event) =>
+                  updateNested('locks', 'anchorLocked', event.target.checked)
+                }
+                title="Lock Anchoring"
+                description="Prevent anchoring actions system-wide."
+              />
             </div>
 
             <div className="col-md-4">
-              <label className="form-check form-switch border rounded p-3 w-100">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={settings.locks.qrEmailLocked}
-                  disabled={!access.canEditSystemLocks}
-                  onChange={(event) =>
-                    updateNested('locks', 'qrEmailLocked', event.target.checked)
-                  }
-                />
-                <span className="form-check-label ms-2">Lock QR Email</span>
-              </label>
+              <ToggleCard
+                checked={settings.locks.qrEmailLocked}
+                disabled={!access.canEditSystemLocks}
+                onChange={(event) =>
+                  updateNested('locks', 'qrEmailLocked', event.target.checked)
+                }
+                title="Lock QR Email"
+                description="Disable QR delivery by email across the system."
+              />
             </div>
 
             <div className="col-md-4">
-              <label className="form-check form-switch border rounded p-3 w-100">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={settings.locks.contractLocked}
-                  disabled={!access.canEditSystemLocks}
-                  onChange={(event) =>
-                    updateNested('locks', 'contractLocked', event.target.checked)
-                  }
-                />
-                <span className="form-check-label ms-2">Lock Contracts</span>
-              </label>
+              <ToggleCard
+                checked={settings.locks.contractLocked}
+                disabled={!access.canEditSystemLocks}
+                onChange={(event) =>
+                  updateNested('locks', 'contractLocked', event.target.checked)
+                }
+                title="Lock Contracts"
+                description="Block contract-related actions until MIS re-enables them."
+              />
             </div>
           </div>
 
@@ -595,7 +621,14 @@ export default function SystemSettingsPage() {
 
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <h2 className="h5 mb-3">Blockchain Runtime</h2>
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 className="h5 mb-1">Blockchain Runtime</h2>
+              <p className="text-muted mb-0 small">
+                Read-only chain account state plus active contract switching.
+              </p>
+            </div>
+          </div>
 
           {!wallet.ok ? (
             <div className="alert alert-warning">
@@ -604,59 +637,53 @@ export default function SystemSettingsPage() {
             </div>
           ) : null}
 
-          <div className="d-flex flex-column gap-3">
-            <div>
-              <small className="text-muted d-block">Wallet Source</small>
-              <div className="fw-semibold">Read only from server env / provider</div>
-              <div className="small text-muted">
-                This should not be editable in System Settings.
+          <div className="row g-3 mb-4">
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100">
+                <div className="small text-muted mb-1">Wallet Address</div>
+                <div className="fw-semibold small text-break">
+                  {wallet.walletAddress || 'Not configured'}
+                </div>
               </div>
             </div>
 
-            <div>
-              <small className="text-muted d-block">Wallet Address</small>
-              <div className="fw-semibold text-break">
-                {wallet.walletAddress || 'Not configured'}
-              </div>
-            </div>
-
-            <div className="row g-3">
-              <div className="col-md-3">
-                <small className="text-muted d-block">Network</small>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100">
+                <div className="small text-muted mb-1">Network</div>
                 <div className="fw-semibold">{wallet.networkLabel || 'Unavailable'}</div>
               </div>
+            </div>
 
-              <div className="col-md-3">
-                <small className="text-muted d-block">Chain ID</small>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100">
+                <div className="small text-muted mb-1">Chain ID</div>
                 <div className="fw-semibold">{wallet.chainId ?? '—'}</div>
               </div>
+            </div>
 
-              <div className="col-md-3">
-                <small className="text-muted d-block">Balance</small>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100">
+                <div className="small text-muted mb-1">Balance</div>
                 <div className="fw-semibold">
                   {wallet.walletBalance || '0.0000'} {wallet.gasToken || 'POL'}
-                </div>
-              </div>
-
-              <div className="col-md-3">
-                <small className="text-muted d-block">Current Active Contract</small>
-                <div className="fw-semibold">
-                  {settings.blockchain.selectedContractName || 'Not selected yet'}
-                </div>
-                <div className="small text-muted text-break">
-                  {settings.blockchain.selectedContractId || 'No active contract id'}
                 </div>
               </div>
             </div>
           </div>
 
-          <hr className="my-4" />
-
-          <h3 className="h6 mb-3">Active Contract Selector</h3>
+          <div className="border rounded-3 p-3 bg-light mb-4">
+            <div className="small text-muted mb-1">Current Active Contract</div>
+            <div className="fw-semibold">
+              {settings.blockchain.selectedContractName || 'Not selected yet'}
+            </div>
+            <div className="small text-muted text-break">
+              {settings.blockchain.selectedContractId || 'No active contract id'}
+            </div>
+          </div>
 
           <div className="row g-3 align-items-end">
             <div className="col-md-9">
-              <label className="form-label">Choose active deployed contract</label>
+              <label className="form-label fw-semibold">Choose Active Deployed Contract</label>
               <select
                 className="form-select"
                 value={selectedContractId}
@@ -692,7 +719,7 @@ export default function SystemSettingsPage() {
           </div>
 
           {selectedContractOption ? (
-            <div className="border rounded p-3 mt-3 bg-light">
+            <div className="border rounded-3 p-3 mt-3 bg-light">
               <div className="fw-semibold mb-1">
                 {selectedContractOption.contractName || 'AdminContract'}
               </div>
@@ -726,7 +753,14 @@ export default function SystemSettingsPage() {
 
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <h2 className="h5 mb-3">Deployed Contract List</h2>
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 className="h5 mb-1">Deployed Contract List</h2>
+              <p className="text-muted mb-0 small">
+                Saved deployments from the contract backend.
+              </p>
+            </div>
+          </div>
 
           {availableContracts.length === 0 ? (
             <div className="alert alert-light border mb-0">
@@ -740,9 +774,9 @@ export default function SystemSettingsPage() {
                   item._id === settings.blockchain.selectedContractId;
 
                 return (
-                  <div className="col-md-6" key={item._id || item.address}>
+                  <div className="col-md-6 col-xl-4" key={item._id || item.address}>
                     <div
-                      className={`border rounded p-3 h-100 ${
+                      className={`border rounded-3 p-3 h-100 ${
                         isCurrent ? 'border-primary bg-light' : ''
                       }`}
                     >
@@ -793,15 +827,14 @@ export default function SystemSettingsPage() {
             <div className="d-flex justify-content-between align-items-start mb-3">
               <div>
                 <h2 className="h5 mb-1">Issuer Key Vault</h2>
-                <p className="text-muted mb-0">
-                  Private keys are encrypted at rest from the server master secret.
-                  Old keys remain for rotation history.
+                <p className="text-muted mb-0 small">
+                  Encrypted issuer signing keys with activation and rotation history.
                 </p>
               </div>
               <span className="badge text-bg-secondary">{issuerKeys.length}</span>
             </div>
 
-            <div className="border rounded p-3 mb-4 bg-light">
+            <div className="border rounded-3 p-3 mb-4 bg-light">
               <div className="small text-muted mb-1">Current Active Key</div>
               {activeIssuerKey ? (
                 <>
@@ -817,13 +850,13 @@ export default function SystemSettingsPage() {
             </div>
 
             {access.canManageIssuerKeys ? (
-              <div className="row g-4 mb-4">
-                <div className="col-md-6">
-                  <div className="border rounded p-3 h-100">
+              <div className="row g-3 mb-4">
+                <div className="col-lg-6">
+                  <div className="border rounded-3 p-3 h-100">
                     <h3 className="h6 mb-3">Create Key</h3>
 
                     <div className="mb-3">
-                      <label className="form-label">Key Name</label>
+                      <label className="form-label small fw-semibold">Key Name</label>
                       <input
                         className="form-control"
                         value={newKeyForm.name}
@@ -838,7 +871,7 @@ export default function SystemSettingsPage() {
                     </div>
 
                     <div className="mb-3">
-                      <label className="form-label">Reason</label>
+                      <label className="form-label small fw-semibold">Reason</label>
                       <input
                         className="form-control"
                         value={newKeyForm.rotationReason}
@@ -852,9 +885,8 @@ export default function SystemSettingsPage() {
                       />
                     </div>
 
-                    <div className="form-check mb-3">
+                    <label className="border rounded-3 px-3 py-2 w-100 d-flex align-items-center gap-2 bg-white mb-3">
                       <input
-                        className="form-check-input"
                         type="checkbox"
                         checked={newKeyForm.activate}
                         onChange={(event) =>
@@ -864,10 +896,8 @@ export default function SystemSettingsPage() {
                           }))
                         }
                       />
-                      <label className="form-check-label">
-                        Make this key active immediately
-                      </label>
-                    </div>
+                      <span className="small">Make this key active immediately</span>
+                    </label>
 
                     <button
                       className="btn btn-primary w-100"
@@ -879,12 +909,12 @@ export default function SystemSettingsPage() {
                   </div>
                 </div>
 
-                <div className="col-md-6">
-                  <div className="border rounded p-3 h-100">
+                <div className="col-lg-6">
+                  <div className="border rounded-3 p-3 h-100">
                     <h3 className="h6 mb-3">Rotate Active Key</h3>
 
                     <div className="mb-3">
-                      <label className="form-label">New Key Name</label>
+                      <label className="form-label small fw-semibold">New Key Name</label>
                       <input
                         className="form-control"
                         value={rotateForm.name}
@@ -899,7 +929,7 @@ export default function SystemSettingsPage() {
                     </div>
 
                     <div className="mb-3">
-                      <label className="form-label">Rotation Reason</label>
+                      <label className="form-label small fw-semibold">Rotation Reason</label>
                       <input
                         className="form-control"
                         value={rotateForm.rotationReason}
@@ -913,7 +943,7 @@ export default function SystemSettingsPage() {
                       />
                     </div>
 
-                    <div className="alert alert-light border">
+                    <div className="alert alert-light border small">
                       Rotation creates a new encrypted key pair and makes it the active signing key.
                     </div>
 
@@ -953,7 +983,7 @@ export default function SystemSettingsPage() {
                         </div>
                       </div>
 
-                      <div className="col-lg-3">
+                      <div className="col-lg-2">
                         <label className="form-label small text-muted">Status</label>
                         <div>
                           <span className={`badge ${badgeClass(key.status)}`}>
@@ -961,6 +991,13 @@ export default function SystemSettingsPage() {
                           </span>
                         </div>
                         <div className="small text-muted mt-2">
+                          {key.algorithm} / {key.curve}
+                        </div>
+                      </div>
+
+                      <div className="col-lg-3">
+                        <label className="form-label small text-muted">Timeline</label>
+                        <div className="small text-muted">
                           Created: {formatDate(key.createdAt)}
                         </div>
                         <div className="small text-muted">
@@ -969,13 +1006,8 @@ export default function SystemSettingsPage() {
                       </div>
 
                       <div className="col-lg-3">
-                        <label className="form-label small text-muted">Fingerprint</label>
-                        <div className="small text-break">{key.fingerprint}</div>
-                      </div>
-
-                      <div className="col-lg-2">
                         <label className="form-label small text-muted">Actions</label>
-                        <div className="d-grid gap-2">
+                        <div className="d-flex flex-wrap gap-2">
                           <button
                             className="btn btn-outline-success btn-sm"
                             disabled={
@@ -986,7 +1018,7 @@ export default function SystemSettingsPage() {
                             }
                             onClick={() => handleActivateKey(key._id)}
                           >
-                            {savingKeyId === key._id ? 'Working...' : 'Activate'}
+                            Activate
                           </button>
 
                           <button
@@ -994,7 +1026,7 @@ export default function SystemSettingsPage() {
                             disabled={!access.canManageIssuerKeys || savingKeyId === key._id}
                             onClick={() => handleSaveKey(key)}
                           >
-                            {savingKeyId === key._id ? 'Saving...' : 'Save'}
+                            Save
                           </button>
 
                           <button
@@ -1007,16 +1039,19 @@ export default function SystemSettingsPage() {
                             }
                             onClick={() => handleRetireKey(key._id)}
                           >
-                            {savingKeyId === key._id ? 'Retiring...' : 'Retire'}
+                            Retire
                           </button>
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-3">
+                      <div className="small text-muted mb-1">Fingerprint</div>
+                      <div className="small text-break mb-3">{key.fingerprint}</div>
+
                       <label className="form-label small text-muted">Public Key</label>
                       <textarea
-                        className="form-control font-monospace"
+                        className="form-control font-monospace small"
                         rows="4"
                         value={key.publicKeyPem}
                         readOnly
@@ -1032,10 +1067,14 @@ export default function SystemSettingsPage() {
 
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <h2 className="h5 mb-1">Permission Overrides</h2>
-          <p className="text-muted mb-3">
-            MIS can override per-user permissions on top of role defaults.
-          </p>
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 className="h5 mb-1">Permission Overrides</h2>
+              <p className="text-muted mb-0 small">
+                MIS can override permission flags on top of role defaults.
+              </p>
+            </div>
+          </div>
 
           {!access.canEditPermissions ? (
             <div className="alert alert-light border">
@@ -1060,16 +1099,18 @@ export default function SystemSettingsPage() {
                   <div className="row g-2">
                     {Object.entries(admin.permissions).map(([key, value]) => (
                       <div className="col-md-6" key={key}>
-                        <label className="form-check form-switch border rounded p-2 w-100 h-100">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            checked={Boolean(value)}
-                            disabled={!access.canEditPermissions}
-                            onChange={() => togglePermission(admin._id, key)}
-                          />
-                          <span className="form-check-label small ms-2">{key}</span>
-                        </label>
+                        <div className="border rounded-3 px-3 py-2 h-100 bg-white">
+                          <div className="d-flex align-items-start gap-2">
+                            <input
+                              className="mt-1 flex-shrink-0"
+                              type="checkbox"
+                              checked={Boolean(value)}
+                              disabled={!access.canEditPermissions}
+                              onChange={() => togglePermission(admin._id, key)}
+                            />
+                            <span className="small">{key}</span>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
