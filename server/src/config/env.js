@@ -14,6 +14,7 @@ const required = [
   'MONGO_URI_CREDENTIALS',
   'MONGO_URI_PLATFORM',
   'JWT_SECRET',
+  'KEY_ENCRYPTION_SECRET',
 ];
 
 for (const key of required) {
@@ -39,4 +40,14 @@ export const env = {
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
   },
   bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 10),
+  keyEncryptionSecret: process.env.KEY_ENCRYPTION_SECRET,
+  issuerKeys: {
+    algorithm: process.env.ISSUER_KEY_ALGORITHM || 'ES256',
+    curve: process.env.ISSUER_KEY_CURVE || 'P-256',
+  },
+  blockchain: {
+    rpcUrl: process.env.RPC_URL || '',
+    contractOperatorPrivateKey: process.env.CONTRACT_OPERATOR_PRIVATE_KEY || '',
+    chainId: Number(process.env.ANCHOR_CHAIN_ID || 80002),
+  },
 };

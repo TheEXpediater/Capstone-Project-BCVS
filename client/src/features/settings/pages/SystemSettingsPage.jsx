@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  activateIssuerKey,
+  createIssuerKey,
+  deleteIssuerKey,
   getSettingsDashboard,
+  rotateIssuerKey,
+  updateActiveContract,
   updateAdminPermissions,
   updateBusinessSettings,
+  updateIssuerKey,
   updateSystemLocks,
 } from '../settingsAPI';
-import { getContractsDashboard } from '../../contracts/contractsAPI';
 
 const ROLE_OPTIONS = ['admin', 'super_admin', 'developer', 'cashier'];
 
@@ -23,7 +28,7 @@ const EMPTY_SETTINGS = {
     selectedContractId: '',
     selectedContractName: '',
     walletAddress: '',
-    networkLabel: 'Local Chain',
+    networkLabel: 'Unavailable',
     walletBalance: '0.0000',
   },
   locks: {
@@ -33,50 +38,101 @@ const EMPTY_SETTINGS = {
   },
 };
 
+const EMPTY_WALLET = {
+  ok: false,
+  walletAddress: '',
+  networkLabel: 'Unavailable',
+  walletBalance: '0.0000',
+  gasToken: 'POL',
+  chainId: null,
+  selectedContractId: '',
+  selectedContractName: '',
+  error: '',
+};
+
+const EMPTY_ACCESS = {
+  canEditBusinessSettings: false,
+  canEditSystemLocks: false,
+  canEditPermissions: false,
+  canViewBlockchain: false,
+  canViewIssuerKeys: false,
+  canManageIssuerKeys: false,
+  canManageActiveContract: false,
+};
+
+function formatDate(value) {
+  if (!value) return '—';
+  return new Date(value).toLocaleString();
+}
+
+function badgeClass(status) {
+  if (status === 'active') return 'text-bg-success';
+  if (status === 'inactive') return 'text-bg-secondary';
+  if (status === 'retired') return 'text-bg-dark';
+  return 'text-bg-light';
+}
+
 export default function SystemSettingsPage() {
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
   const [admins, setAdmins] = useState([]);
-  const [wallet, setWallet] = useState(null);
+  const [wallet, setWallet] = useState(EMPTY_WALLET);
   const [availableContracts, setAvailableContracts] = useState([]);
-  const [access, setAccess] = useState({
-    canEditBusinessSettings: false,
-    canEditSystemLocks: false,
-    canEditPermissions: false,
-    canViewBlockchain: false,
-  });
+  const [issuerKeys, setIssuerKeys] = useState([]);
+  const [activeIssuerKey, setActiveIssuerKey] = useState(null);
+  const [access, setAccess] = useState(EMPTY_ACCESS);
+
   const [loading, setLoading] = useState(true);
   const [savingBusiness, setSavingBusiness] = useState(false);
   const [savingLocks, setSavingLocks] = useState(false);
   const [savingUserId, setSavingUserId] = useState('');
+  const [savingContract, setSavingContract] = useState(false);
+  const [savingKeyId, setSavingKeyId] = useState('');
+  const [creatingKey, setCreatingKey] = useState(false);
+  const [rotatingKey, setRotatingKey] = useState(false);
+
+  const [selectedContractId, setSelectedContractId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
+
+  const [newKeyForm, setNewKeyForm] = useState({
+    name: '',
+    activate: true,
+    rotationReason: '',
+  });
+
+  const [rotateForm, setRotateForm] = useState({
+    name: '',
+    rotationReason: '',
+  });
 
   const selectedContractOption = useMemo(() => {
     return availableContracts.find(
       (item) =>
-        item._id === settings.blockchain.selectedContractId ||
-        item.address === settings.blockchain.selectedContractId
+        item._id === selectedContractId ||
+        item.address === selectedContractId
     );
-  }, [availableContracts, settings.blockchain.selectedContractId]);
+  }, [availableContracts, selectedContractId]);
 
   async function loadDashboard() {
     try {
       setLoading(true);
+      const data = await getSettingsDashboard();
 
-      const [settingsData, contractsData] = await Promise.all([
-        getSettingsDashboard(),
-        getContractsDashboard(),
-      ]);
-
-      setSettings(settingsData.settings || EMPTY_SETTINGS);
-      setAdmins(settingsData.admins || []);
-      setWallet(settingsData.wallet || null);
-      setAccess(settingsData.access || {});
-      setAvailableContracts(contractsData.contracts || []);
+      setSettings(data.settings || EMPTY_SETTINGS);
+      setAdmins(data.admins || []);
+      setWallet(data.wallet || EMPTY_WALLET);
+      setAvailableContracts(data.availableContracts || []);
+      setIssuerKeys(data.issuerKeys || []);
+      setActiveIssuerKey(data.activeIssuerKey || null);
+      setAccess(data.access || EMPTY_ACCESS);
+      setSelectedContractId(data.settings?.blockchain?.selectedContractId || '');
       setFeedback({ type: '', text: '' });
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text: error.message || 'Failed to load settings dashboard.',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to load settings dashboard.',
       });
     } finally {
       setLoading(false);
@@ -100,6 +156,7 @@ export default function SystemSettingsPage() {
   function toggleAllowedRole(role) {
     setSettings((prev) => {
       const exists = prev.qrDelivery.allowedRoles.includes(role);
+
       return {
         ...prev,
         qrDelivery: {
@@ -110,74 +167,6 @@ export default function SystemSettingsPage() {
         },
       };
     });
-  }
-
-  function handleContractSelect(event) {
-    const value = event.target.value;
-
-    if (!value) {
-      setSettings((prev) => ({
-        ...prev,
-        blockchain: {
-          ...prev.blockchain,
-          selectedContractId: '',
-          selectedContractName: '',
-        },
-      }));
-      return;
-    }
-
-    const chosen = availableContracts.find(
-      (item) => item._id === value || item.address === value
-    );
-
-    if (!chosen) return;
-
-    setSettings((prev) => ({
-      ...prev,
-      blockchain: {
-        ...prev.blockchain,
-        selectedContractId: chosen.address || chosen._id || '',
-        selectedContractName: chosen.contractName || 'AdminContract',
-        networkLabel: chosen.network || prev.blockchain.networkLabel,
-      },
-    }));
-  }
-
-  async function handleSaveBusiness() {
-    try {
-      setSavingBusiness(true);
-      const updated = await updateBusinessSettings({
-        anchoring: settings.anchoring,
-        qrDelivery: settings.qrDelivery,
-        blockchain: settings.blockchain,
-      });
-      setSettings((prev) => ({ ...prev, ...updated }));
-      setFeedback({ type: 'success', text: 'Business settings saved.' });
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text: error.message || 'Failed to save business settings.',
-      });
-    } finally {
-      setSavingBusiness(false);
-    }
-  }
-
-  async function handleSaveLocks() {
-    try {
-      setSavingLocks(true);
-      const updated = await updateSystemLocks({ locks: settings.locks });
-      setSettings((prev) => ({ ...prev, locks: updated.locks }));
-      setFeedback({ type: 'success', text: 'System locks saved.' });
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text: error.message || 'Failed to save system locks.',
-      });
-    } finally {
-      setSavingLocks(false);
-    }
   }
 
   function togglePermission(userId, key) {
@@ -196,6 +185,61 @@ export default function SystemSettingsPage() {
     );
   }
 
+  function updateLocalKey(keyId, field, value) {
+    setIssuerKeys((prev) =>
+      prev.map((item) =>
+        item._id === keyId
+          ? {
+              ...item,
+              [field]: value,
+            }
+          : item
+      )
+    );
+  }
+
+  async function handleSaveBusiness() {
+    try {
+      setSavingBusiness(true);
+      const updated = await updateBusinessSettings({
+        anchoring: settings.anchoring,
+        qrDelivery: settings.qrDelivery,
+      });
+
+      setSettings((prev) => ({ ...prev, ...updated }));
+      setFeedback({ type: 'success', text: 'Business settings saved.' });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to save business settings.',
+      });
+    } finally {
+      setSavingBusiness(false);
+    }
+  }
+
+  async function handleSaveLocks() {
+    try {
+      setSavingLocks(true);
+      const updated = await updateSystemLocks({ locks: settings.locks });
+      setSettings((prev) => ({ ...prev, locks: updated.locks }));
+      setFeedback({ type: 'success', text: 'System locks saved.' });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to save system locks.',
+      });
+    } finally {
+      setSavingLocks(false);
+    }
+  }
+
   async function handleSaveAdmin(admin) {
     try {
       setSavingUserId(admin._id);
@@ -210,10 +254,145 @@ export default function SystemSettingsPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text: error.message || 'Failed to save admin permissions.',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to save admin permissions.',
       });
     } finally {
       setSavingUserId('');
+    }
+  }
+
+  async function handleCreateKey() {
+    try {
+      setCreatingKey(true);
+      await createIssuerKey(newKeyForm);
+      setNewKeyForm({
+        name: '',
+        activate: true,
+        rotationReason: '',
+      });
+      setFeedback({ type: 'success', text: 'Issuer key created.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to create issuer key.',
+      });
+    } finally {
+      setCreatingKey(false);
+    }
+  }
+
+  async function handleRotateKey() {
+    try {
+      setRotatingKey(true);
+      await rotateIssuerKey(rotateForm);
+      setRotateForm({
+        name: '',
+        rotationReason: '',
+      });
+      setFeedback({ type: 'success', text: 'Issuer key rotated and activated.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to rotate issuer key.',
+      });
+    } finally {
+      setRotatingKey(false);
+    }
+  }
+
+  async function handleActivateKey(keyId) {
+    try {
+      setSavingKeyId(keyId);
+      await activateIssuerKey(keyId);
+      setFeedback({ type: 'success', text: 'Issuer key activated.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to activate issuer key.',
+      });
+    } finally {
+      setSavingKeyId('');
+    }
+  }
+
+  async function handleSaveKey(key) {
+    try {
+      setSavingKeyId(key._id);
+      await updateIssuerKey(key._id, {
+        name: key.name,
+        rotationReason: key.rotationReason || '',
+      });
+      setFeedback({ type: 'success', text: 'Issuer key updated.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to update issuer key.',
+      });
+    } finally {
+      setSavingKeyId('');
+    }
+  }
+
+  async function handleRetireKey(keyId) {
+    const approved = window.confirm(
+      'Retire this issuer key? Retired keys cannot be used as the active signing key.'
+    );
+
+    if (!approved) return;
+
+    try {
+      setSavingKeyId(keyId);
+      await deleteIssuerKey(keyId);
+      setFeedback({ type: 'success', text: 'Issuer key retired.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to retire issuer key.',
+      });
+    } finally {
+      setSavingKeyId('');
+    }
+  }
+
+  async function handleSaveActiveContract() {
+    try {
+      setSavingContract(true);
+      await updateActiveContract({ contractId: selectedContractId });
+      setFeedback({ type: 'success', text: 'Active contract updated.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to update active contract.',
+      });
+    } finally {
+      setSavingContract(false);
     }
   }
 
@@ -230,366 +409,688 @@ export default function SystemSettingsPage() {
       <div>
         <h1 className="h3 mb-1">System Settings</h1>
         <p className="text-muted mb-0">
-          Super admin controls business defaults. MIS controls technical locks and
-          permission overrides.
+          Super admin manages business defaults. MIS manages key rotation, active
+          contract switching, technical locks, and permission overrides.
         </p>
       </div>
 
-      {feedback.text ? <div className={`alert alert-${feedback.type}`}>{feedback.text}</div> : null}
+      {feedback.text ? (
+        <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
+      ) : null}
 
-      <div className="row g-4">
-        <div className="col-xl-7">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Business Defaults</h2>
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <h2 className="h5 mb-3">Business Defaults</h2>
 
-              <div className="form-check form-switch mb-3">
+          <div className="form-check form-switch mb-3">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={settings.anchoring.enabled}
+              disabled={!access.canEditBusinessSettings}
+              onChange={(event) =>
+                updateNested('anchoring', 'enabled', event.target.checked)
+              }
+            />
+            <label className="form-check-label">Enable VC anchoring</label>
+          </div>
+
+          <div className="row g-3 mb-3">
+            <div className="col-md-6">
+              <label className="form-label">Anchor interval (days)</label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                className="form-control"
+                value={settings.anchoring.intervalDays}
+                disabled={!access.canEditBusinessSettings}
+                onChange={(event) =>
+                  updateNested(
+                    'anchoring',
+                    'intervalDays',
+                    Number(event.target.value || 1)
+                  )
+                }
+              />
+            </div>
+
+            <div className="col-md-6 d-flex align-items-end">
+              <div className="form-check form-switch">
                 <input
                   className="form-check-input"
                   type="checkbox"
-                  checked={settings.anchoring.enabled}
-                  disabled={!access.canEditBusinessSettings}
-                  onChange={(event) => updateNested('anchoring', 'enabled', event.target.checked)}
-                />
-                <label className="form-check-label">Enable VC anchoring</label>
-              </div>
-
-              <div className="row g-3 mb-3">
-                <div className="col-md-6">
-                  <label className="form-label">Anchor every how many days?</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="365"
-                    className="form-control"
-                    value={settings.anchoring.intervalDays}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={(event) =>
-                      updateNested('anchoring', 'intervalDays', Number(event.target.value || 1))
-                    }
-                  />
-                </div>
-                <div className="col-md-6 d-flex align-items-end">
-                  <div className="form-check form-switch">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={settings.anchoring.autoAnchor}
-                      disabled={!access.canEditBusinessSettings}
-                      onChange={(event) =>
-                        updateNested('anchoring', 'autoAnchor', event.target.checked)
-                      }
-                    />
-                    <label className="form-check-label">
-                      Auto-anchor when interval is reached
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="form-check form-switch mb-3">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={settings.qrDelivery.allowEmail}
+                  checked={settings.anchoring.autoAnchor}
                   disabled={!access.canEditBusinessSettings}
                   onChange={(event) =>
-                    updateNested('qrDelivery', 'allowEmail', event.target.checked)
+                    updateNested('anchoring', 'autoAnchor', event.target.checked)
                   }
                 />
-                <label className="form-check-label">Allow QR delivery by email</label>
+                <label className="form-check-label">
+                  Auto-anchor when interval is reached
+                </label>
               </div>
-
-              <div className="row g-2 mb-3">
-                {ROLE_OPTIONS.map((role) => (
-                  <div className="col-md-6" key={role}>
-                    <label className="border rounded p-3 w-100 d-flex align-items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={settings.qrDelivery.allowedRoles.includes(role)}
-                        disabled={!access.canEditBusinessSettings}
-                        onChange={() => toggleAllowedRole(role)}
-                      />
-                      <span className="text-capitalize">{role.replace('_', ' ')}</span>
-                    </label>
-                  </div>
-                ))}
-              </div>
-
-              <div className="row g-3">
-                <div className="col-12">
-                  <label className="form-label">Current used contract</label>
-                  <select
-                    className="form-select"
-                    value={settings.blockchain.selectedContractId || ''}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={handleContractSelect}
-                  >
-                    <option value="">Select from deployed contracts</option>
-                    {availableContracts.map((item) => (
-                      <option
-                        key={item._id || item.address}
-                        value={item.address || item._id}
-                      >
-                        {(item.contractName || 'AdminContract')} — {item.address || 'Pending'}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="form-text">
-                    Choose one deployed contract from Contract Manager and save it as the active contract.
-                  </div>
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Selected contract ID</label>
-                  <input
-                    className="form-control"
-                    value={settings.blockchain.selectedContractId || ''}
-                    disabled
-                    readOnly
-                  />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Selected contract name</label>
-                  <input
-                    className="form-control"
-                    value={settings.blockchain.selectedContractName || ''}
-                    disabled
-                    readOnly
-                  />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Wallet address</label>
-                  <input
-                    className="form-control"
-                    value={settings.blockchain.walletAddress || ''}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={(event) =>
-                      updateNested('blockchain', 'walletAddress', event.target.value)
-                    }
-                  />
-                </div>
-
-                <div className="col-md-6">
-                  <label className="form-label">Network label</label>
-                  <input
-                    className="form-control"
-                    value={settings.blockchain.networkLabel || ''}
-                    disabled={!access.canEditBusinessSettings}
-                    onChange={(event) =>
-                      updateNested('blockchain', 'networkLabel', event.target.value)
-                    }
-                  />
-                </div>
-              </div>
-
-              {access.canEditBusinessSettings ? (
-                <div className="mt-4 d-flex justify-content-end">
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSaveBusiness}
-                    disabled={savingBusiness}
-                  >
-                    {savingBusiness ? 'Saving...' : 'Save Business Settings'}
-                  </button>
-                </div>
-              ) : null}
             </div>
           </div>
 
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4">
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <h2 className="h5 mb-1">MIS Technical Locks</h2>
-                  <p className="text-muted mb-0">
-                    These switches let MIS temporarily block anchoring, QR email, or contract actions system-wide.
-                  </p>
-                </div>
-              </div>
-
-              <div className="row g-3">
-                <div className="col-md-4">
-                  <label className="form-check form-switch border rounded p-3 w-100">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={settings.locks.anchorLocked}
-                      disabled={!access.canEditSystemLocks}
-                      onChange={(event) =>
-                        updateNested('locks', 'anchorLocked', event.target.checked)
-                      }
-                    />
-                    <span className="form-check-label ms-2">Lock Anchoring</span>
-                  </label>
-                </div>
-                <div className="col-md-4">
-                  <label className="form-check form-switch border rounded p-3 w-100">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={settings.locks.qrEmailLocked}
-                      disabled={!access.canEditSystemLocks}
-                      onChange={(event) =>
-                        updateNested('locks', 'qrEmailLocked', event.target.checked)
-                      }
-                    />
-                    <span className="form-check-label ms-2">Lock QR Email</span>
-                  </label>
-                </div>
-                <div className="col-md-4">
-                  <label className="form-check form-switch border rounded p-3 w-100">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={settings.locks.contractLocked}
-                      disabled={!access.canEditSystemLocks}
-                      onChange={(event) =>
-                        updateNested('locks', 'contractLocked', event.target.checked)
-                      }
-                    />
-                    <span className="form-check-label ms-2">Lock Contracts</span>
-                  </label>
-                </div>
-              </div>
-
-              {access.canEditSystemLocks ? (
-                <div className="mt-4 d-flex justify-content-end">
-                  <button
-                    className="btn btn-dark"
-                    onClick={handleSaveLocks}
-                    disabled={savingLocks}
-                  >
-                    {savingLocks ? 'Saving...' : 'Save Technical Locks'}
-                  </button>
-                </div>
-              ) : null}
-            </div>
+          <div className="form-check form-switch mb-3">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={settings.qrDelivery.allowEmail}
+              disabled={!access.canEditBusinessSettings}
+              onChange={(event) =>
+                updateNested('qrDelivery', 'allowEmail', event.target.checked)
+              }
+            />
+            <label className="form-check-label">Allow QR delivery by email</label>
           </div>
+
+          <div className="row g-2 mb-3">
+            {ROLE_OPTIONS.map((role) => (
+              <div className="col-md-6" key={role}>
+                <label className="border rounded p-3 w-100 d-flex align-items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.qrDelivery.allowedRoles.includes(role)}
+                    disabled={!access.canEditBusinessSettings}
+                    onChange={() => toggleAllowedRole(role)}
+                  />
+                  <span className="text-capitalize">{role.replace('_', ' ')}</span>
+                </label>
+              </div>
+            ))}
+          </div>
+
+          {access.canEditBusinessSettings ? (
+            <div className="mt-4 d-flex justify-content-end">
+              <button
+                className="btn btn-primary"
+                onClick={handleSaveBusiness}
+                disabled={savingBusiness}
+              >
+                {savingBusiness ? 'Saving...' : 'Save Business Settings'}
+              </button>
+            </div>
+          ) : (
+            <div className="alert alert-light border mb-0">
+              Business defaults are read only for your role.
+            </div>
+          )}
         </div>
+      </div>
 
-        <div className="col-xl-5">
-          <div className="card border-0 shadow-sm mb-4">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-3">Developer / MIS View</h2>
-              {access.canViewBlockchain ? (
-                <div className="d-flex flex-column gap-3">
-                  <div>
-                    <small className="text-muted d-block">Current Contract</small>
-                    <div className="fw-semibold">
-                      {wallet?.selectedContractName || 'Not selected yet'}
-                    </div>
-                    <div className="text-muted small">
-                      {wallet?.selectedContractId || 'No contract id yet'}
-                    </div>
-                  </div>
-                  <div>
-                    <small className="text-muted d-block">Available Contracts</small>
-                    {availableContracts.length === 0 ? (
-                      <div className="text-muted small">No deployed contracts yet.</div>
-                    ) : (
-                      <div className="d-flex flex-column gap-2 mt-2">
-                        {availableContracts.slice(0, 5).map((item) => (
-                          <div key={item._id || item.address} className="border rounded p-2">
-                            <div className="fw-semibold small">
-                              {item.contractName || 'AdminContract'}
-                            </div>
-                            <div className="text-muted small text-break">
-                              {item.address || 'Pending'}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <small className="text-muted d-block">Wallet Address</small>
-                    <div className="fw-semibold text-break">
-                      {wallet?.walletAddress || 'No wallet configured'}
-                    </div>
-                  </div>
-                  <div>
-                    <small className="text-muted d-block">Wallet Balance</small>
-                    <div className="fw-semibold">
-                      {wallet?.walletBalance || '0.0000'} ETH
-                    </div>
-                  </div>
-                  <div>
-                    <small className="text-muted d-block">Network</small>
-                    <div className="fw-semibold">{wallet?.networkLabel || 'Local Chain'}</div>
-                  </div>
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 className="h5 mb-1">MIS Technical Locks</h2>
+              <p className="text-muted mb-0">
+                MIS can temporarily block anchoring, QR email, or contract actions
+                platform-wide.
+              </p>
+            </div>
+          </div>
+
+          <div className="row g-3">
+            <div className="col-md-4">
+              <label className="form-check form-switch border rounded p-3 w-100">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={settings.locks.anchorLocked}
+                  disabled={!access.canEditSystemLocks}
+                  onChange={(event) =>
+                    updateNested('locks', 'anchorLocked', event.target.checked)
+                  }
+                />
+                <span className="form-check-label ms-2">Lock Anchoring</span>
+              </label>
+            </div>
+
+            <div className="col-md-4">
+              <label className="form-check form-switch border rounded p-3 w-100">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={settings.locks.qrEmailLocked}
+                  disabled={!access.canEditSystemLocks}
+                  onChange={(event) =>
+                    updateNested('locks', 'qrEmailLocked', event.target.checked)
+                  }
+                />
+                <span className="form-check-label ms-2">Lock QR Email</span>
+              </label>
+            </div>
+
+            <div className="col-md-4">
+              <label className="form-check form-switch border rounded p-3 w-100">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={settings.locks.contractLocked}
+                  disabled={!access.canEditSystemLocks}
+                  onChange={(event) =>
+                    updateNested('locks', 'contractLocked', event.target.checked)
+                  }
+                />
+                <span className="form-check-label ms-2">Lock Contracts</span>
+              </label>
+            </div>
+          </div>
+
+          {access.canEditSystemLocks ? (
+            <div className="mt-4 d-flex justify-content-end">
+              <button
+                className="btn btn-dark"
+                onClick={handleSaveLocks}
+                disabled={savingLocks}
+              >
+                {savingLocks ? 'Saving...' : 'Save Technical Locks'}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <h2 className="h5 mb-3">Blockchain Runtime</h2>
+
+          {!wallet.ok ? (
+            <div className="alert alert-warning">
+              Blockchain runtime is currently unavailable.
+              {wallet.error ? <div className="small mt-2">{wallet.error}</div> : null}
+            </div>
+          ) : null}
+
+          <div className="d-flex flex-column gap-3">
+            <div>
+              <small className="text-muted d-block">Wallet Source</small>
+              <div className="fw-semibold">Read only from server env / provider</div>
+              <div className="small text-muted">
+                This should not be editable in System Settings.
+              </div>
+            </div>
+
+            <div>
+              <small className="text-muted d-block">Wallet Address</small>
+              <div className="fw-semibold text-break">
+                {wallet.walletAddress || 'Not configured'}
+              </div>
+            </div>
+
+            <div className="row g-3">
+              <div className="col-md-3">
+                <small className="text-muted d-block">Network</small>
+                <div className="fw-semibold">{wallet.networkLabel || 'Unavailable'}</div>
+              </div>
+
+              <div className="col-md-3">
+                <small className="text-muted d-block">Chain ID</small>
+                <div className="fw-semibold">{wallet.chainId ?? '—'}</div>
+              </div>
+
+              <div className="col-md-3">
+                <small className="text-muted d-block">Balance</small>
+                <div className="fw-semibold">
+                  {wallet.walletBalance || '0.0000'} {wallet.gasToken || 'POL'}
                 </div>
-              ) : (
+              </div>
+
+              <div className="col-md-3">
+                <small className="text-muted d-block">Current Active Contract</small>
+                <div className="fw-semibold">
+                  {settings.blockchain.selectedContractName || 'Not selected yet'}
+                </div>
+                <div className="small text-muted text-break">
+                  {settings.blockchain.selectedContractId || 'No active contract id'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <hr className="my-4" />
+
+          <h3 className="h6 mb-3">Active Contract Selector</h3>
+
+          <div className="row g-3 align-items-end">
+            <div className="col-md-9">
+              <label className="form-label">Choose active deployed contract</label>
+              <select
+                className="form-select"
+                value={selectedContractId}
+                disabled={!access.canManageActiveContract}
+                onChange={(event) => setSelectedContractId(event.target.value)}
+              >
+                <option value="">Select a deployed contract</option>
+                {availableContracts
+                  .filter((item) => item.address)
+                  .map((item) => (
+                    <option
+                      key={item._id || item.address}
+                      value={item.address || item._id}
+                    >
+                      {(item.contractName || 'AdminContract')} — {item.address}
+                    </option>
+                  ))}
+              </select>
+              <div className="form-text">
+                MIS developer can switch which deployed contract is marked as active.
+              </div>
+            </div>
+
+            <div className="col-md-3 d-grid">
+              <button
+                className="btn btn-primary"
+                onClick={handleSaveActiveContract}
+                disabled={!selectedContractId || savingContract}
+              >
+                {savingContract ? 'Saving...' : 'Save Active Contract'}
+              </button>
+            </div>
+          </div>
+
+          {selectedContractOption ? (
+            <div className="border rounded p-3 mt-3 bg-light">
+              <div className="fw-semibold mb-1">
+                {selectedContractOption.contractName || 'AdminContract'}
+              </div>
+              <div className="small text-break mb-2">
+                {selectedContractOption.address || 'Pending'}
+              </div>
+              <div className="small">
+                Status: <strong>{selectedContractOption.status || 'unknown'}</strong>
+              </div>
+              <div className="small">
+                Network:{' '}
+                <strong>
+                  {selectedContractOption.network || selectedContractOption.chainId || '—'}
+                </strong>
+              </div>
+              {selectedContractOption.explorerUrl ? (
+                <div className="small mt-2">
+                  <a
+                    href={selectedContractOption.explorerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open transaction
+                  </a>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <h2 className="h5 mb-3">Deployed Contract List</h2>
+
+          {availableContracts.length === 0 ? (
+            <div className="alert alert-light border mb-0">
+              No deployed contracts found yet.
+            </div>
+          ) : (
+            <div className="row g-3">
+              {availableContracts.map((item) => {
+                const isCurrent =
+                  item.address === settings.blockchain.selectedContractId ||
+                  item._id === settings.blockchain.selectedContractId;
+
+                return (
+                  <div className="col-md-6" key={item._id || item.address}>
+                    <div
+                      className={`border rounded p-3 h-100 ${
+                        isCurrent ? 'border-primary bg-light' : ''
+                      }`}
+                    >
+                      <div className="d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                          <div className="fw-semibold">
+                            {item.contractName || 'AdminContract'}
+                          </div>
+                          <div className="small text-muted text-break">
+                            {item.address || 'Pending'}
+                          </div>
+                          <div className="small text-muted">
+                            {item.network || item.chainId || '—'}
+                          </div>
+                        </div>
+
+                        <div className="text-end">
+                          <span
+                            className={`badge ${
+                              item.status === 'success'
+                                ? 'text-bg-success'
+                                : item.status === 'pending'
+                                ? 'text-bg-warning'
+                                : 'text-bg-danger'
+                            }`}
+                          >
+                            {item.status || 'unknown'}
+                          </span>
+                          {isCurrent ? (
+                            <div className="small mt-2 text-primary fw-semibold">
+                              Active
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {access.canViewIssuerKeys ? (
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <div className="d-flex justify-content-between align-items-start mb-3">
+              <div>
+                <h2 className="h5 mb-1">Issuer Key Vault</h2>
                 <p className="text-muted mb-0">
-                  You do not have access to blockchain visibility.
+                  Private keys are encrypted at rest from the server master secret.
+                  Old keys remain for rotation history.
                 </p>
+              </div>
+              <span className="badge text-bg-secondary">{issuerKeys.length}</span>
+            </div>
+
+            <div className="border rounded p-3 mb-4 bg-light">
+              <div className="small text-muted mb-1">Current Active Key</div>
+              {activeIssuerKey ? (
+                <>
+                  <div className="fw-semibold">{activeIssuerKey.name}</div>
+                  <div className="small text-muted text-break">{activeIssuerKey.kid}</div>
+                  <div className="small mt-2">
+                    Activated: <strong>{formatDate(activeIssuerKey.activatedAt)}</strong>
+                  </div>
+                </>
+              ) : (
+                <div className="text-muted">No active issuer key yet.</div>
               )}
             </div>
-          </div>
 
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4">
-              <h2 className="h5 mb-1">Permission Overrides</h2>
-              <p className="text-muted mb-3">
-                MIS can override per-user permissions on top of the role defaults saved in code.
-              </p>
+            {access.canManageIssuerKeys ? (
+              <div className="row g-4 mb-4">
+                <div className="col-md-6">
+                  <div className="border rounded p-3 h-100">
+                    <h3 className="h6 mb-3">Create Key</h3>
 
-              {!access.canEditPermissions ? (
-                <div className="alert alert-light border">
-                  Only the MIS developer can edit permission overrides.
+                    <div className="mb-3">
+                      <label className="form-label">Key Name</label>
+                      <input
+                        className="form-control"
+                        value={newKeyForm.name}
+                        onChange={(event) =>
+                          setNewKeyForm((prev) => ({
+                            ...prev,
+                            name: event.target.value,
+                          }))
+                        }
+                        placeholder="Registrar Issuer Key v1"
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">Reason</label>
+                      <input
+                        className="form-control"
+                        value={newKeyForm.rotationReason}
+                        onChange={(event) =>
+                          setNewKeyForm((prev) => ({
+                            ...prev,
+                            rotationReason: event.target.value,
+                          }))
+                        }
+                        placeholder="initial key provisioning"
+                      />
+                    </div>
+
+                    <div className="form-check mb-3">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        checked={newKeyForm.activate}
+                        onChange={(event) =>
+                          setNewKeyForm((prev) => ({
+                            ...prev,
+                            activate: event.target.checked,
+                          }))
+                        }
+                      />
+                      <label className="form-check-label">
+                        Make this key active immediately
+                      </label>
+                    </div>
+
+                    <button
+                      className="btn btn-primary w-100"
+                      onClick={handleCreateKey}
+                      disabled={creatingKey}
+                    >
+                      {creatingKey ? 'Creating...' : 'Create Issuer Key'}
+                    </button>
+                  </div>
                 </div>
-              ) : null}
 
+                <div className="col-md-6">
+                  <div className="border rounded p-3 h-100">
+                    <h3 className="h6 mb-3">Rotate Active Key</h3>
+
+                    <div className="mb-3">
+                      <label className="form-label">New Key Name</label>
+                      <input
+                        className="form-control"
+                        value={rotateForm.name}
+                        onChange={(event) =>
+                          setRotateForm((prev) => ({
+                            ...prev,
+                            name: event.target.value,
+                          }))
+                        }
+                        placeholder="Registrar Issuer Key v2"
+                      />
+                    </div>
+
+                    <div className="mb-3">
+                      <label className="form-label">Rotation Reason</label>
+                      <input
+                        className="form-control"
+                        value={rotateForm.rotationReason}
+                        onChange={(event) =>
+                          setRotateForm((prev) => ({
+                            ...prev,
+                            rotationReason: event.target.value,
+                          }))
+                        }
+                        placeholder="scheduled quarterly rotation"
+                      />
+                    </div>
+
+                    <div className="alert alert-light border">
+                      Rotation creates a new encrypted key pair and makes it the active signing key.
+                    </div>
+
+                    <button
+                      className="btn btn-outline-dark w-100"
+                      onClick={handleRotateKey}
+                      disabled={rotatingKey}
+                    >
+                      {rotatingKey ? 'Rotating...' : 'Rotate Active Key'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {issuerKeys.length === 0 ? (
+              <div className="alert alert-light border mb-0">
+                No issuer keys found yet.
+              </div>
+            ) : (
               <div className="d-flex flex-column gap-3">
-                {admins.map((admin) => (
-                  <div className="border rounded-3 p-3" key={admin._id}>
-                    <div className="d-flex justify-content-between align-items-start mb-3">
-                      <div>
-                        <div className="fw-semibold">{admin.fullName}</div>
-                        <div className="text-muted small">{admin.email}</div>
-                      </div>
-                      <span className="badge text-bg-secondary text-uppercase">
-                        {admin.role}
-                      </span>
-                    </div>
-
-                    <div className="row g-2">
-                      {Object.entries(admin.permissions).map(([key, value]) => (
-                        <div className="col-md-6" key={key}>
-                          <label className="form-check form-switch border rounded p-2 w-100 h-100">
-                            <input
-                              className="form-check-input"
-                              type="checkbox"
-                              checked={Boolean(value)}
-                              disabled={!access.canEditPermissions}
-                              onChange={() => togglePermission(admin._id, key)}
-                            />
-                            <span className="form-check-label small ms-2">{key}</span>
-                          </label>
+                {issuerKeys.map((key) => (
+                  <div className="border rounded-3 p-3" key={key._id}>
+                    <div className="row g-3 align-items-start">
+                      <div className="col-lg-4">
+                        <label className="form-label small text-muted">Key Name</label>
+                        <input
+                          className="form-control"
+                          value={key.name}
+                          disabled={!access.canManageIssuerKeys}
+                          onChange={(event) =>
+                            updateLocalKey(key._id, 'name', event.target.value)
+                          }
+                        />
+                        <div className="small text-muted mt-2 text-break">
+                          {key.kid}
                         </div>
-                      ))}
+                      </div>
+
+                      <div className="col-lg-3">
+                        <label className="form-label small text-muted">Status</label>
+                        <div>
+                          <span className={`badge ${badgeClass(key.status)}`}>
+                            {key.status}
+                          </span>
+                        </div>
+                        <div className="small text-muted mt-2">
+                          Created: {formatDate(key.createdAt)}
+                        </div>
+                        <div className="small text-muted">
+                          Activated: {formatDate(key.activatedAt)}
+                        </div>
+                      </div>
+
+                      <div className="col-lg-3">
+                        <label className="form-label small text-muted">Fingerprint</label>
+                        <div className="small text-break">{key.fingerprint}</div>
+                      </div>
+
+                      <div className="col-lg-2">
+                        <label className="form-label small text-muted">Actions</label>
+                        <div className="d-grid gap-2">
+                          <button
+                            className="btn btn-outline-success btn-sm"
+                            disabled={
+                              !access.canManageIssuerKeys ||
+                              key.isActive ||
+                              key.status === 'retired' ||
+                              savingKeyId === key._id
+                            }
+                            onClick={() => handleActivateKey(key._id)}
+                          >
+                            {savingKeyId === key._id ? 'Working...' : 'Activate'}
+                          </button>
+
+                          <button
+                            className="btn btn-outline-primary btn-sm"
+                            disabled={!access.canManageIssuerKeys || savingKeyId === key._id}
+                            onClick={() => handleSaveKey(key)}
+                          >
+                            {savingKeyId === key._id ? 'Saving...' : 'Save'}
+                          </button>
+
+                          <button
+                            className="btn btn-outline-danger btn-sm"
+                            disabled={
+                              !access.canManageIssuerKeys ||
+                              key.isActive ||
+                              key.status === 'retired' ||
+                              savingKeyId === key._id
+                            }
+                            onClick={() => handleRetireKey(key._id)}
+                          >
+                            {savingKeyId === key._id ? 'Retiring...' : 'Retire'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
-                    {access.canEditPermissions ? (
-                      <div className="mt-3 d-flex justify-content-end">
-                        <button
-                          className="btn btn-outline-primary btn-sm"
-                          disabled={savingUserId === admin._id}
-                          onClick={() => handleSaveAdmin(admin)}
-                        >
-                          {savingUserId === admin._id ? 'Saving...' : 'Save Permissions'}
-                        </button>
-                      </div>
-                    ) : null}
+                    <div className="mt-3">
+                      <label className="form-label small text-muted">Public Key</label>
+                      <textarea
+                        className="form-control font-monospace"
+                        rows="4"
+                        value={key.publicKeyPem}
+                        readOnly
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <h2 className="h5 mb-1">Permission Overrides</h2>
+          <p className="text-muted mb-3">
+            MIS can override per-user permissions on top of role defaults.
+          </p>
+
+          {!access.canEditPermissions ? (
+            <div className="alert alert-light border">
+              Only the MIS developer can edit permission overrides.
             </div>
+          ) : null}
+
+          <div className="row g-3">
+            {admins.map((admin) => (
+              <div className="col-xl-6" key={admin._id}>
+                <div className="border rounded-3 p-3 h-100">
+                  <div className="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                      <div className="fw-semibold">{admin.fullName}</div>
+                      <div className="text-muted small">{admin.email}</div>
+                    </div>
+                    <span className="badge text-bg-secondary text-uppercase">
+                      {admin.role}
+                    </span>
+                  </div>
+
+                  <div className="row g-2">
+                    {Object.entries(admin.permissions).map(([key, value]) => (
+                      <div className="col-md-6" key={key}>
+                        <label className="form-check form-switch border rounded p-2 w-100 h-100">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={Boolean(value)}
+                            disabled={!access.canEditPermissions}
+                            onChange={() => togglePermission(admin._id, key)}
+                          />
+                          <span className="form-check-label small ms-2">{key}</span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  {access.canEditPermissions ? (
+                    <div className="mt-3 d-flex justify-content-end">
+                      <button
+                        className="btn btn-outline-primary btn-sm"
+                        disabled={savingUserId === admin._id}
+                        onClick={() => handleSaveAdmin(admin)}
+                      >
+                        {savingUserId === admin._id ? 'Saving...' : 'Save Permissions'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
     </div>
   );
-} 
+}

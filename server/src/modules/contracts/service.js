@@ -2,36 +2,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ethers } from 'ethers';
+import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { getContractModel } from './model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const RPC_URL = process.env.RPC_URL;
-const PRIVATE_KEY = process.env.CONTRACT_OPERATOR_PRIVATE_KEY;
-const DEFAULT_CHAIN_ID = Number(process.env.ANCHOR_CHAIN_ID || 80002);
-
 const artifactPath = path.resolve(__dirname, './artifacts/AdminContract.json');
 
 function requireBlockchainEnv() {
-  if (!RPC_URL) {
+  if (!env.blockchain.rpcUrl) {
     throw new ApiError(500, 'Missing RPC_URL in server .env');
   }
 
-  if (!PRIVATE_KEY) {
-    throw new ApiError(500, 'Missing PRIVATE_KEY in server .env');
+  if (!env.blockchain.contractOperatorPrivateKey) {
+    throw new ApiError(500, 'Missing CONTRACT_OPERATOR_PRIVATE_KEY in server .env');
   }
 }
 
 function getProvider() {
   requireBlockchainEnv();
-  return new ethers.JsonRpcProvider(RPC_URL);
+  return new ethers.JsonRpcProvider(env.blockchain.rpcUrl);
 }
 
 function getWallet() {
   const provider = getProvider();
-  return new ethers.Wallet(PRIVATE_KEY, provider);
+  return new ethers.Wallet(env.blockchain.contractOperatorPrivateKey, provider);
 }
 
 function loadArtifact() {
@@ -65,7 +62,7 @@ async function getAccountInfo(provider, wallet) {
 
   return {
     address: wallet.address,
-    chainId: Number(network.chainId || DEFAULT_CHAIN_ID),
+    chainId: Number(network.chainId || env.blockchain.chainId),
     network: network.name,
     balanceWei: balanceWei.toString(),
     balanceNative: ethers.formatEther(balanceWei),
@@ -104,7 +101,7 @@ async function buildEstimateInternal() {
 
   return {
     contractName: 'AdminContract',
-    chainId: Number(network.chainId || DEFAULT_CHAIN_ID),
+    chainId: Number(network.chainId || env.blockchain.chainId),
     network: network.name,
     gasToken: 'POL',
     walletAddress: wallet.address,
@@ -117,25 +114,33 @@ async function buildEstimateInternal() {
   };
 }
 
-export async function getContractsDashboard() {
+export async function getBlockchainRuntimeOverview() {
   const provider = getProvider();
   const wallet = getWallet();
-  const Contract = getContractModel();
-
-  const [network, account, contracts] = await Promise.all([
-    provider.getNetwork(),
-    getAccountInfo(provider, wallet),
-    Contract.find().sort({ createdAt: -1 }).lean(),
-  ]);
+  const network = await provider.getNetwork();
+  const account = await getAccountInfo(provider, wallet);
 
   return {
     health: {
       ok: true,
       walletAddress: wallet.address,
-      chainId: Number(network.chainId || DEFAULT_CHAIN_ID),
+      chainId: Number(network.chainId || env.blockchain.chainId),
       network: network.name,
     },
     account,
+  };
+}
+
+export async function getContractsDashboard() {
+  const Contract = getContractModel();
+
+  const [overview, contracts] = await Promise.all([
+    getBlockchainRuntimeOverview(),
+    Contract.find().sort({ createdAt: -1 }).lean(),
+  ]);
+
+  return {
+    ...overview,
     contracts,
   };
 }
