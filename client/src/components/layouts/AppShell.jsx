@@ -12,6 +12,7 @@ import {
   FaUserCircle,
   FaSearch,
   FaSignOutAlt,
+  FaBook,
 } from 'react-icons/fa';
 import { signOut } from '../../features/auth/authSlice';
 import './app-shell.css';
@@ -85,9 +86,18 @@ export default function AppShell({ children }) {
   const isDeveloper = user?.role === 'developer';
   const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
   const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
+  const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
 
   const links = useMemo(() => {
     const items = [{ to: '/', label: 'Dashboard', icon: <FaHome /> }];
+
+    if (canSeeCurriculum) {
+      items.push({
+        to: '/curricula',
+        label: 'Curriculum Manager',
+        icon: <FaBook />,
+      });
+    }
 
     if (isDeveloper) {
       items.push({ to: '/users', label: 'Manage Users', icon: <FaUsers /> });
@@ -110,7 +120,7 @@ export default function AppShell({ children }) {
     }
 
     return items;
-  }, [isDeveloper, canSeeContracts, canSeeSettings]);
+  }, [isDeveloper, canSeeCurriculum, canSeeContracts, canSeeSettings]);
 
   return (
     <div className="app-shell">

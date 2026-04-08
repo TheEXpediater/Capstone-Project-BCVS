@@ -7,6 +7,7 @@ import LoginPage from '../features/auth/pages/LoginPage';
 import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
 import UserManagementPage from '../features/users/pages/UserManagementPage';
 import ContractManagerPage from '../features/contracts/pages/ContractManagerPage';
+import CurriculumManagerPage from '../features/curriculum/pages/CurriculumManagerPage';
 import Dashboard from '../pages/Dashboard';
 import NotFound from '../pages/NotFound';
 import Unauthorized from '../pages/Unauthorized';
@@ -26,6 +27,19 @@ export default function AppRoutes() {
       <Route path="/unauthorized" element={<Unauthorized />} />
 
       <Route path="/" element={<ShellPage><Dashboard /></ShellPage>} />
+
+      <Route
+        path="/curricula"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
+              <AppShell>
+                <CurriculumManagerPage />
+              </AppShell>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/users"
