@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import { FaChevronDown, FaChevronUp, FaCog } from 'react-icons/fa';
 import {
-  activateIssuerKey,
-  createIssuerKey,
-  deleteIssuerKey,
   getSettingsDashboard,
   rotateIssuerKey,
   updateActiveContract,
   updateAdminPermissions,
   updateBusinessSettings,
-  updateIssuerKey,
   updateSystemLocks,
+  createIssuerKey,
 } from '../settingsAPI';
 
 const ROLE_OPTIONS = ['admin', 'super_admin', 'developer', 'cashier'];
@@ -65,13 +63,6 @@ function formatDate(value) {
   return new Date(value).toLocaleString();
 }
 
-function badgeClass(status) {
-  if (status === 'active') return 'text-bg-success';
-  if (status === 'inactive') return 'text-bg-secondary';
-  if (status === 'retired') return 'text-bg-dark';
-  return 'text-bg-light';
-}
-
 function ToggleCard({
   checked,
   disabled,
@@ -103,12 +94,56 @@ function ToggleCard({
   );
 }
 
+function ActiveIssuerKeyRow({
+  activeIssuerKey,
+  canManage,
+  isOpen,
+  onToggle,
+}) {
+  return (
+    <div className="border rounded-3 p-3 bg-light">
+      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+        <div className="flex-grow-1">
+          <div className="small text-muted mb-1">Current Active Key</div>
+
+          {activeIssuerKey ? (
+            <>
+              <div className="fw-semibold fs-5">{activeIssuerKey.name}</div>
+              <div className="small text-muted text-break mt-1">
+                {activeIssuerKey.kid}
+              </div>
+              <div className="small mt-2">
+                Activated: <strong>{formatDate(activeIssuerKey.activatedAt)}</strong>
+              </div>
+            </>
+          ) : (
+            <div className="text-muted">No active issuer key yet.</div>
+          )}
+        </div>
+
+        {canManage ? (
+          <div className="d-flex align-items-start">
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-2"
+              onClick={onToggle}
+            >
+              <FaCog />
+              <span>More Settings</span>
+              {isOpen ? <FaChevronUp /> : <FaChevronDown />}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function SystemSettingsPage() {
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
   const [admins, setAdmins] = useState([]);
   const [wallet, setWallet] = useState(EMPTY_WALLET);
   const [availableContracts, setAvailableContracts] = useState([]);
-  const [issuerKeys, setIssuerKeys] = useState([]);
   const [activeIssuerKey, setActiveIssuerKey] = useState(null);
   const [access, setAccess] = useState(EMPTY_ACCESS);
 
@@ -117,12 +152,12 @@ export default function SystemSettingsPage() {
   const [savingLocks, setSavingLocks] = useState(false);
   const [savingUserId, setSavingUserId] = useState('');
   const [savingContract, setSavingContract] = useState(false);
-  const [savingKeyId, setSavingKeyId] = useState('');
   const [creatingKey, setCreatingKey] = useState(false);
   const [rotatingKey, setRotatingKey] = useState(false);
 
   const [selectedContractId, setSelectedContractId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
+  const [showIssuerKeySettings, setShowIssuerKeySettings] = useState(false);
 
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
@@ -152,7 +187,6 @@ export default function SystemSettingsPage() {
       setAdmins(data.admins || []);
       setWallet(data.wallet || EMPTY_WALLET);
       setAvailableContracts(data.availableContracts || []);
-      setIssuerKeys(data.issuerKeys || []);
       setActiveIssuerKey(data.activeIssuerKey || null);
       setAccess(data.access || EMPTY_ACCESS);
       setSelectedContractId(data.settings?.blockchain?.selectedContractId || '');
@@ -212,19 +246,6 @@ export default function SystemSettingsPage() {
               },
             }
           : admin
-      )
-    );
-  }
-
-  function updateLocalKey(keyId, field, value) {
-    setIssuerKeys((prev) =>
-      prev.map((item) =>
-        item._id === keyId
-          ? {
-              ...item,
-              [field]: value,
-            }
-          : item
       )
     );
   }
@@ -306,6 +327,7 @@ export default function SystemSettingsPage() {
       });
       setFeedback({ type: 'success', text: 'Issuer key created.' });
       await loadDashboard();
+      setShowIssuerKeySettings(false);
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -329,6 +351,7 @@ export default function SystemSettingsPage() {
       });
       setFeedback({ type: 'success', text: 'Issuer key rotated and activated.' });
       await loadDashboard();
+      setShowIssuerKeySettings(false);
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -339,72 +362,6 @@ export default function SystemSettingsPage() {
       });
     } finally {
       setRotatingKey(false);
-    }
-  }
-
-  async function handleActivateKey(keyId) {
-    try {
-      setSavingKeyId(keyId);
-      await activateIssuerKey(keyId);
-      setFeedback({ type: 'success', text: 'Issuer key activated.' });
-      await loadDashboard();
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to activate issuer key.',
-      });
-    } finally {
-      setSavingKeyId('');
-    }
-  }
-
-  async function handleSaveKey(key) {
-    try {
-      setSavingKeyId(key._id);
-      await updateIssuerKey(key._id, {
-        name: key.name,
-        rotationReason: key.rotationReason || '',
-      });
-      setFeedback({ type: 'success', text: 'Issuer key updated.' });
-      await loadDashboard();
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to update issuer key.',
-      });
-    } finally {
-      setSavingKeyId('');
-    }
-  }
-
-  async function handleRetireKey(keyId) {
-    const approved = window.confirm(
-      'Retire this issuer key? Retired keys cannot be used as the active signing key.'
-    );
-
-    if (!approved) return;
-
-    try {
-      setSavingKeyId(keyId);
-      await deleteIssuerKey(keyId);
-      setFeedback({ type: 'success', text: 'Issuer key retired.' });
-      await loadDashboard();
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to retire issuer key.',
-      });
-    } finally {
-      setSavingKeyId('');
     }
   }
 
@@ -751,76 +708,6 @@ export default function SystemSettingsPage() {
         </div>
       </div>
 
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
-            <div>
-              <h2 className="h5 mb-1">Deployed Contract List</h2>
-              <p className="text-muted mb-0 small">
-                Saved deployments from the contract backend.
-              </p>
-            </div>
-          </div>
-
-          {availableContracts.length === 0 ? (
-            <div className="alert alert-light border mb-0">
-              No deployed contracts found yet.
-            </div>
-          ) : (
-            <div className="row g-3">
-              {availableContracts.map((item) => {
-                const isCurrent =
-                  item.address === settings.blockchain.selectedContractId ||
-                  item._id === settings.blockchain.selectedContractId;
-
-                return (
-                  <div className="col-md-6 col-xl-4" key={item._id || item.address}>
-                    <div
-                      className={`border rounded-3 p-3 h-100 ${
-                        isCurrent ? 'border-primary bg-light' : ''
-                      }`}
-                    >
-                      <div className="d-flex justify-content-between align-items-start gap-3">
-                        <div>
-                          <div className="fw-semibold">
-                            {item.contractName || 'AdminContract'}
-                          </div>
-                          <div className="small text-muted text-break">
-                            {item.address || 'Pending'}
-                          </div>
-                          <div className="small text-muted">
-                            {item.network || item.chainId || '—'}
-                          </div>
-                        </div>
-
-                        <div className="text-end">
-                          <span
-                            className={`badge ${
-                              item.status === 'success'
-                                ? 'text-bg-success'
-                                : item.status === 'pending'
-                                ? 'text-bg-warning'
-                                : 'text-bg-danger'
-                            }`}
-                          >
-                            {item.status || 'unknown'}
-                          </span>
-                          {isCurrent ? (
-                            <div className="small mt-2 text-primary fw-semibold">
-                              Active
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
       {access.canViewIssuerKeys ? (
         <div className="card border-0 shadow-sm">
           <div className="card-body p-4">
@@ -831,236 +718,135 @@ export default function SystemSettingsPage() {
                   Encrypted issuer signing keys with activation and rotation history.
                 </p>
               </div>
-              <span className="badge text-bg-secondary">{issuerKeys.length}</span>
             </div>
 
-            <div className="border rounded-3 p-3 mb-4 bg-light">
-              <div className="small text-muted mb-1">Current Active Key</div>
-              {activeIssuerKey ? (
-                <>
-                  <div className="fw-semibold">{activeIssuerKey.name}</div>
-                  <div className="small text-muted text-break">{activeIssuerKey.kid}</div>
-                  <div className="small mt-2">
-                    Activated: <strong>{formatDate(activeIssuerKey.activatedAt)}</strong>
-                  </div>
-                </>
-              ) : (
-                <div className="text-muted">No active issuer key yet.</div>
-              )}
-            </div>
+            <ActiveIssuerKeyRow
+              activeIssuerKey={activeIssuerKey}
+              canManage={access.canManageIssuerKeys}
+              isOpen={showIssuerKeySettings}
+              onToggle={() => setShowIssuerKeySettings((prev) => !prev)}
+            />
 
-            {access.canManageIssuerKeys ? (
-              <div className="row g-3 mb-4">
-                <div className="col-lg-6">
-                  <div className="border rounded-3 p-3 h-100">
-                    <h3 className="h6 mb-3">Create Key</h3>
-
-                    <div className="mb-3">
-                      <label className="form-label small fw-semibold">Key Name</label>
-                      <input
-                        className="form-control"
-                        value={newKeyForm.name}
-                        onChange={(event) =>
-                          setNewKeyForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                        placeholder="Registrar Issuer Key v1"
-                      />
-                    </div>
-
-                    <div className="mb-3">
-                      <label className="form-label small fw-semibold">Reason</label>
-                      <input
-                        className="form-control"
-                        value={newKeyForm.rotationReason}
-                        onChange={(event) =>
-                          setNewKeyForm((prev) => ({
-                            ...prev,
-                            rotationReason: event.target.value,
-                          }))
-                        }
-                        placeholder="initial key provisioning"
-                      />
-                    </div>
-
-                    <label className="border rounded-3 px-3 py-2 w-100 d-flex align-items-center gap-2 bg-white mb-3">
-                      <input
-                        type="checkbox"
-                        checked={newKeyForm.activate}
-                        onChange={(event) =>
-                          setNewKeyForm((prev) => ({
-                            ...prev,
-                            activate: event.target.checked,
-                          }))
-                        }
-                      />
-                      <span className="small">Make this key active immediately</span>
-                    </label>
-
-                    <button
-                      className="btn btn-primary w-100"
-                      onClick={handleCreateKey}
-                      disabled={creatingKey}
-                    >
-                      {creatingKey ? 'Creating...' : 'Create Issuer Key'}
-                    </button>
+            {access.canManageIssuerKeys && showIssuerKeySettings ? (
+              <div className="border rounded-3 p-3 mt-3">
+                <div className="d-flex justify-content-between align-items-start mb-3">
+                  <div>
+                    <h3 className="h6 mb-1">Issuer Key Settings</h3>
+                    <p className="text-muted small mb-0">
+                      Create a new key or rotate the current active key from this dropdown panel.
+                    </p>
                   </div>
                 </div>
 
-                <div className="col-lg-6">
-                  <div className="border rounded-3 p-3 h-100">
-                    <h3 className="h6 mb-3">Rotate Active Key</h3>
+                <div className="row g-3">
+                  <div className="col-lg-6">
+                    <div className="border rounded-3 p-3 h-100 bg-light">
+                      <h4 className="h6 mb-3">Create Key</h4>
 
-                    <div className="mb-3">
-                      <label className="form-label small fw-semibold">New Key Name</label>
-                      <input
-                        className="form-control"
-                        value={rotateForm.name}
-                        onChange={(event) =>
-                          setRotateForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                        placeholder="Registrar Issuer Key v2"
-                      />
+                      <div className="mb-3">
+                        <label className="form-label small fw-semibold">Key Name</label>
+                        <input
+                          className="form-control"
+                          value={newKeyForm.name}
+                          onChange={(event) =>
+                            setNewKeyForm((prev) => ({
+                              ...prev,
+                              name: event.target.value,
+                            }))
+                          }
+                          placeholder="Registrar Issuer Key v1"
+                        />
+                      </div>
+
+                      <div className="mb-3">
+                        <label className="form-label small fw-semibold">Reason</label>
+                        <input
+                          className="form-control"
+                          value={newKeyForm.rotationReason}
+                          onChange={(event) =>
+                            setNewKeyForm((prev) => ({
+                              ...prev,
+                              rotationReason: event.target.value,
+                            }))
+                          }
+                          placeholder="initial key provisioning"
+                        />
+                      </div>
+
+                      <label className="border rounded-3 px-3 py-2 w-100 d-flex align-items-center gap-2 bg-white mb-3">
+                        <input
+                          type="checkbox"
+                          checked={newKeyForm.activate}
+                          onChange={(event) =>
+                            setNewKeyForm((prev) => ({
+                              ...prev,
+                              activate: event.target.checked,
+                            }))
+                          }
+                        />
+                        <span className="small">Make this key active immediately</span>
+                      </label>
+
+                      <button
+                        className="btn btn-primary w-100"
+                        onClick={handleCreateKey}
+                        disabled={creatingKey}
+                      >
+                        {creatingKey ? 'Creating...' : 'Create Issuer Key'}
+                      </button>
                     </div>
+                  </div>
 
-                    <div className="mb-3">
-                      <label className="form-label small fw-semibold">Rotation Reason</label>
-                      <input
-                        className="form-control"
-                        value={rotateForm.rotationReason}
-                        onChange={(event) =>
-                          setRotateForm((prev) => ({
-                            ...prev,
-                            rotationReason: event.target.value,
-                          }))
-                        }
-                        placeholder="scheduled quarterly rotation"
-                      />
+                  <div className="col-lg-6">
+                    <div className="border rounded-3 p-3 h-100 bg-light">
+                      <h4 className="h6 mb-3">Rotate Active Key</h4>
+
+                      <div className="mb-3">
+                        <label className="form-label small fw-semibold">New Key Name</label>
+                        <input
+                          className="form-control"
+                          value={rotateForm.name}
+                          onChange={(event) =>
+                            setRotateForm((prev) => ({
+                              ...prev,
+                              name: event.target.value,
+                            }))
+                          }
+                          placeholder="Registrar Issuer Key v2"
+                        />
+                      </div>
+
+                      <div className="mb-3">
+                        <label className="form-label small fw-semibold">Rotation Reason</label>
+                        <input
+                          className="form-control"
+                          value={rotateForm.rotationReason}
+                          onChange={(event) =>
+                            setRotateForm((prev) => ({
+                              ...prev,
+                              rotationReason: event.target.value,
+                            }))
+                          }
+                          placeholder="scheduled quarterly rotation"
+                        />
+                      </div>
+
+                      <div className="alert alert-light border small">
+                        Rotation creates a new encrypted key pair and makes it the active signing key.
+                      </div>
+
+                      <button
+                        className="btn btn-outline-dark w-100"
+                        onClick={handleRotateKey}
+                        disabled={rotatingKey}
+                      >
+                        {rotatingKey ? 'Rotating...' : 'Rotate Active Key'}
+                      </button>
                     </div>
-
-                    <div className="alert alert-light border small">
-                      Rotation creates a new encrypted key pair and makes it the active signing key.
-                    </div>
-
-                    <button
-                      className="btn btn-outline-dark w-100"
-                      onClick={handleRotateKey}
-                      disabled={rotatingKey}
-                    >
-                      {rotatingKey ? 'Rotating...' : 'Rotate Active Key'}
-                    </button>
                   </div>
                 </div>
               </div>
             ) : null}
-
-            {issuerKeys.length === 0 ? (
-              <div className="alert alert-light border mb-0">
-                No issuer keys found yet.
-              </div>
-            ) : (
-              <div className="d-flex flex-column gap-3">
-                {issuerKeys.map((key) => (
-                  <div className="border rounded-3 p-3" key={key._id}>
-                    <div className="row g-3 align-items-start">
-                      <div className="col-lg-4">
-                        <label className="form-label small text-muted">Key Name</label>
-                        <input
-                          className="form-control"
-                          value={key.name}
-                          disabled={!access.canManageIssuerKeys}
-                          onChange={(event) =>
-                            updateLocalKey(key._id, 'name', event.target.value)
-                          }
-                        />
-                        <div className="small text-muted mt-2 text-break">
-                          {key.kid}
-                        </div>
-                      </div>
-
-                      <div className="col-lg-2">
-                        <label className="form-label small text-muted">Status</label>
-                        <div>
-                          <span className={`badge ${badgeClass(key.status)}`}>
-                            {key.status}
-                          </span>
-                        </div>
-                        <div className="small text-muted mt-2">
-                          {key.algorithm} / {key.curve}
-                        </div>
-                      </div>
-
-                      <div className="col-lg-3">
-                        <label className="form-label small text-muted">Timeline</label>
-                        <div className="small text-muted">
-                          Created: {formatDate(key.createdAt)}
-                        </div>
-                        <div className="small text-muted">
-                          Activated: {formatDate(key.activatedAt)}
-                        </div>
-                      </div>
-
-                      <div className="col-lg-3">
-                        <label className="form-label small text-muted">Actions</label>
-                        <div className="d-flex flex-wrap gap-2">
-                          <button
-                            className="btn btn-outline-success btn-sm"
-                            disabled={
-                              !access.canManageIssuerKeys ||
-                              key.isActive ||
-                              key.status === 'retired' ||
-                              savingKeyId === key._id
-                            }
-                            onClick={() => handleActivateKey(key._id)}
-                          >
-                            Activate
-                          </button>
-
-                          <button
-                            className="btn btn-outline-primary btn-sm"
-                            disabled={!access.canManageIssuerKeys || savingKeyId === key._id}
-                            onClick={() => handleSaveKey(key)}
-                          >
-                            Save
-                          </button>
-
-                          <button
-                            className="btn btn-outline-danger btn-sm"
-                            disabled={
-                              !access.canManageIssuerKeys ||
-                              key.isActive ||
-                              key.status === 'retired' ||
-                              savingKeyId === key._id
-                            }
-                            onClick={() => handleRetireKey(key._id)}
-                          >
-                            Retire
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <div className="small text-muted mb-1">Fingerprint</div>
-                      <div className="small text-break mb-3">{key.fingerprint}</div>
-
-                      <label className="form-label small text-muted">Public Key</label>
-                      <textarea
-                        className="form-control font-monospace small"
-                        rows="4"
-                        value={key.publicKeyPem}
-                        readOnly
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       ) : null}

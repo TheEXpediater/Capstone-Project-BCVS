@@ -1,5 +1,11 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
-import { getWebMe, loginWeb, logout, readStoredAuth } from './authAPI';
+import {
+  clearStoredAuth,
+  getWebMe,
+  loginWeb,
+  logout,
+  readStoredAuth,
+} from './authAPI';
 
 const stored = readStoredAuth();
 
@@ -16,25 +22,38 @@ export const login = createAsyncThunk('auth/login', async (payload, thunkAPI) =>
   try {
     return await loginWeb(payload);
   } catch (error) {
-    const message = error.response?.data?.message || error.message || 'Login failed';
+    clearStoredAuth();
+    const message =
+      error.response?.data?.message || error.message || 'Login failed';
     return thunkAPI.rejectWithValue(message);
   }
 });
 
-export const hydrateAuth = createAsyncThunk('auth/hydrateAuth', async (_, thunkAPI) => {
-  try {
-    if (!readStoredAuth()?.token) {
-      return null;
+export const hydrateAuth = createAsyncThunk(
+  'auth/hydrateAuth',
+  async (_, thunkAPI) => {
+    try {
+      if (!readStoredAuth()?.token) {
+        return null;
+      }
+
+      return await getWebMe();
+    } catch (error) {
+      clearStoredAuth();
+      const message =
+        error.response?.data?.message || error.message || 'Session expired';
+      return thunkAPI.rejectWithValue(message);
     }
-    return await getWebMe();
-  } catch (error) {
-    const message = error.response?.data?.message || error.message || 'Session expired';
-    return thunkAPI.rejectWithValue(message);
   }
-});
+);
 
 export const signOut = createAsyncThunk('auth/signOut', async () => {
-  await logout();
+  try {
+    await logout();
+  } finally {
+    clearStoredAuth();
+  }
+
   return null;
 });
 
@@ -68,13 +87,25 @@ const authSlice = createSlice({
         state.sessionId = null;
         state.user = null;
       })
+      .addCase(hydrateAuth.pending, (state) => {
+        state.isLoading = true;
+      })
       .addCase(hydrateAuth.fulfilled, (state, action) => {
-        if (!action.payload) return;
+        state.isLoading = false;
+
+        if (!action.payload) {
+          state.token = null;
+          state.sessionId = null;
+          state.user = null;
+          return;
+        }
+
         state.token = action.payload.token;
         state.sessionId = action.payload.sessionId;
         state.user = action.payload.user;
       })
       .addCase(hydrateAuth.rejected, (state, action) => {
+        state.isLoading = false;
         state.isError = true;
         state.message = action.payload;
         state.token = null;

@@ -1,26 +1,11 @@
 import api from '../../services/api';
+import {
+  clearStoredAuth,
+  readStoredAuth,
+  writeStoredAuth,
+} from './authStorage';
 
-const STORAGE_KEY = 'auth';
-
-export function readStoredAuth() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(raw);
-  } catch {
-    localStorage.removeItem(STORAGE_KEY);
-    return null;
-  }
-}
-
-function writeStoredAuth(payload) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-}
-
-function clearStoredAuth() {
-  localStorage.removeItem(STORAGE_KEY);
-}
+export { clearStoredAuth, readStoredAuth } from './authStorage';
 
 export async function loginWeb(credentials) {
   const { data } = await api.post('/auth/web/login', credentials);
@@ -44,6 +29,7 @@ export async function getWebMe() {
       ...stored,
       user: data.user,
     };
+
     writeStoredAuth(nextAuth);
     return nextAuth;
   }

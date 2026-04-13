@@ -31,6 +31,15 @@ function prettyJson(value) {
   return JSON.stringify(value || {}, null, 2);
 }
 
+function getFormSnapshot(form) {
+  return JSON.stringify({
+    program: form?.program || '',
+    programName: form?.programName || '',
+    curriculumYear: form?.curriculumYear || '',
+    structure: form?.structure || {},
+  });
+}
+
 function summarizeStructure(structure) {
   let years = 0;
   let semesters = 0;
@@ -52,12 +61,111 @@ function summarizeStructure(structure) {
 
   return { years, semesters, subjects, units };
 }
+function extractCurriculumFromJson(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('JSON must be an object.');
+  }
+
+  const hasStructuredEnvelope =
+    parsed.structure &&
+    typeof parsed.structure === 'object' &&
+    !Array.isArray(parsed.structure);
+
+  if (hasStructuredEnvelope) {
+    return {
+      program: typeof parsed.program === 'string' ? parsed.program : '',
+      programName:
+        typeof parsed.programName === 'string' ? parsed.programName : '',
+      curriculumYear:
+        parsed.curriculumYear === undefined || parsed.curriculumYear === null
+          ? ''
+          : String(parsed.curriculumYear),
+      structure: parsed.structure,
+      hasMetadata: true,
+    };
+  }
+
+  return {
+    program: '',
+    programName: '',
+    curriculumYear: '',
+    structure: parsed,
+    hasMetadata: false,
+  };
+}
+const EMPTY_FORM = {
+  _id: '',
+  program: '',
+  programName: '',
+  curriculumYear: '2024',
+  structure: createStarterStructure(),
+};
+
+function createEmptyForm() {
+  return {
+    _id: '',
+    program: '',
+    programName: '',
+    curriculumYear: '2024',
+    structure: createStarterStructure(),
+  };
+}
+
+function EmptyWorkspace({ onCreate }) {
+  return (
+    <div className="text-center py-5">
+      <div className="mx-auto" style={{ maxWidth: 560 }}>
+        <h2 className="h5 mb-2">No curriculum selected</h2>
+        <p className="text-muted mb-4">
+          Choose a curriculum from the table to view it, or create a new one to start building.
+        </p>
+        <button className="btn btn-primary" onClick={onCreate}>
+          Create New Curriculum
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CurriculumSummaryCards({ stats }) {
+  return (
+    <div className="row g-3">
+      <div className="col-md-3">
+        <div className="border rounded-3 p-3 h-100 bg-light">
+          <div className="small text-muted">Years</div>
+          <div className="fw-semibold">{stats.years}</div>
+        </div>
+      </div>
+
+      <div className="col-md-3">
+        <div className="border rounded-3 p-3 h-100 bg-light">
+          <div className="small text-muted">Semesters / Terms</div>
+          <div className="fw-semibold">{stats.semesters}</div>
+        </div>
+      </div>
+
+      <div className="col-md-3">
+        <div className="border rounded-3 p-3 h-100 bg-light">
+          <div className="small text-muted">Subjects</div>
+          <div className="fw-semibold">{stats.subjects}</div>
+        </div>
+      </div>
+
+      <div className="col-md-3">
+        <div className="border rounded-3 p-3 h-100 bg-light">
+          <div className="small text-muted">Total Units</div>
+          <div className="fw-semibold">{stats.units}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CurriculumViewer({ curriculum }) {
   if (!curriculum) {
     return (
       <div className="alert alert-light border mb-0">
-        Select a curriculum from the list to view the full structure.
+        Select a curriculum from the table to view the full structure.
       </div>
     );
   }
@@ -68,7 +176,7 @@ function CurriculumViewer({ curriculum }) {
   return (
     <div className="d-flex flex-column gap-4">
       <div className="border rounded-3 p-3 bg-light">
-        <div className="row g-3">
+        <div className="row g-3 mb-3">
           <div className="col-md-3">
             <div className="small text-muted">Program</div>
             <div className="fw-semibold">{curriculum.program || '—'}</div>
@@ -79,33 +187,13 @@ function CurriculumViewer({ curriculum }) {
             <div className="fw-semibold">{curriculum.programName || '—'}</div>
           </div>
 
-          <div className="col-md-2">
+          <div className="col-md-4">
             <div className="small text-muted">Curriculum Year</div>
             <div className="fw-semibold">{curriculum.curriculumYear || '—'}</div>
           </div>
-
-          <div className="col-md-2">
-            <div className="small text-muted">Subjects</div>
-            <div className="fw-semibold">{stats.subjects}</div>
-          </div>
         </div>
 
-        <div className="row g-3 mt-1">
-          <div className="col-md-4">
-            <div className="small text-muted">Years</div>
-            <div className="fw-semibold">{stats.years}</div>
-          </div>
-
-          <div className="col-md-4">
-            <div className="small text-muted">Semesters / Terms</div>
-            <div className="fw-semibold">{stats.semesters}</div>
-          </div>
-
-          <div className="col-md-4">
-            <div className="small text-muted">Total Units</div>
-            <div className="fw-semibold">{stats.units}</div>
-          </div>
-        </div>
+        <CurriculumSummaryCards stats={stats} />
       </div>
 
       {Object.keys(structure).length === 0 ? (
@@ -115,12 +203,10 @@ function CurriculumViewer({ curriculum }) {
       ) : (
         Object.entries(structure).map(([yearLabel, semesterMap]) => (
           <div className="border rounded-3 p-3" key={yearLabel}>
-            <div className="d-flex justify-content-between align-items-start mb-3">
-              <div>
-                <h3 className="h6 mb-1">{yearLabel}</h3>
-                <div className="text-muted small">
-                  {Object.keys(semesterMap || {}).length} semester(s) / term(s)
-                </div>
+            <div className="mb-3">
+              <h3 className="h6 mb-1">{yearLabel}</h3>
+              <div className="text-muted small">
+                {Object.keys(semesterMap || {}).length} semester(s) / term(s)
               </div>
             </div>
 
@@ -167,63 +253,410 @@ function CurriculumViewer({ curriculum }) {
   );
 }
 
-const EMPTY_FORM = {
-  _id: '',
-  program: '',
-  programName: '',
-  curriculumYear: '2024',
-  structure: createStarterStructure(),
-};
+function JsonToolsModal({
+  open,
+  jsonInput,
+  onClose,
+  onChange,
+  onUpload,
+  onCopy,
+  onLoad,
+}) {
+  if (!open) return null;
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-lg modal-dialog-centered">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">JSON Tools</h2>
+                <p className="text-muted mb-0 small">
+                  Optional helper tools only. Keep them hidden unless needed.
+                </p>
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+            </div>
+
+            <div className="modal-body">
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                <label className="btn btn-outline-secondary btn-sm mb-0">
+                  Upload JSON File
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    hidden
+                    onChange={onUpload}
+                  />
+                </label>
+
+                <button className="btn btn-outline-dark btn-sm" onClick={onCopy}>
+                  Copy Current JSON
+                </button>
+
+                <button className="btn btn-primary btn-sm" onClick={onLoad}>
+                  Load JSON Into Builder
+                </button>
+              </div>
+
+              <textarea
+                className="form-control font-monospace"
+                rows="16"
+                value={jsonInput}
+                onChange={(event) => onChange(event.target.value)}
+                placeholder="Optional JSON helper area"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="modal-backdrop show" onClick={onClose} />
+    </>
+  );
+}
+
+function CurriculumEditor({
+  form,
+  stats,
+  saving,
+  onUpdateMeta,
+  onSave,
+  onAddYear,
+  onResetTemplate,
+  onRenameYear,
+  onRemoveYear,
+  onAddSemester,
+  onRenameSemester,
+  onRemoveSemester,
+  onAddSubject,
+  onUpdateSubject,
+  onRemoveSubject,
+}) {
+  return (
+    <div className="d-flex flex-column gap-4">
+      <div className="border rounded-3 p-3">
+        <div className="row g-3 mb-3">
+          <div className="col-md-3">
+            <label className="form-label fw-semibold">Program Code</label>
+            <input
+              className="form-control"
+              value={form.program}
+              onChange={(event) => onUpdateMeta('program', event.target.value.toUpperCase())}
+              placeholder="BSABE"
+            />
+          </div>
+
+          <div className="col-md-5">
+            <label className="form-label fw-semibold">Program Name</label>
+            <input
+              className="form-control"
+              value={form.programName}
+              onChange={(event) => onUpdateMeta('programName', event.target.value)}
+              placeholder="Program name"
+            />
+          </div>
+
+          <div className="col-md-4">
+            <label className="form-label fw-semibold">Curriculum Year</label>
+            <input
+              className="form-control"
+              value={form.curriculumYear}
+              onChange={(event) => onUpdateMeta('curriculumYear', event.target.value)}
+              placeholder="2024"
+            />
+          </div>
+        </div>
+
+        <CurriculumSummaryCards stats={stats} />
+
+        <div className="mt-4 d-flex flex-wrap justify-content-between gap-2">
+          <div className="d-flex gap-2 flex-wrap">
+            <button className="btn btn-outline-primary btn-sm" onClick={onAddYear}>
+              Add Year
+            </button>
+
+            <button className="btn btn-outline-secondary btn-sm" onClick={onResetTemplate}>
+              Start Blank Template
+            </button>
+          </div>
+
+          <button className="btn btn-primary" onClick={onSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Curriculum'}
+          </button>
+        </div>
+      </div>
+
+      {Object.keys(form.structure || {}).length === 0 ? (
+        <div className="alert alert-light border mb-0">No year created yet.</div>
+      ) : (
+        <div className="d-flex flex-column gap-4">
+          {Object.entries(form.structure).map(([yearLabel, semesterMap]) => (
+            <div className="border rounded-3 p-3" key={yearLabel}>
+              <div className="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                <div>
+                  <h3 className="h6 mb-1">{yearLabel}</h3>
+                  <div className="text-muted small">
+                    {Object.keys(semesterMap || {}).length} semester(s) / term(s)
+                  </div>
+                </div>
+
+                <div className="d-flex gap-2 flex-wrap">
+                  <button
+                    className="btn btn-outline-secondary btn-sm"
+                    onClick={() => onRenameYear(yearLabel)}
+                  >
+                    Rename Year
+                  </button>
+
+                  <button
+                    className="btn btn-outline-primary btn-sm"
+                    onClick={() => onAddSemester(yearLabel)}
+                  >
+                    Add Semester
+                  </button>
+
+                  <button
+                    className="btn btn-outline-danger btn-sm"
+                    onClick={() => onRemoveYear(yearLabel)}
+                  >
+                    Remove Year
+                  </button>
+                </div>
+              </div>
+
+              <div className="d-flex flex-column gap-3">
+                {Object.entries(semesterMap || {}).map(([semesterLabel, subjects]) => (
+                  <div className="border rounded-3 p-3 bg-light" key={`${yearLabel}-${semesterLabel}`}>
+                    <div className="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                      <div>
+                        <div className="fw-semibold">{semesterLabel}</div>
+                        <div className="text-muted small">
+                          {(subjects || []).length} subject(s)
+                        </div>
+                      </div>
+
+                      <div className="d-flex gap-2 flex-wrap">
+                        <button
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => onRenameSemester(yearLabel, semesterLabel)}
+                        >
+                          Rename Semester
+                        </button>
+
+                        <button
+                          className="btn btn-outline-primary btn-sm"
+                          onClick={() => onAddSubject(yearLabel, semesterLabel)}
+                        >
+                          Add Subject
+                        </button>
+
+                        <button
+                          className="btn btn-outline-danger btn-sm"
+                          onClick={() => onRemoveSemester(yearLabel, semesterLabel)}
+                        >
+                          Remove Semester
+                        </button>
+                      </div>
+                    </div>
+
+                    {(subjects || []).length === 0 ? (
+                      <div className="alert alert-light border mb-0">
+                        No subjects yet for this semester.
+                      </div>
+                    ) : (
+                      <div className="table-responsive">
+                        <table className="table table-sm align-middle mb-0">
+                          <thead>
+                            <tr>
+                              <th style={{ minWidth: 140 }}>Code</th>
+                              <th style={{ minWidth: 280 }}>Title</th>
+                              <th style={{ minWidth: 100 }}>Units</th>
+                              <th style={{ minWidth: 220 }}>Prerequisite</th>
+                              <th style={{ width: 110 }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {subjects.map((subject, index) => (
+                              <tr key={`${yearLabel}-${semesterLabel}-${index}`}>
+                                <td>
+                                  <input
+                                    className="form-control form-control-sm"
+                                    value={subject.code || ''}
+                                    onChange={(event) =>
+                                      onUpdateSubject(
+                                        yearLabel,
+                                        semesterLabel,
+                                        index,
+                                        'code',
+                                        event.target.value
+                                      )
+                                    }
+                                    placeholder="Subject code"
+                                  />
+                                </td>
+
+                                <td>
+                                  <input
+                                    className="form-control form-control-sm"
+                                    value={subject.title || ''}
+                                    onChange={(event) =>
+                                      onUpdateSubject(
+                                        yearLabel,
+                                        semesterLabel,
+                                        index,
+                                        'title',
+                                        event.target.value
+                                      )
+                                    }
+                                    placeholder="Subject title"
+                                  />
+                                </td>
+
+                                <td>
+                                  <input
+                                    type="number"
+                                    className="form-control form-control-sm"
+                                    value={subject.units ?? 0}
+                                    onChange={(event) =>
+                                      onUpdateSubject(
+                                        yearLabel,
+                                        semesterLabel,
+                                        index,
+                                        'units',
+                                        event.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+
+                                <td>
+                                  <input
+                                    className="form-control form-control-sm"
+                                    value={subject.prerequisite || ''}
+                                    onChange={(event) =>
+                                      onUpdateSubject(
+                                        yearLabel,
+                                        semesterLabel,
+                                        index,
+                                        'prerequisite',
+                                        event.target.value
+                                      )
+                                    }
+                                    placeholder="Optional prerequisite"
+                                  />
+                                </td>
+
+                                <td>
+                                  <button
+                                    className="btn btn-outline-danger btn-sm"
+                                    onClick={() => onRemoveSubject(yearLabel, semesterLabel, index)}
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CurriculumManagerPage() {
   const [curricula, setCurricula] = useState([]);
   const [selectedCurriculumId, setSelectedCurriculumId] = useState('');
+  const [workspaceMode, setWorkspaceMode] = useState('idle');
   const [form, setForm] = useState(EMPTY_FORM);
   const [jsonInput, setJsonInput] = useState(prettyJson(createStarterStructure()));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState('');
   const [loadingId, setLoadingId] = useState('');
+  const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
+  const [baselineSnapshot, setBaselineSnapshot] = useState(getFormSnapshot(EMPTY_FORM));
 
   const stats = useMemo(() => summarizeStructure(form.structure), [form.structure]);
-
-  async function loadCurricula() {
-    try {
-      setLoading(true);
-      const data = await listCurricula();
-      setCurricula(data || []);
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message || error.message || 'Failed to load curricula.',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }
+  const currentSnapshot = useMemo(() => getFormSnapshot(form), [form]);
+  const hasUnsavedChanges = currentSnapshot !== baselineSnapshot;
+  const hasActiveCurriculum = Boolean(form._id || form.program || form.programName);
 
   useEffect(() => {
     loadCurricula();
   }, []);
 
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+
+    function handleBeforeUnload(event) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+
+    function handleDocumentNavigation(event) {
+      const anchor = event.target.closest('a[href]');
+      if (!anchor) return;
+
+      const href = anchor.getAttribute('href');
+      if (!href || href.startsWith('#')) return;
+
+      const targetPath = `${anchor.pathname}${anchor.search}${anchor.hash}`;
+      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+      if (targetPath === currentPath) return;
+
+      const approved = window.confirm(
+        'You have unsaved changes. Leave this page without saving?'
+      );
+
+      if (!approved) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+
+    document.addEventListener('click', handleDocumentNavigation, true);
+    return () => document.removeEventListener('click', handleDocumentNavigation, true);
+  }, [hasUnsavedChanges]);
+
   function syncJson(structure) {
     setJsonInput(prettyJson(structure));
   }
 
-  function resetForm() {
-    const next = {
-      _id: '',
-      program: '',
-      programName: '',
-      curriculumYear: '2024',
-      structure: createStarterStructure(),
-    };
+  function syncBaseline(nextForm) {
+    setBaselineSnapshot(getFormSnapshot(nextForm));
+  }
 
+  function confirmDiscardUnsavedChanges(message = 'You have unsaved changes. Leave without saving?') {
+    if (!hasUnsavedChanges) return true;
+    return window.confirm(message);
+  }
+
+  function resetForm(nextMode = 'edit') {
+    const next = createEmptyForm();
     setForm(next);
     setSelectedCurriculumId('');
+    setWorkspaceMode(nextMode);
     syncJson(next.structure);
+    syncBaseline(next);
     setFeedback({ type: '', text: '' });
   }
 
@@ -242,7 +675,28 @@ export default function CurriculumManagerPage() {
     syncJson(nextStructure);
   }
 
-  async function handleOpenCurriculum(id) {
+  async function loadCurricula() {
+    try {
+      setLoading(true);
+      const data = await listCurricula();
+      setCurricula(data || []);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message || error.message || 'Failed to load curricula.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadCurriculumIntoWorkspace(id, nextMode) {
+    const approved = confirmDiscardUnsavedChanges(
+      'You have unsaved changes. Open another curriculum without saving?'
+    );
+    if (!approved) return;
+
     try {
       setLoadingId(id);
       const data = await getCurriculumById(id);
@@ -257,10 +711,12 @@ export default function CurriculumManagerPage() {
 
       setForm(next);
       setSelectedCurriculumId(data._id);
+      setWorkspaceMode(nextMode);
       syncJson(next.structure);
+      syncBaseline(next);
       setFeedback({
         type: 'success',
-        text: `Loaded ${data.program} ${data.curriculumYear}.`,
+        text: `${nextMode === 'edit' ? 'Editing' : 'Viewing'} ${data.program} ${data.curriculumYear}.`,
       });
     } catch (error) {
       setFeedback({
@@ -273,48 +729,66 @@ export default function CurriculumManagerPage() {
     }
   }
 
-  async function handleSaveCurriculum() {
-    try {
-      setSaving(true);
+ async function handleSaveCurriculum() {
+  const program = form.program.trim().toUpperCase();
+  const programName = form.programName.trim();
+  const curriculumYear = form.curriculumYear.trim();
 
-      const payload = {
-        program: form.program.trim().toUpperCase(),
-        programName: form.programName.trim(),
-        curriculumYear: form.curriculumYear.trim(),
-        structure: form.structure,
-      };
-
-      const saved = await saveCurriculum(payload);
-
-      const next = {
-        _id: saved._id,
-        program: saved.program,
-        programName: saved.programName || '',
-        curriculumYear: saved.curriculumYear,
-        structure: saved.structure || {},
-      };
-
-      setForm(next);
-      setSelectedCurriculumId(saved._id);
-      syncJson(saved.structure || {});
-      setFeedback({ type: 'success', text: 'Curriculum saved successfully.' });
-      await loadCurricula();
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message || error.message || 'Failed to save curriculum.',
-      });
-    } finally {
-      setSaving(false);
-    }
+  if (!program) {
+    setFeedback({
+      type: 'danger',
+      text: 'Program code is required before saving.',
+    });
+    return;
   }
 
-  async function handleDeleteCurriculum(id) {
-    const approved = window.confirm(
-      'Delete this curriculum? This action cannot be undone.'
-    );
+  try {
+    setSaving(true);
 
+    const payload = {
+      program,
+      programName,
+      curriculumYear,
+      structure: form.structure,
+    };
+
+    const saved = await saveCurriculum(payload);
+
+    const next = {
+      _id: saved._id,
+      program: saved.program,
+      programName: saved.programName || '',
+      curriculumYear: saved.curriculumYear,
+      structure: saved.structure || {},
+    };
+
+    setForm(next);
+    setSelectedCurriculumId(saved._id);
+    syncJson(saved.structure || {});
+    setFeedback({ type: 'success', text: 'Curriculum saved successfully.' });
+    await loadCurricula();
+  } catch (error) {
+    setFeedback({
+      type: 'danger',
+      text:
+        error.response?.data?.message ||
+        error.message ||
+        'Failed to save curriculum.',
+    });
+  } finally {
+    setSaving(false);
+  }
+}
+
+  async function handleDeleteCurriculum(id) {
+    if (form._id === id) {
+      const approvedDiscard = confirmDiscardUnsavedChanges(
+        'You have unsaved changes on this curriculum. Continue deleting it?'
+      );
+      if (!approvedDiscard) return;
+    }
+
+    const approved = window.confirm('Delete this curriculum? This action cannot be undone.');
     if (!approved) return;
 
     try {
@@ -322,7 +796,12 @@ export default function CurriculumManagerPage() {
       await deleteCurriculum(id);
 
       if (form._id === id) {
-        resetForm();
+        const next = createEmptyForm();
+        setForm(next);
+        setSelectedCurriculumId('');
+        setWorkspaceMode('idle');
+        syncJson(next.structure);
+        syncBaseline(next);
       }
 
       setFeedback({ type: 'success', text: 'Curriculum deleted successfully.' });
@@ -338,23 +817,34 @@ export default function CurriculumManagerPage() {
     }
   }
 
-  function handleLoadJsonToEditor() {
-    try {
-      const parsed = JSON.parse(jsonInput);
+ function handleLoadJsonToEditor() {
+  try {
+    const parsed = JSON.parse(jsonInput);
+    const next = extractCurriculumFromJson(parsed);
 
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('JSON must be an object with years and semesters.');
-      }
+    setForm((prev) => ({
+      ...prev,
+      program: next.program || prev.program,
+      programName: next.programName || prev.programName,
+      curriculumYear: next.curriculumYear || prev.curriculumYear || '2024',
+      structure: next.structure,
+    }));
 
-      replaceStructure(parsed);
-      setFeedback({ type: 'success', text: 'Optional JSON loaded into the builder.' });
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text: error.message || 'Invalid JSON.',
-      });
-    }
+    syncJson(next.structure);
+
+    setFeedback({
+      type: 'success',
+      text: next.hasMetadata
+        ? 'JSON loaded into the builder and curriculum header fields were applied.'
+        : 'JSON structure loaded into the builder. Fill in Program Code, Program Name, and Curriculum Year before saving.',
+    });
+  } catch (error) {
+    setFeedback({
+      type: 'danger',
+      text: error.message || 'Invalid JSON.',
+    });
   }
+}
 
   async function handleJsonFileUpload(event) {
     const file = event.target.files?.[0];
@@ -365,7 +855,7 @@ export default function CurriculumManagerPage() {
       setJsonInput(text);
       setFeedback({
         type: 'success',
-        text: `Loaded JSON file: ${file.name}. Click "Load JSON Into Builder".`,
+        text: `Loaded JSON file: ${file.name}.`,
       });
     } catch {
       setFeedback({
@@ -390,6 +880,9 @@ export default function CurriculumManagerPage() {
     const label = window.prompt('Enter year label', '1St Year');
     if (!label) return;
 
+    const approved = window.confirm(`Add year "${label.trim()}"?`);
+    if (!approved) return;
+
     const next = cloneStructure(form.structure);
     const key = label.trim();
 
@@ -410,6 +903,9 @@ export default function CurriculumManagerPage() {
     const label = window.prompt('Rename year', oldLabel);
     if (!label) return;
 
+    const approved = window.confirm(`Rename "${oldLabel}" to "${label.trim()}"?`);
+    if (!approved) return;
+
     const next = cloneStructure(form.structure);
     const key = label.trim();
 
@@ -421,7 +917,6 @@ export default function CurriculumManagerPage() {
 
     next[key] = next[oldLabel];
     delete next[oldLabel];
-
     replaceStructure(next);
   }
 
@@ -437,6 +932,9 @@ export default function CurriculumManagerPage() {
   function addSemester(yearLabel) {
     const label = window.prompt('Enter semester / term label', '1St Semester');
     if (!label) return;
+
+    const approved = window.confirm(`Add "${label.trim()}" to ${yearLabel}?`);
+    if (!approved) return;
 
     const next = cloneStructure(form.structure);
     const key = label.trim();
@@ -458,6 +956,9 @@ export default function CurriculumManagerPage() {
     const label = window.prompt('Rename semester / term', oldLabel);
     if (!label) return;
 
+    const approved = window.confirm(`Rename "${oldLabel}" to "${label.trim()}" in ${yearLabel}?`);
+    if (!approved) return;
+
     const next = cloneStructure(form.structure);
     const key = label.trim();
 
@@ -472,7 +973,6 @@ export default function CurriculumManagerPage() {
 
     next[yearLabel][key] = next[yearLabel][oldLabel];
     delete next[yearLabel][oldLabel];
-
     replaceStructure(next);
   }
 
@@ -486,6 +986,9 @@ export default function CurriculumManagerPage() {
   }
 
   function addSubject(yearLabel, semesterLabel) {
+    const approved = window.confirm(`Add a new subject to ${semesterLabel}, ${yearLabel}?`);
+    if (!approved) return;
+
     const next = cloneStructure(form.structure);
     next[yearLabel][semesterLabel].push(createEmptySubject());
     replaceStructure(next);
@@ -498,471 +1001,224 @@ export default function CurriculumManagerPage() {
   }
 
   function removeSubject(yearLabel, semesterLabel, index) {
+    const approved = window.confirm(
+      `Remove subject #${index + 1} from ${semesterLabel}, ${yearLabel}?`
+    );
+    if (!approved) return;
+
     const next = cloneStructure(form.structure);
     next[yearLabel][semesterLabel].splice(index, 1);
     replaceStructure(next);
   }
 
+  function handleCreateNewCurriculum() {
+    const approved = confirmDiscardUnsavedChanges(
+      'You have unsaved changes. Start a new curriculum without saving?'
+    );
+    if (!approved) return;
+    resetForm('edit');
+  }
+
+  function handleSwitchWorkspaceMode(nextMode) {
+    setWorkspaceMode(nextMode);
+  }
+
+  function handleStartBlankTemplate() {
+    const approved = window.confirm(
+      'Replace the current structure with a blank starter template?'
+    );
+    if (!approved) return;
+    replaceStructure(createStarterStructure());
+  }
+
   return (
-    <div className="d-flex flex-column gap-4">
-      <div>
-        <h1 className="h3 mb-1">Curriculum Manager</h1>
-        <p className="text-muted mb-0">
-          Manual curriculum builder for registrar use, with full saved-curriculum viewer.
-        </p>
-      </div>
-
-      {feedback.text ? (
-        <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
-      ) : null}
-
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-            <div>
-              <h2 className="h5 mb-1">Saved Curricula</h2>
-              <p className="text-muted mb-0">
-                Select one curriculum to view the full structure and continue editing it.
-              </p>
-            </div>
-
-            <button className="btn btn-outline-secondary" onClick={resetForm}>
-              New Curriculum
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="text-muted">Loading curricula...</div>
-          ) : curricula.length === 0 ? (
-            <div className="alert alert-light border mb-0">
-              No curricula saved yet.
-            </div>
-          ) : (
-            <div className="row g-3">
-              {curricula.map((item) => {
-                const isSelected = selectedCurriculumId === item._id;
-
-                return (
-                  <div className="col-xl-4 col-md-6" key={item._id}>
-                    <div
-                      className={`border rounded-3 p-3 h-100 ${
-                        isSelected ? 'border-primary bg-light' : ''
-                      }`}
-                    >
-                      <div className="d-flex justify-content-between align-items-start gap-2">
-                        <div>
-                          <div className="fw-semibold">{item.program}</div>
-                          <div className="text-muted small">
-                            {item.programName || 'No program name'}
-                          </div>
-                        </div>
-
-                        {isSelected ? (
-                          <span className="badge text-bg-primary">Selected</span>
-                        ) : null}
-                      </div>
-
-                      <div className="small mt-2">
-                        Curriculum Year: <strong>{item.curriculumYear}</strong>
-                      </div>
-                      <div className="small">
-                        Subjects: <strong>{item.subjectCount || 0}</strong>
-                      </div>
-                      <div className="small">
-                        Units: <strong>{item.totalUnits || 0}</strong>
-                      </div>
-
-                      <div className="d-flex gap-2 mt-3">
-                        <button
-                          className="btn btn-outline-primary btn-sm"
-                          onClick={() => handleOpenCurriculum(item._id)}
-                          disabled={loadingId === item._id}
-                        >
-                          {loadingId === item._id ? 'Opening...' : 'Open & View'}
-                        </button>
-
-                        <button
-                          className="btn btn-outline-danger btn-sm"
-                          onClick={() => handleDeleteCurriculum(item._id)}
-                          disabled={deletingId === item._id}
-                        >
-                          {deletingId === item._id ? 'Deleting...' : 'Delete'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+    <>
+      <div className="d-flex flex-column gap-4">
+        <div>
+          <h1 className="h3 mb-1">Curriculum Manager</h1>
+          <p className="text-muted mb-0">
+            Clean registrar workflow: browse the list, open a curriculum, then switch between view and edit when needed.
+          </p>
         </div>
-      </div>
 
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
-            <div>
-              <h2 className="h5 mb-1">Selected Curriculum Viewer</h2>
-              <p className="text-muted mb-0">
-                Full curriculum preview for the currently selected record.
-              </p>
-            </div>
+        {feedback.text ? (
+          <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
+        ) : null}
+
+        {hasUnsavedChanges ? (
+          <div className="alert alert-warning mb-0">
+            You have unsaved changes. Save before leaving this curriculum.
           </div>
+        ) : null}
 
-          <CurriculumViewer
-            curriculum={{
-              _id: form._id,
-              program: form.program,
-              programName: form.programName,
-              curriculumYear: form.curriculumYear,
-              structure: form.structure,
-            }}
-          />
-        </div>
-      </div>
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+              <div>
+                <h2 className="h5 mb-1">Saved Curricula</h2>
+                <p className="text-muted mb-0">
+                  The page starts with the curriculum list. Open one row to view it or edit it.
+                </p>
+              </div>
 
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <h2 className="h5 mb-3">Curriculum Header</h2>
-
-          <div className="row g-3">
-            <div className="col-md-3">
-              <label className="form-label fw-semibold">Program Code</label>
-              <input
-                className="form-control"
-                value={form.program}
-                onChange={(event) =>
-                  updateMeta('program', event.target.value.toUpperCase())
-                }
-                placeholder="BSABE"
-              />
-            </div>
-
-            <div className="col-md-5">
-              <label className="form-label fw-semibold">Program Name</label>
-              <input
-                className="form-control"
-                value={form.programName}
-                onChange={(event) => updateMeta('programName', event.target.value)}
-                placeholder="Program name"
-              />
-            </div>
-
-            <div className="col-md-4">
-              <label className="form-label fw-semibold">Curriculum Year</label>
-              <input
-                className="form-control"
-                value={form.curriculumYear}
-                onChange={(event) => updateMeta('curriculumYear', event.target.value)}
-                placeholder="2024"
-              />
-            </div>
-          </div>
-
-          <div className="row g-3 mt-1">
-            <div className="col-md-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Years</div>
-                <div className="fw-semibold">{stats.years}</div>
+              <div className="d-flex gap-2 flex-wrap">
+                <button className="btn btn-outline-secondary" onClick={loadCurricula} disabled={loading}>
+                  {loading ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <button className="btn btn-primary" onClick={handleCreateNewCurriculum}>
+                  New Curriculum
+                </button>
               </div>
             </div>
 
-            <div className="col-md-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Semesters / Terms</div>
-                <div className="fw-semibold">{stats.semesters}</div>
-              </div>
-            </div>
+            {loading ? (
+              <div className="text-muted">Loading curricula...</div>
+            ) : curricula.length === 0 ? (
+              <div className="alert alert-light border mb-0">No curricula saved yet.</div>
+            ) : (
+              <div className="table-responsive">
+                <table className="table align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>Program</th>
+                      <th>Program Name</th>
+                      <th>Year</th>
+                      <th>Subjects</th>
+                      <th>Units</th>
+                      <th style={{ minWidth: 220 }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {curricula.map((item) => {
+                      const isSelected = selectedCurriculumId === item._id;
 
-            <div className="col-md-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Subjects</div>
-                <div className="fw-semibold">{stats.subjects}</div>
-              </div>
-            </div>
+                      return (
+                        <tr key={item._id} className={isSelected ? 'table-primary' : ''}>
+                          <td className="fw-semibold">{item.program}</td>
+                          <td>{item.programName || '—'}</td>
+                          <td>{item.curriculumYear || '—'}</td>
+                          <td>{item.subjectCount || 0}</td>
+                          <td>{item.totalUnits || 0}</td>
+                          <td>
+                            <div className="d-flex flex-wrap gap-2">
+                              <button
+                                className="btn btn-outline-primary btn-sm"
+                                onClick={() => loadCurriculumIntoWorkspace(item._id, 'view')}
+                                disabled={loadingId === item._id}
+                              >
+                                {loadingId === item._id && !isSelected ? 'Opening...' : 'View'}
+                              </button>
 
-            <div className="col-md-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Total Units</div>
-                <div className="fw-semibold">{stats.units}</div>
-              </div>
-            </div>
-          </div>
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => loadCurriculumIntoWorkspace(item._id, 'edit')}
+                                disabled={loadingId === item._id}
+                              >
+                                {loadingId === item._id && !isSelected ? 'Opening...' : 'Edit'}
+                              </button>
 
-          <div className="mt-4 d-flex justify-content-end">
-            <button
-              className="btn btn-primary"
-              onClick={handleSaveCurriculum}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : 'Save Curriculum'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-            <div>
-              <h2 className="h5 mb-1">Manual Curriculum Builder</h2>
-              <p className="text-muted mb-0">
-                Main registrar workflow for creating and editing curriculum records.
-              </p>
-            </div>
-
-            <div className="d-flex gap-2 flex-wrap">
-              <button className="btn btn-outline-primary btn-sm" onClick={addYear}>
-                Add Year
-              </button>
-
-              <button
-                className="btn btn-outline-secondary btn-sm"
-                onClick={() => replaceStructure(createStarterStructure())}
-              >
-                Start Blank Template
-              </button>
-            </div>
-          </div>
-
-          {Object.keys(form.structure || {}).length === 0 ? (
-            <div className="alert alert-light border mb-0">
-              No year created yet.
-            </div>
-          ) : (
-            <div className="d-flex flex-column gap-4">
-              {Object.entries(form.structure).map(([yearLabel, semesterMap]) => (
-                <div className="border rounded-3 p-3" key={yearLabel}>
-                  <div className="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-                    <div>
-                      <h3 className="h6 mb-1">{yearLabel}</h3>
-                      <div className="text-muted small">
-                        {Object.keys(semesterMap || {}).length} semester(s) / term(s)
-                      </div>
-                    </div>
-
-                    <div className="d-flex gap-2 flex-wrap">
-                      <button
-                        className="btn btn-outline-secondary btn-sm"
-                        onClick={() => renameYear(yearLabel)}
-                      >
-                        Rename Year
-                      </button>
-
-                      <button
-                        className="btn btn-outline-primary btn-sm"
-                        onClick={() => addSemester(yearLabel)}
-                      >
-                        Add Semester
-                      </button>
-
-                      <button
-                        className="btn btn-outline-danger btn-sm"
-                        onClick={() => removeYear(yearLabel)}
-                      >
-                        Remove Year
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="d-flex flex-column gap-3">
-                    {Object.entries(semesterMap || {}).map(([semesterLabel, subjects]) => (
-                      <div className="border rounded-3 p-3 bg-light" key={`${yearLabel}-${semesterLabel}`}>
-                        <div className="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-                          <div>
-                            <div className="fw-semibold">{semesterLabel}</div>
-                            <div className="text-muted small">
-                              {(subjects || []).length} subject(s)
+                              <button
+                                className="btn btn-outline-danger btn-sm"
+                                onClick={() => handleDeleteCurriculum(item._id)}
+                                disabled={deletingId === item._id}
+                              >
+                                {deletingId === item._id ? 'Deleting...' : 'Delete'}
+                              </button>
                             </div>
-                          </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
 
-                          <div className="d-flex gap-2 flex-wrap">
-                            <button
-                              className="btn btn-outline-secondary btn-sm"
-                              onClick={() => renameSemester(yearLabel, semesterLabel)}
-                            >
-                              Rename Semester
-                            </button>
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+              <div>
+                <h2 className="h5 mb-1">Workspace</h2>
+                <p className="text-muted mb-0">
+                  One workspace only. Switch between viewer and builder instead of showing both at the same time.
+                </p>
+                {hasUnsavedChanges ? (
+                  <div className="small text-warning fw-semibold mt-2">Unsaved changes</div>
+                ) : null}
+              </div>
 
-                            <button
-                              className="btn btn-outline-primary btn-sm"
-                              onClick={() => addSubject(yearLabel, semesterLabel)}
-                            >
-                              Add Subject
-                            </button>
+              {hasActiveCurriculum || workspaceMode === 'edit' ? (
+                <div className="d-flex flex-wrap gap-2">
+                  <button
+                    className={`btn btn-sm ${workspaceMode === 'view' ? 'btn-primary' : 'btn-outline-primary'}`}
+                    onClick={() => handleSwitchWorkspaceMode('view')}
+                    disabled={!hasActiveCurriculum}
+                  >
+                    View
+                  </button>
 
-                            <button
-                              className="btn btn-outline-danger btn-sm"
-                              onClick={() => removeSemester(yearLabel, semesterLabel)}
-                            >
-                              Remove Semester
-                            </button>
-                          </div>
-                        </div>
+                  <button
+                    className={`btn btn-sm ${workspaceMode === 'edit' ? 'btn-primary' : 'btn-outline-primary'}`}
+                    onClick={() => handleSwitchWorkspaceMode('edit')}
+                  >
+                    Edit
+                  </button>
 
-                        {(subjects || []).length === 0 ? (
-                          <div className="alert alert-light border mb-0">
-                            No subjects yet for this semester.
-                          </div>
-                        ) : (
-                          <div className="table-responsive">
-                            <table className="table table-sm align-middle mb-0">
-                              <thead>
-                                <tr>
-                                  <th style={{ minWidth: 140 }}>Code</th>
-                                  <th style={{ minWidth: 280 }}>Title</th>
-                                  <th style={{ minWidth: 100 }}>Units</th>
-                                  <th style={{ minWidth: 220 }}>Prerequisite</th>
-                                  <th style={{ width: 110 }}>Action</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {subjects.map((subject, index) => (
-                                  <tr key={`${yearLabel}-${semesterLabel}-${index}`}>
-                                    <td>
-                                      <input
-                                        className="form-control form-control-sm"
-                                        value={subject.code || ''}
-                                        onChange={(event) =>
-                                          updateSubject(
-                                            yearLabel,
-                                            semesterLabel,
-                                            index,
-                                            'code',
-                                            event.target.value
-                                          )
-                                        }
-                                        placeholder="Subject code"
-                                      />
-                                    </td>
-
-                                    <td>
-                                      <input
-                                        className="form-control form-control-sm"
-                                        value={subject.title || ''}
-                                        onChange={(event) =>
-                                          updateSubject(
-                                            yearLabel,
-                                            semesterLabel,
-                                            index,
-                                            'title',
-                                            event.target.value
-                                          )
-                                        }
-                                        placeholder="Subject title"
-                                      />
-                                    </td>
-
-                                    <td>
-                                      <input
-                                        type="number"
-                                        className="form-control form-control-sm"
-                                        value={subject.units ?? 0}
-                                        onChange={(event) =>
-                                          updateSubject(
-                                            yearLabel,
-                                            semesterLabel,
-                                            index,
-                                            'units',
-                                            event.target.value
-                                          )
-                                        }
-                                      />
-                                    </td>
-
-                                    <td>
-                                      <input
-                                        className="form-control form-control-sm"
-                                        value={subject.prerequisite || ''}
-                                        onChange={(event) =>
-                                          updateSubject(
-                                            yearLabel,
-                                            semesterLabel,
-                                            index,
-                                            'prerequisite',
-                                            event.target.value
-                                          )
-                                        }
-                                        placeholder="Optional prerequisite"
-                                      />
-                                    </td>
-
-                                    <td>
-                                      <button
-                                        className="btn btn-outline-danger btn-sm"
-                                        onClick={() =>
-                                          removeSubject(yearLabel, semesterLabel, index)
-                                        }
-                                      >
-                                        Remove
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  {workspaceMode === 'edit' ? (
+                    <button className="btn btn-outline-secondary btn-sm" onClick={() => setJsonModalOpen(true)}>
+                      JSON Tools
+                    </button>
+                  ) : null}
                 </div>
-              ))}
+              ) : null}
             </div>
-          )}
 
-          <div className="mt-4 d-flex justify-content-end">
-            <button
-              className="btn btn-primary"
-              onClick={handleSaveCurriculum}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : 'Save Curriculum'}
-            </button>
+            {workspaceMode === 'idle' ? (
+              <EmptyWorkspace onCreate={handleCreateNewCurriculum} />
+            ) : workspaceMode === 'view' ? (
+              <CurriculumViewer
+                curriculum={{
+                  _id: form._id,
+                  program: form.program,
+                  programName: form.programName,
+                  curriculumYear: form.curriculumYear,
+                  structure: form.structure,
+                }}
+              />
+            ) : (
+              <CurriculumEditor
+                form={form}
+                stats={stats}
+                saving={saving}
+                onUpdateMeta={updateMeta}
+                onSave={handleSaveCurriculum}
+                onAddYear={addYear}
+                onResetTemplate={handleStartBlankTemplate}
+                onRenameYear={renameYear}
+                onRemoveYear={removeYear}
+                onAddSemester={addSemester}
+                onRenameSemester={renameSemester}
+                onRemoveSemester={removeSemester}
+                onAddSubject={addSubject}
+                onUpdateSubject={updateSubject}
+                onRemoveSubject={removeSubject}
+              />
+            )}
           </div>
         </div>
       </div>
 
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-            <div>
-              <h2 className="h5 mb-1">Optional JSON Tools</h2>
-              <p className="text-muted mb-0">
-                Optional helper only. You can ignore this if you want fully manual input.
-              </p>
-            </div>
-
-            <div className="d-flex gap-2 flex-wrap">
-              <label className="btn btn-outline-secondary btn-sm mb-0">
-                Upload JSON File
-                <input
-                  type="file"
-                  accept=".json,application/json"
-                  hidden
-                  onChange={handleJsonFileUpload}
-                />
-              </label>
-
-              <button className="btn btn-outline-dark btn-sm" onClick={handleCopyJson}>
-                Copy Current JSON
-              </button>
-
-              <button className="btn btn-primary btn-sm" onClick={handleLoadJsonToEditor}>
-                Load JSON Into Builder
-              </button>
-            </div>
-          </div>
-
-          <textarea
-            className="form-control font-monospace"
-            rows="14"
-            value={jsonInput}
-            onChange={(event) => setJsonInput(event.target.value)}
-            placeholder="Optional JSON helper area"
-          />
-        </div>
-      </div>
-    </div>
+      <JsonToolsModal
+        open={jsonModalOpen}
+        jsonInput={jsonInput}
+        onClose={() => setJsonModalOpen(false)}
+        onChange={setJsonInput}
+        onUpload={handleJsonFileUpload}
+        onCopy={handleCopyJson}
+        onLoad={handleLoadJsonToEditor}
+      />
+    </>
   );
 }

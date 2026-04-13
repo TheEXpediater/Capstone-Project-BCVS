@@ -1,19 +1,10 @@
 import { Navigate } from 'react-router-dom';
+import { hasValidStoredAuth } from '../features/auth/authStorage';
 
 export default function ProtectedRoute({ children }) {
-  const raw = localStorage.getItem('auth');
+  const auth = hasValidStoredAuth();
 
-  if (!raw) {
-    return <Navigate to="/login" replace />;
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-
-    if (!parsed?.token) {
-      return <Navigate to="/login" replace />;
-    }
-  } catch {
+  if (!auth?.token) {
     return <Navigate to="/login" replace />;
   }
 
