@@ -536,12 +536,47 @@ function StudentProfileModal({
     </>
   );
 }
+function buildGradeDisplayRows(grades) {
+  const yearCounts = new Map();
+  const semesterCounts = new Map();
+
+  for (const grade of grades || []) {
+    const yearKey = grade.yearLevel || '—';
+    const semesterKey = `${yearKey}__${grade.semester || '—'}`;
+
+    yearCounts.set(yearKey, (yearCounts.get(yearKey) || 0) + 1);
+    semesterCounts.set(semesterKey, (semesterCounts.get(semesterKey) || 0) + 1);
+  }
+
+  let lastYearKey = null;
+  let lastSemesterKey = null;
+
+  return (grades || []).map((grade) => {
+    const yearKey = grade.yearLevel || '—';
+    const semesterKey = `${yearKey}__${grade.semester || '—'}`;
+
+    const showYear = yearKey !== lastYearKey;
+    const showSemester = semesterKey !== lastSemesterKey;
+
+    lastYearKey = yearKey;
+    lastSemesterKey = semesterKey;
+
+    return {
+      ...grade,
+      showYear,
+      showSemester,
+      yearRowSpan: showYear ? yearCounts.get(yearKey) || 1 : 0,
+      semesterRowSpan: showSemester ? semesterCounts.get(semesterKey) || 1 : 0,
+    };
+  });
+}
 
 function StudentGradesModal({ data, onClose }) {
   if (!data) return null;
 
   const grades = data.grades || [];
   const student = data.student;
+  const displayRows = buildGradeDisplayRows(grades);
 
   return (
     <>
@@ -584,10 +619,20 @@ function StudentGradesModal({ data, onClose }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {grades.map((grade) => (
+                      {displayRows.map((grade) => (
                         <tr key={grade._id}>
-                          <td>{grade.yearLevel || '—'}</td>
-                          <td>{grade.semester || '—'}</td>
+                          {grade.showYear ? (
+                            <td rowSpan={grade.yearRowSpan} className="align-top fw-semibold">
+                              {grade.yearLevel || '—'}
+                            </td>
+                          ) : null}
+
+                          {grade.showSemester ? (
+                            <td rowSpan={grade.semesterRowSpan} className="align-top">
+                              {grade.semester || '—'}
+                            </td>
+                          ) : null}
+
                           <td className="fw-semibold">{grade.subjectCode || '—'}</td>
                           <td>{grade.subjectTitle || '—'}</td>
                           <td>{grade.units ?? 0}</td>

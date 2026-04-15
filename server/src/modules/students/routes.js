@@ -6,11 +6,11 @@ import {
   importStudentGrades,
   importStudents,
   listStudents,
+  updateStudentById,
 } from './controller.js';
 
 const router = express.Router();
 
-// Main Registrar (currently super_admin in your seed) + MIS developer
 router.post(
   '/import',
   protect({ kind: 'web' }),
@@ -37,6 +37,13 @@ router.get(
   protect({ kind: 'web' }),
   allowRoles('super_admin', 'developer'),
   getStudentGrades
+);
+
+router.put(
+  '/:id',
+  protect({ kind: 'web' }),
+  allowRoles('super_admin', 'developer'),
+  updateStudentById
 );
 
 router.get(

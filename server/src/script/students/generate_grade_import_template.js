@@ -14,10 +14,6 @@ function getArg(flag, fallback = '') {
   return process.argv[index + 1] || fallback;
 }
 
-function hasFlag(flag) {
-  return process.argv.includes(flag);
-}
-
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
   return String(value).trim();
@@ -28,7 +24,27 @@ function normalizeKey(key) {
 }
 
 function normalizeProgramCode(value) {
-  return cleanString(value).toUpperCase();
+  const code = cleanString(value).toUpperCase();
+
+  const aliases = {
+    BTLED: 'BTLE',
+  };
+
+  return aliases[code] || code;
+}
+
+function normalizeDegreeTitle(value) {
+  const title = cleanString(value);
+  const upper = title.toUpperCase();
+
+  const aliases = {
+    'BACHELOR OF TECHNICAL AND LIVELIHOOD EDUCATION':
+      'Bachelor of Technology and Livelihood Education',
+    'BACHELOR OF TECHNOLOGY AND LIVELIHOOD EDUCATION':
+      'Bachelor of Technology and Livelihood Education',
+  };
+
+  return aliases[upper] || title;
 }
 
 function normalizeStudentNo(value) {
@@ -138,7 +154,7 @@ function resolveCurriculumFromRow(row, catalog) {
 
   const curriculumYear = cleanString(row?.curriculumyear);
 
-  const degreeTitle = cleanString(
+  const degreeTitle = normalizeDegreeTitle(
     row?.degreetitle || row?.programname
   );
 
@@ -158,6 +174,16 @@ function resolveCurriculumFromRow(row, catalog) {
       return {
         curriculum: latest,
         matchedBy: 'program',
+      };
+    }
+  }
+
+  if (!programCode && degreeTitle === 'Bachelor of Technology and Livelihood Education') {
+    const btle = catalog.latestByProgram.get('BTLE');
+    if (btle) {
+      return {
+        curriculum: btle,
+        matchedBy: 'degreeTitle alias -> BTLE',
       };
     }
   }
@@ -228,19 +254,19 @@ async function main() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const defaultOutput = path.resolve(__dirname, 'output', `grade_import_template_${timestamp}.xlsx`);
 
-    const inputPath = path.resolve(getArg('--input', defaultInput));
-    const outputPath = path.resolve(getArg('--output', defaultOutput));
+  const inputPath = path.resolve(getArg('--input', defaultInput));
+  const outputPath = path.resolve(getArg('--output', defaultOutput));
 
-    const mode = cleanString(getArg('--mode', 'random')).toLowerCase();
-    const randomizeGrades = mode === 'random';
+  const mode = cleanString(getArg('--mode', 'random')).toLowerCase();
+  const randomizeGrades = mode === 'random';
 
-    const fileBuffer = await fs.readFile(inputPath);
-    const workbookInput = XLSX.read(fileBuffer, {
+  const fileBuffer = await fs.readFile(inputPath);
+  const workbookInput = XLSX.read(fileBuffer, {
     type: 'buffer',
     cellDates: true,
-    });
+  });
 
-    const firstSheetName = workbookInput.SheetNames[0];
+  const firstSheetName = workbookInput.SheetNames[0];
 
   if (!firstSheetName) {
     throw new Error('Input workbook has no sheets.');
@@ -277,7 +303,7 @@ async function main() {
     const studentName = buildStudentName(row);
     const inputProgram = normalizeProgramCode(row?.programcode || row?.program);
     const inputCurriculumYear = cleanString(row?.curriculumyear);
-    const degreeTitle = cleanString(row?.degreetitle || row?.programname);
+    const degreeTitle = normalizeDegreeTitle(row?.degreetitle || row?.programname);
     const schoolYear = cleanString(row?.schoolyear);
     const termName = cleanString(row?.termname);
 
@@ -321,27 +347,27 @@ async function main() {
       continue;
     }
 
-  for (const subject of subjects) {
-  const finalGrade = randomizeGrades ? getRandomGrade() : '';
-  const remarks = finalGrade ? buildRemark(finalGrade) : '';
+    for (const subject of subjects) {
+      const finalGrade = randomizeGrades ? getRandomGrade() : '';
+      const remarks = finalGrade ? buildRemark(finalGrade) : '';
 
-  gradeImportRows.push({
-    StudentNo: studentNo,
-    StudentName: studentName,
-    ProgramCode: curriculum.program,
-    ProgramName: curriculum.programName || '',
-    CurriculumYear: curriculum.curriculumYear || '',
-    YearLevel: subject.yearLevel,
-    Semester: subject.semester,
-    SubjectCode: subject.subjectCode,
-    SubjectTitle: subject.subjectTitle,
-    Units: subject.units,
-    FinalGrade: finalGrade,
-    Remarks: remarks,
-    SchoolYear: schoolYear || '2025-2026',
-    TermName: termName || subject.semester,
-  });
-}
+      gradeImportRows.push({
+        StudentNo: studentNo,
+        StudentName: studentName,
+        ProgramCode: curriculum.program,
+        ProgramName: curriculum.programName || '',
+        CurriculumYear: curriculum.curriculumYear || '',
+        YearLevel: subject.yearLevel,
+        Semester: subject.semester,
+        SubjectCode: subject.subjectCode,
+        SubjectTitle: subject.subjectTitle,
+        Units: subject.units,
+        FinalGrade: finalGrade,
+        Remarks: remarks,
+        SchoolYear: schoolYear || '2025-2026',
+        TermName: termName || subject.semester,
+      });
+    }
 
     summaryRows.push({
       StudentNo: studentNo,

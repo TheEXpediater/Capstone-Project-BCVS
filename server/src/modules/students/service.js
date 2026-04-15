@@ -560,3 +560,177 @@ export async function importStudentGrades(rows, actor) {
     issues: issues.slice(0, 30),
   };
 }
+export async function updateStudentById(id, payload, actor) {
+  const Student = getStudentModel();
+  const Curriculum = getCurriculumModel();
+
+  if (!Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, 'Invalid student id.');
+  }
+
+  const existing = await Student.findById(id).lean();
+
+  if (!existing) {
+    throw new ApiError(404, 'Student not found.');
+  }
+
+  const next = {
+    studentName:
+      payload.studentName !== undefined
+        ? cleanString(payload.studentName)
+        : existing.studentName,
+
+    extensionName:
+      payload.extensionName !== undefined
+        ? cleanString(payload.extensionName)
+        : existing.extensionName,
+
+    gender:
+      payload.gender !== undefined
+        ? cleanString(payload.gender)
+        : existing.gender,
+
+    permanentAddress:
+      payload.permanentAddress !== undefined
+        ? cleanString(payload.permanentAddress)
+        : existing.permanentAddress,
+
+    residentialAddress:
+      payload.residentialAddress !== undefined
+        ? cleanString(payload.residentialAddress)
+        : existing.residentialAddress,
+
+    entranceCredentials:
+      payload.entranceCredentials !== undefined
+        ? cleanString(payload.entranceCredentials)
+        : existing.entranceCredentials,
+
+    highSchool:
+      payload.highSchool !== undefined
+        ? cleanString(payload.highSchool)
+        : existing.highSchool,
+
+    degreeTitle:
+      payload.degreeTitle !== undefined
+        ? cleanString(payload.degreeTitle)
+        : existing.degreeTitle,
+
+    major:
+      payload.major !== undefined
+        ? cleanString(payload.major)
+        : existing.major,
+
+    dateAdmission:
+      payload.dateAdmission !== undefined
+        ? toDateOrNull(payload.dateAdmission)
+        : existing.dateAdmission,
+
+    placeBirth:
+      payload.placeBirth !== undefined
+        ? cleanString(payload.placeBirth)
+        : existing.placeBirth,
+
+    dateGraduated:
+      payload.dateGraduated !== undefined
+        ? toDateOrNull(payload.dateGraduated)
+        : existing.dateGraduated,
+
+    dateGraduation:
+      payload.dateGraduation !== undefined
+        ? toDateOrNull(payload.dateGraduation)
+        : existing.dateGraduation,
+
+    graduated:
+      payload.graduated !== undefined
+        ? Boolean(payload.graduated)
+        : Boolean(existing.graduated),
+
+    programCode:
+      payload.programCode !== undefined
+        ? normalizeProgramCode(payload.programCode)
+        : existing.programCode,
+
+    programName:
+      payload.programName !== undefined
+        ? cleanString(payload.programName)
+        : existing.programName,
+
+    curriculumYear:
+      payload.curriculumYear !== undefined
+        ? cleanString(payload.curriculumYear)
+        : existing.curriculumYear,
+  };
+
+  if (!next.studentName) {
+    throw new ApiError(400, 'Student name is required.');
+  }
+
+  const curriculumFieldsTouched =
+    payload.programCode !== undefined ||
+    payload.programName !== undefined ||
+    payload.degreeTitle !== undefined ||
+    payload.curriculumYear !== undefined;
+
+  let nextCurriculumId = existing.curriculumId || null;
+  let nextCurriculumYear = next.curriculumYear || '';
+
+  if (curriculumFieldsTouched) {
+    const matchedCurriculum = await resolveCurriculum({
+      programcode: next.programCode,
+      program: next.programCode,
+      curriculumyear: next.curriculumYear,
+      degreetitle: next.degreeTitle,
+      programname: next.programName,
+    });
+
+    nextCurriculumId = matchedCurriculum?._id || null;
+    nextCurriculumYear = matchedCurriculum?.curriculumYear || next.curriculumYear || '';
+
+    if (matchedCurriculum?.program && !next.programCode) {
+      next.programCode = matchedCurriculum.program;
+    }
+
+    if (matchedCurriculum?.programName && !next.programName) {
+      next.programName = matchedCurriculum.programName;
+    }
+  }
+
+  const updated = await Student.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        studentName: next.studentName,
+        extensionName: next.extensionName,
+        gender: next.gender,
+        permanentAddress: next.permanentAddress,
+        residentialAddress: next.residentialAddress,
+        entranceCredentials: next.entranceCredentials,
+        highSchool: next.highSchool,
+        degreeTitle: next.degreeTitle,
+        major: next.major,
+        dateAdmission: next.dateAdmission,
+        placeBirth: next.placeBirth,
+        dateGraduated: next.dateGraduated,
+        dateGraduation: next.dateGraduation,
+        graduated: next.graduated,
+        programCode: next.programCode,
+        programName: next.programName,
+        curriculumYear: nextCurriculumYear,
+        curriculumId: nextCurriculumId,
+        updatedBy: actor?._id || null,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  )
+    .populate({
+      path: 'curriculumId',
+      model: Curriculum,
+      select: 'program programName curriculumYear',
+    })
+    .lean();
+
+  return mapStudentDetailRow(updated);
+}
