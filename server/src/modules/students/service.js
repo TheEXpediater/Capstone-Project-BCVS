@@ -252,15 +252,21 @@ export async function listStudents() {
   return rows.map(mapStudentListRow);
 }
 
+
 export async function getStudentById(id) {
   const Student = getStudentModel();
+  const Curriculum = getCurriculumModel();
 
   if (!Types.ObjectId.isValid(id)) {
     throw new ApiError(400, 'Invalid student id.');
   }
 
   const row = await Student.findById(id)
-    .populate('curriculumId', 'program programName curriculumYear')
+    .populate({
+      path: 'curriculumId',
+      model: Curriculum,
+      select: 'program programName curriculumYear',
+    })
     .lean();
 
   if (!row) {
@@ -273,29 +279,33 @@ export async function getStudentById(id) {
 export async function getStudentGrades(id) {
   const Student = getStudentModel();
   const StudentGrade = getStudentGradeModel();
+  const Curriculum = getCurriculumModel();
 
   if (!Types.ObjectId.isValid(id)) {
     throw new ApiError(400, 'Invalid student id.');
   }
 
   const student = await Student.findById(id)
-    .populate('curriculumId', 'program programName curriculumYear')
+    .populate({
+      path: 'curriculumId',
+      model: Curriculum,
+      select: 'program programName curriculumYear',
+    })
     .lean();
 
   if (!student) {
     throw new ApiError(404, 'Student not found.');
   }
 
-const grades = await StudentGrade.find({ student: student._id })
-  .sort({ yearLevel: 1, semester: 1, subjectCode: 1 })
-  .lean();
+  const grades = await StudentGrade.find({ student: student._id })
+    .sort({ yearLevel: 1, semester: 1, subjectCode: 1 })
+    .lean();
 
-return {
-  student: mapStudentDetailRow(student),
-  grades: grades.map(mapGradeRow),
-};
+  return {
+    student: mapStudentDetailRow(student),
+    grades: grades.map(mapGradeRow),
+  };
 }
-
 export async function importStudents(rows, actor) {
   const Student = getStudentModel();
   const importRows = normalizeImportRows(rows);

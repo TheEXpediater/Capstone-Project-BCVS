@@ -17,6 +17,20 @@ export const getStudentById = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+export const updateStudentById = asyncHandler(async (req, res) => {
+  const data = await studentService.updateStudentById(
+    req.params.id,
+    req.body || {},
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Student profile updated successfully.',
+  });
+});
+
 export const getStudentGrades = asyncHandler(async (req, res) => {
   const data = await studentService.getStudentGrades(req.params.id);
   res.status(200).json({ success: true, data });

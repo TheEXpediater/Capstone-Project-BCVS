@@ -10,6 +10,11 @@ export async function getStudentProfile(id) {
   return response.data.data;
 }
 
+export async function updateStudentProfile(id, payload) {
+  const response = await api.put(`/students/${id}`, payload);
+  return response.data.data;
+}
+
 export async function getStudentGrades(id) {
   const response = await api.get(`/students/${id}/grades`);
   return response.data.data;

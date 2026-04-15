@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   bulkImportStudentGrades,
@@ -6,7 +6,45 @@ import {
   getStudentGrades,
   getStudentProfile,
   listStudents,
+  updateStudentProfile,
 } from '../studentsAPI';
+
+function formatDate(value) {
+  if (!value) return '—';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return parsed.toLocaleDateString();
+}
+
+function buildSummaryText(label, summary) {
+  if (!summary) return `${label} finished.`;
+
+  const parts = [
+    `total: ${summary.total ?? 0}`,
+    `inserted: ${summary.inserted ?? 0}`,
+    `updated: ${summary.updated ?? 0}`,
+    `skipped: ${summary.skipped ?? 0}`,
+  ];
+
+  if (typeof summary.withoutCurriculum === 'number') {
+    parts.push(`without curriculum: ${summary.withoutCurriculum}`);
+  }
+
+  return `${label} finished (${parts.join(', ')}).`;
+}
+
+function getErrorMessage(error, fallback) {
+  return (
+    error?.response?.data?.message ||
+    error?.message ||
+    fallback
+  );
+}
+
 function normalizeHeaderKey(key) {
   return String(key || '').trim().replace(/\s+/g, '');
 }
@@ -56,13 +94,66 @@ async function readSpreadsheet(file) {
     rows,
   };
 }
-function DataPreview({ rows }) {
-  const previewRows = rows.slice(0, 5);
-  const columns = Object.keys(previewRows[0] || {});
 
+function formatDateInput(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function createStudentForm(student) {
+  return {
+    studentName: student?.studentName || '',
+    extensionName: student?.extensionName || '',
+    gender: student?.gender || '',
+    permanentAddress: student?.permanentAddress || '',
+    residentialAddress: student?.residentialAddress || '',
+    entranceCredentials: student?.entranceCredentials || '',
+    highSchool: student?.highSchool || '',
+    degreeTitle: student?.degreeTitle || '',
+    major: student?.major || '',
+    dateAdmission: formatDateInput(student?.dateAdmission),
+    placeBirth: student?.placeBirth || '',
+    dateGraduated: formatDateInput(student?.dateGraduated),
+    dateGraduation: formatDateInput(student?.dateGraduation),
+    graduated: Boolean(student?.graduated),
+    programCode: student?.programCode || '',
+    programName: student?.programName || '',
+    curriculumYear: student?.curriculum?.curriculumYear || '',
+  };
+}
+function FeedbackAlert({ feedback }) {
+  if (!feedback?.text) return null;
+
+  return (
+    <div className={`alert alert-${feedback.type} mb-0`}>
+      <div>{feedback.text}</div>
+
+      {feedback.issues?.length ? (
+        <div className="mt-2">
+          <div className="fw-semibold small mb-1">Sample issues</div>
+          <ul className="small mb-0">
+            {feedback.issues.slice(0, 10).map((issue, index) => (
+              <li key={index}>
+                {issue.studentNo ? `${issue.studentNo}: ` : ''}
+                {issue.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DataPreview({ rows }) {
   if (!rows.length) {
     return <div className="alert alert-light border mb-0">No preview available yet.</div>;
   }
+
+  const previewRows = rows.slice(0, 5);
+  const columns = Object.keys(previewRows[0] || {});
 
   return (
     <div className="border rounded-3 p-3 bg-light">
@@ -86,7 +177,9 @@ function DataPreview({ rows }) {
             {previewRows.map((row, index) => (
               <tr key={index}>
                 {columns.map((column) => (
-                  <td key={`${index}-${column}`}>{String(row[column] ?? '')}</td>
+                  <td key={`${index}-${column}`}>
+                    {String(row[column] ?? '')}
+                  </td>
                 ))}
               </tr>
             ))}
@@ -97,8 +190,89 @@ function DataPreview({ rows }) {
   );
 }
 
-function StudentProfileModal({ student, onClose, onOpenGrades }) {
+function StudentProfileModal({
+  student,
+  initialEditing = false,
+  onClose,
+  onOpenGrades,
+  onSave,
+}) {
+  const [isEditing, setIsEditing] = useState(initialEditing);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(createStudentForm(student));
+
+  useEffect(() => {
+    setIsEditing(initialEditing);
+    setForm(createStudentForm(student));
+  }, [student, initialEditing]);
+
   if (!student) return null;
+
+  const original = createStudentForm(student);
+  const hasChanges = JSON.stringify(form) !== JSON.stringify(original);
+
+  function updateField(field, value) {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  }
+
+  function handleRequestClose() {
+    if (isEditing && hasChanges) {
+      const approved = window.confirm('Discard unsaved changes?');
+      if (!approved) return;
+    }
+    onClose();
+  }
+
+  function handleStartEdit() {
+    const approved = window.confirm('Turn this profile into edit mode?');
+    if (!approved) return;
+    setIsEditing(true);
+  }
+
+  function handleCancelEdit() {
+    if (hasChanges) {
+      const approved = window.confirm('Discard unsaved changes?');
+      if (!approved) return;
+    }
+    setForm(original);
+    setIsEditing(false);
+  }
+
+  async function handleSave() {
+    const approved = window.confirm('Save changes to this student profile?');
+    if (!approved) return;
+
+    try {
+      setSaving(true);
+      const updated = await onSave(student._id, form);
+      setForm(createStudentForm(updated));
+      setIsEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleOpenGradesFromModal() {
+    if (isEditing && hasChanges) {
+      const approved = window.confirm(
+        'You have unsaved changes. Open grades without saving?'
+      );
+      if (!approved) return;
+    }
+    onOpenGrades(student._id);
+  }
+
+  function renderValue(label, value, input) {
+    return (
+      <div className="col-md-6">
+        <div className="small text-muted">{label}</div>
+        {isEditing ? input : <div className="fw-semibold">{value || '—'}</div>}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -107,10 +281,17 @@ function StudentProfileModal({ student, onClose, onOpenGrades }) {
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
               <div>
-                <h2 className="h5 mb-1">Student Profile</h2>
+                <h2 className="h5 mb-1">
+                  {isEditing ? 'Edit Student Profile' : 'Student Profile'}
+                </h2>
                 <p className="text-muted mb-0 small">{student.studentNo}</p>
               </div>
-              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+              <button
+                type="button"
+                className="btn-close"
+                onClick={handleRequestClose}
+                aria-label="Close"
+              />
             </div>
 
             <div className="modal-body">
@@ -119,52 +300,136 @@ function StudentProfileModal({ student, onClose, onOpenGrades }) {
                   <div className="small text-muted">Student No</div>
                   <div className="fw-semibold">{student.studentNo || '—'}</div>
                 </div>
-                <div className="col-md-6">
-                  <div className="small text-muted">Student Name</div>
-                  <div className="fw-semibold">{student.studentName || '—'}</div>
-                </div>
 
-                <div className="col-md-4">
-                  <div className="small text-muted">Program Code</div>
-                  <div className="fw-semibold">{student.programCode || '—'}</div>
-                </div>
-                <div className="col-md-4">
-                  <div className="small text-muted">Program Name</div>
-                  <div className="fw-semibold">{student.programName || student.degreeTitle || '—'}</div>
-                </div>
+                {renderValue(
+                  'Student Name',
+                  form.studentName,
+                  <input
+                    className="form-control"
+                    value={form.studentName}
+                    onChange={(e) => updateField('studentName', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Program Code',
+                  form.programCode,
+                  <input
+                    className="form-control"
+                    value={form.programCode}
+                    onChange={(e) => updateField('programCode', e.target.value.toUpperCase())}
+                  />
+                )}
+
+                {renderValue(
+                  'Program Name',
+                  form.programName || form.degreeTitle,
+                  <input
+                    className="form-control"
+                    value={form.programName}
+                    onChange={(e) => updateField('programName', e.target.value)}
+                  />
+                )}
+
                 <div className="col-md-4">
                   <div className="small text-muted">Graduated</div>
-                  <div className="fw-semibold">{student.graduated ? 'Yes' : 'No'}</div>
+                  {isEditing ? (
+                    <select
+                      className="form-select"
+                      value={form.graduated ? 'yes' : 'no'}
+                      onChange={(e) => updateField('graduated', e.target.value === 'yes')}
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  ) : (
+                    <div className="fw-semibold">{form.graduated ? 'Yes' : 'No'}</div>
+                  )}
                 </div>
 
-                <div className="col-md-4">
-                  <div className="small text-muted">Major</div>
-                  <div className="fw-semibold">{student.major || '—'}</div>
-                </div>
-                <div className="col-md-4">
-                  <div className="small text-muted">Gender</div>
-                  <div className="fw-semibold">{student.gender || '—'}</div>
-                </div>
-                <div className="col-md-4">
-                  <div className="small text-muted">Extension Name</div>
-                  <div className="fw-semibold">{student.extensionName || '—'}</div>
-                </div>
+                {renderValue(
+                  'Curriculum Year',
+                  form.curriculumYear || student?.curriculum?.curriculumYear,
+                  <input
+                    className="form-control"
+                    value={form.curriculumYear}
+                    onChange={(e) => updateField('curriculumYear', e.target.value)}
+                  />
+                )}
 
-                <div className="col-md-6">
-                  <div className="small text-muted">Date Admission</div>
-                  <div className="fw-semibold">{formatDate(student.dateAdmission)}</div>
-                </div>
-                <div className="col-md-6">
-                  <div className="small text-muted">Date Graduation</div>
-                  <div className="fw-semibold">
-                    {formatDate(student.dateGraduation || student.dateGraduated)}
-                  </div>
-                </div>
+                {renderValue(
+                  'Major',
+                  form.major,
+                  <input
+                    className="form-control"
+                    value={form.major}
+                    onChange={(e) => updateField('major', e.target.value)}
+                  />
+                )}
 
-                <div className="col-md-6">
-                  <div className="small text-muted">Place of Birth</div>
-                  <div className="fw-semibold">{student.placeBirth || '—'}</div>
-                </div>
+                {renderValue(
+                  'Gender',
+                  form.gender,
+                  <input
+                    className="form-control"
+                    value={form.gender}
+                    onChange={(e) => updateField('gender', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Extension Name',
+                  form.extensionName,
+                  <input
+                    className="form-control"
+                    value={form.extensionName}
+                    onChange={(e) => updateField('extensionName', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Date Admission',
+                  formatDate(form.dateAdmission),
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={form.dateAdmission}
+                    onChange={(e) => updateField('dateAdmission', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Date Graduated',
+                  formatDate(form.dateGraduated),
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={form.dateGraduated}
+                    onChange={(e) => updateField('dateGraduated', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Date Graduation',
+                  formatDate(form.dateGraduation),
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={form.dateGraduation}
+                    onChange={(e) => updateField('dateGraduation', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Place of Birth',
+                  form.placeBirth,
+                  <input
+                    className="form-control"
+                    value={form.placeBirth}
+                    onChange={(e) => updateField('placeBirth', e.target.value)}
+                  />
+                )}
+
                 <div className="col-md-6">
                   <div className="small text-muted">Curriculum</div>
                   <div className="fw-semibold">
@@ -176,41 +441,98 @@ function StudentProfileModal({ student, onClose, onOpenGrades }) {
 
                 <div className="col-12">
                   <div className="small text-muted">Permanent Address</div>
-                  <div className="fw-semibold">{student.permanentAddress || '—'}</div>
+                  {isEditing ? (
+                    <textarea
+                      className="form-control"
+                      rows="2"
+                      value={form.permanentAddress}
+                      onChange={(e) => updateField('permanentAddress', e.target.value)}
+                    />
+                  ) : (
+                    <div className="fw-semibold">{form.permanentAddress || '—'}</div>
+                  )}
                 </div>
 
                 <div className="col-12">
                   <div className="small text-muted">Residential Address</div>
-                  <div className="fw-semibold">{student.residentialAddress || '—'}</div>
+                  {isEditing ? (
+                    <textarea
+                      className="form-control"
+                      rows="2"
+                      value={form.residentialAddress}
+                      onChange={(e) => updateField('residentialAddress', e.target.value)}
+                    />
+                  ) : (
+                    <div className="fw-semibold">{form.residentialAddress || '—'}</div>
+                  )}
                 </div>
 
-                <div className="col-md-6">
-                  <div className="small text-muted">Entrance Credentials</div>
-                  <div className="fw-semibold">{student.entranceCredentials || '—'}</div>
-                </div>
-                <div className="col-md-6">
-                  <div className="small text-muted">High School</div>
-                  <div className="fw-semibold">{student.highSchool || '—'}</div>
-                </div>
+                {renderValue(
+                  'Entrance Credentials',
+                  form.entranceCredentials,
+                  <input
+                    className="form-control"
+                    value={form.entranceCredentials}
+                    onChange={(e) => updateField('entranceCredentials', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'High School',
+                  form.highSchool,
+                  <input
+                    className="form-control"
+                    value={form.highSchool}
+                    onChange={(e) => updateField('highSchool', e.target.value)}
+                  />
+                )}
+
+                {renderValue(
+                  'Degree Title',
+                  form.degreeTitle,
+                  <input
+                    className="form-control"
+                    value={form.degreeTitle}
+                    onChange={(e) => updateField('degreeTitle', e.target.value)}
+                  />
+                )}
               </div>
             </div>
 
             <div className="modal-footer">
-              <button className="btn btn-outline-secondary" onClick={onClose}>
+              <button className="btn btn-outline-secondary" onClick={handleRequestClose}>
                 Close
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => onOpenGrades(student._id)}
-              >
-                Show Grades
-              </button>
+
+              {!isEditing ? (
+                <>
+                  <button className="btn btn-outline-primary" onClick={handleStartEdit}>
+                    Edit
+                  </button>
+                  <button className="btn btn-primary" onClick={handleOpenGradesFromModal}>
+                    Show Grades
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-outline-secondary" onClick={handleCancelEdit}>
+                    Cancel Edit
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="modal-backdrop show" onClick={onClose} />
+      <div className="modal-backdrop show" onClick={handleRequestClose} />
     </>
   );
 }
@@ -218,8 +540,8 @@ function StudentProfileModal({ student, onClose, onOpenGrades }) {
 function StudentGradesModal({ data, onClose }) {
   if (!data) return null;
 
-  const student = data.student;
   const grades = data.grades || [];
+  const student = data.student;
 
   return (
     <>
@@ -233,7 +555,12 @@ function StudentGradesModal({ data, onClose }) {
                   {student?.studentNo} — {student?.studentName}
                 </p>
               </div>
-              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+              <button
+                type="button"
+                className="btn-close"
+                onClick={onClose}
+                aria-label="Close"
+              />
             </div>
 
             <div className="modal-body">
@@ -289,12 +616,78 @@ function StudentGradesModal({ data, onClose }) {
   );
 }
 
+function ImportPanel({
+  title,
+  description,
+  warning,
+  fileName,
+  sheetName,
+  rows,
+  loading,
+  buttonText,
+  onFileChange,
+  onImport,
+  helperText,
+}) {
+  const columns = Object.keys(rows[0] || {});
+
+  return (
+    <div className="card border-0 shadow-sm">
+      <div className="card-body p-4 d-flex flex-column gap-4">
+        <div>
+          <h2 className="h5 mb-1">{title}</h2>
+          <p className="text-muted mb-0">{description}</p>
+        </div>
+
+        {warning ? <div className="alert alert-warning mb-0">{warning}</div> : null}
+
+        <div className="border rounded-3 p-3 bg-light">
+          <label className="form-label fw-semibold">Select Excel / CSV file</label>
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="form-control"
+            onChange={onFileChange}
+          />
+
+          {helperText ? (
+            <div className="small text-muted mt-2">{helperText}</div>
+          ) : null}
+        </div>
+
+        {fileName ? (
+          <div className="border rounded-3 p-3">
+            <div className="fw-semibold">{fileName}</div>
+            <div className="small text-muted">
+              Sheet: {sheetName || '—'} | Rows: {rows.length}
+            </div>
+            <div className="small text-muted mt-2">
+              Columns: {columns.join(', ') || '—'}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="d-flex justify-content-end">
+          <button
+            className="btn btn-primary"
+            onClick={onImport}
+            disabled={loading || !rows.length}
+          >
+            {loading ? 'Importing...' : buttonText}
+          </button>
+        </div>
+
+        <DataPreview rows={rows} />
+      </div>
+    </div>
+  );
+}
+
 export default function StudentImportManagerPage() {
   const [activeTab, setActiveTab] = useState('students');
-
   const [students, setStudents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [loadingStudents, setLoadingStudents] = useState(true);
+  const [refreshingStudents, setRefreshingStudents] = useState(false);
 
   const [feedback, setFeedback] = useState({
     type: '',
@@ -302,41 +695,45 @@ export default function StudentImportManagerPage() {
     issues: [],
   });
 
-  const [studentImportFileName, setStudentImportFileName] = useState('');
-  const [studentImportRows, setStudentImportRows] = useState([]);
-  const [studentImportSheetName, setStudentImportSheetName] = useState('');
-  const [importingStudents, setImportingStudents] = useState(false);
+  const [studentImport, setStudentImport] = useState({
+    fileName: '',
+    sheetName: '',
+    rows: [],
+    loading: false,
+  });
 
-  const [gradeImportFileName, setGradeImportFileName] = useState('');
-  const [gradeImportRows, setGradeImportRows] = useState([]);
-  const [gradeImportSheetName, setGradeImportSheetName] = useState('');
-  const [importingGrades, setImportingGrades] = useState(false);
+  const [gradeImport, setGradeImport] = useState({
+    fileName: '',
+    sheetName: '',
+    rows: [],
+    loading: false,
+  });
 
   const [profileLoading, setProfileLoading] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-
+  const [profileMode, setProfileMode] = useState('view');
   const [gradesLoadingId, setGradesLoadingId] = useState('');
   const [selectedGradesData, setSelectedGradesData] = useState(null);
 
   async function loadStudents(showBusy = false) {
     try {
-      if (showBusy) setRefreshing(true);
-      else setLoading(true);
+      if (showBusy) {
+        setRefreshingStudents(true);
+      } else {
+        setLoadingStudents(true);
+      }
 
       const data = await listStudents();
       setStudents(data || []);
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to load students.',
+        text: getErrorMessage(error, 'Failed to load students.'),
         issues: [],
       });
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoadingStudents(false);
+      setRefreshingStudents(false);
     }
   }
 
@@ -344,23 +741,20 @@ export default function StudentImportManagerPage() {
     loadStudents(false);
   }, []);
 
-  const studentImportColumns = useMemo(() => {
-    return Object.keys(studentImportRows[0] || {});
-  }, [studentImportRows]);
-
-  const gradeImportColumns = useMemo(() => {
-    return Object.keys(gradeImportRows[0] || {});
-  }, [gradeImportRows]);
-
   async function handleStudentFileChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
 
     try {
       const parsed = await readSpreadsheet(file);
-      setStudentImportFileName(file.name);
-      setStudentImportSheetName(parsed.sheetName);
-      setStudentImportRows(parsed.rows);
+
+      setStudentImport({
+        fileName: file.name,
+        sheetName: parsed.sheetName,
+        rows: parsed.rows,
+        loading: false,
+      });
+
       setFeedback({
         type: 'success',
         text: `Loaded ${parsed.rows.length} student row(s) from ${file.name}.`,
@@ -369,7 +763,7 @@ export default function StudentImportManagerPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text: error.message || 'Failed to read student import file.',
+        text: getErrorMessage(error, 'Failed to read student import file.'),
         issues: [],
       });
     } finally {
@@ -383,9 +777,14 @@ export default function StudentImportManagerPage() {
 
     try {
       const parsed = await readSpreadsheet(file);
-      setGradeImportFileName(file.name);
-      setGradeImportSheetName(parsed.sheetName);
-      setGradeImportRows(parsed.rows);
+
+      setGradeImport({
+        fileName: file.name,
+        sheetName: parsed.sheetName,
+        rows: parsed.rows,
+        loading: false,
+      });
+
       setFeedback({
         type: 'success',
         text: `Loaded ${parsed.rows.length} grade row(s) from ${file.name}.`,
@@ -394,7 +793,7 @@ export default function StudentImportManagerPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text: error.message || 'Failed to read grade import file.',
+        text: getErrorMessage(error, 'Failed to read grade import file.'),
         issues: [],
       });
     } finally {
@@ -403,7 +802,7 @@ export default function StudentImportManagerPage() {
   }
 
   async function handleImportStudents() {
-    if (!studentImportRows.length) {
+    if (!studentImport.rows.length) {
       setFeedback({
         type: 'danger',
         text: 'Choose a student spreadsheet first.',
@@ -413,8 +812,9 @@ export default function StudentImportManagerPage() {
     }
 
     try {
-      setImportingStudents(true);
-      const result = await bulkImportStudents(studentImportRows);
+      setStudentImport((prev) => ({ ...prev, loading: true }));
+
+      const result = await bulkImportStudents(studentImport.rows);
 
       setFeedback({
         type: 'success',
@@ -427,19 +827,16 @@ export default function StudentImportManagerPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to import student data.',
+        text: getErrorMessage(error, 'Failed to import student data.'),
         issues: [],
       });
     } finally {
-      setImportingStudents(false);
+      setStudentImport((prev) => ({ ...prev, loading: false }));
     }
   }
 
   async function handleImportGrades() {
-    if (!gradeImportRows.length) {
+    if (!gradeImport.rows.length) {
       setFeedback({
         type: 'danger',
         text: 'Choose a grades spreadsheet first.',
@@ -449,8 +846,9 @@ export default function StudentImportManagerPage() {
     }
 
     try {
-      setImportingGrades(true);
-      const result = await bulkImportStudentGrades(gradeImportRows);
+      setGradeImport((prev) => ({ ...prev, loading: true }));
+
+      const result = await bulkImportStudentGrades(gradeImport.rows);
 
       setFeedback({
         type: 'success',
@@ -463,35 +861,53 @@ export default function StudentImportManagerPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to import grades.',
+        text: getErrorMessage(error, 'Failed to import grades.'),
         issues: [],
       });
     } finally {
-      setImportingGrades(false);
+      setGradeImport((prev) => ({ ...prev, loading: false }));
     }
   }
 
-  async function handleOpenProfile(studentId) {
-    try {
-      setProfileLoading(true);
-      const data = await getStudentProfile(studentId);
-      setSelectedStudent(data);
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to load student profile.',
-        issues: [],
-      });
-    } finally {
-      setProfileLoading(false);
-    }
+  async function handleOpenProfile(studentId, mode = 'view') {
+  try {
+    setProfileLoading(true);
+    const data = await getStudentProfile(studentId);
+    setSelectedStudent(data);
+    setProfileMode(mode);
+  } catch (error) {
+    setFeedback({
+      type: 'danger',
+      text: getErrorMessage(error, 'Failed to load student profile.'),
+      issues: [],
+    });
+  } finally {
+    setProfileLoading(false);
   }
+}
+async function handleSaveStudentProfile(studentId, payload) {
+  try {
+    const updated = await updateStudentProfile(studentId, payload);
+
+    setSelectedStudent(updated);
+    await loadStudents(true);
+
+    setFeedback({
+      type: 'success',
+      text: 'Student profile updated successfully.',
+      issues: [],
+    });
+
+    return updated;
+  } catch (error) {
+    setFeedback({
+      type: 'danger',
+      text: getErrorMessage(error, 'Failed to update student profile.'),
+      issues: [],
+    });
+    throw error;
+  }
+}
 
   async function handleOpenGrades(studentId) {
     try {
@@ -502,37 +918,12 @@ export default function StudentImportManagerPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to load student grades.',
+        text: getErrorMessage(error, 'Failed to load student grades.'),
         issues: [],
       });
     } finally {
       setGradesLoadingId('');
     }
-  }
-
-  function renderTabs() {
-    const tabs = [
-      { key: 'students', label: 'Students' },
-      { key: 'importStudents', label: 'Import Student Data' },
-      { key: 'importGrades', label: 'Import Grades' },
-    ];
-
-    return (
-      <div className="d-flex flex-wrap gap-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            className={`btn ${activeTab === tab.key ? 'btn-primary' : 'btn-outline-primary'}`}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-    );
   }
 
   return (
@@ -541,31 +932,32 @@ export default function StudentImportManagerPage() {
         <div>
           <h1 className="h3 mb-1">Student Records</h1>
           <p className="text-muted mb-0">
-            Clean import workflow first for student data, then grades, ready for later TOR / VC generation.
+            Clean student import first, then grade import, with profile and grade viewing in one page.
           </p>
         </div>
 
-        {renderTabs()}
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            className={`btn ${activeTab === 'students' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setActiveTab('students')}
+          >
+            Students
+          </button>
+          <button
+            className={`btn ${activeTab === 'importStudents' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setActiveTab('importStudents')}
+          >
+            Import Student Data
+          </button>
+          <button
+            className={`btn ${activeTab === 'importGrades' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setActiveTab('importGrades')}
+          >
+            Import Grades
+          </button>
+        </div>
 
-        {feedback.text ? (
-          <div className={`alert alert-${feedback.type} mb-0`}>
-            <div>{feedback.text}</div>
-
-            {feedback.issues?.length ? (
-              <div className="mt-2">
-                <div className="fw-semibold small mb-1">Sample issues</div>
-                <ul className="small mb-0">
-                  {feedback.issues.slice(0, 10).map((issue, index) => (
-                    <li key={index}>
-                      {issue.studentNo ? `${issue.studentNo}: ` : ''}
-                      {issue.reason}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        <FeedbackAlert feedback={feedback} />
 
         {activeTab === 'students' ? (
           <div className="card border-0 shadow-sm">
@@ -581,18 +973,16 @@ export default function StudentImportManagerPage() {
                 <button
                   className="btn btn-outline-secondary"
                   onClick={() => loadStudents(true)}
-                  disabled={refreshing}
+                  disabled={refreshingStudents}
                 >
-                  {refreshing ? 'Refreshing...' : 'Refresh'}
+                  {refreshingStudents ? 'Refreshing...' : 'Refresh'}
                 </button>
               </div>
 
-              {loading ? (
+              {loadingStudents ? (
                 <div className="text-muted">Loading students...</div>
               ) : students.length === 0 ? (
-                <div className="alert alert-light border mb-0">
-                  No student records yet.
-                </div>
+                <div className="alert alert-light border mb-0">No student records yet.</div>
               ) : (
                 <div className="table-responsive">
                   <table className="table align-middle mb-0">
@@ -612,27 +1002,40 @@ export default function StudentImportManagerPage() {
                           <td>{student.studentName}</td>
                           <td>{student.program || '—'}</td>
                           <td>
-                            <span className={`badge ${student.graduated ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                            <span
+                              className={`badge ${
+                                student.graduated ? 'text-bg-success' : 'text-bg-secondary'
+                              }`}
+                            >
                               {student.graduated ? 'Yes' : 'No'}
                             </span>
                           </td>
                           <td>
                             <div className="d-flex flex-wrap gap-2">
-                              <button
-                                className="btn btn-outline-primary btn-sm"
-                                onClick={() => handleOpenProfile(student._id)}
-                                disabled={profileLoading}
-                              >
-                                Profile
-                              </button>
-                              <button
-                                className="btn btn-outline-secondary btn-sm"
-                                onClick={() => handleOpenGrades(student._id)}
-                                disabled={gradesLoadingId === student._id}
-                              >
-                                {gradesLoadingId === student._id ? 'Loading...' : 'Grades'}
-                              </button>
-                            </div>
+  <button
+    className="btn btn-outline-primary btn-sm"
+    onClick={() => handleOpenProfile(student._id, 'view')}
+    disabled={profileLoading}
+  >
+    Profile
+  </button>
+
+  <button
+    className="btn btn-outline-warning btn-sm"
+    onClick={() => handleOpenProfile(student._id, 'edit')}
+    disabled={profileLoading}
+  >
+    Edit
+  </button>
+
+  <button
+    className="btn btn-outline-secondary btn-sm"
+    onClick={() => handleOpenGrades(student._id)}
+    disabled={gradesLoadingId === student._id}
+  >
+    {gradesLoadingId === student._id ? 'Loading...' : 'Grades'}
+  </button>
+</div>
                           </td>
                         </tr>
                       ))}
@@ -645,136 +1048,55 @@ export default function StudentImportManagerPage() {
         ) : null}
 
         {activeTab === 'importStudents' ? (
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4 d-flex flex-column gap-4">
-              <div>
-                <h2 className="h5 mb-1">Import Student Data</h2>
-                <p className="text-muted mb-0">
-                  Upload student records first. Your sample file columns already match this flow.
-                </p>
-              </div>
-
-              <div className="border rounded-3 p-3 bg-light">
-                <label className="form-label fw-semibold">Select Excel / CSV file</label>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="form-control"
-                  onChange={handleStudentFileChange}
-                />
-
-                <div className="small text-muted mt-2">
-                  Recognized student columns include:
-                  {' '}
-                  <strong>
-                    StudentNo, StudentName, ExtensionName, Gender, PermAddress,
-                    ResAddress, EntranceCredentials, HighSchool, DegreeTitle, Major,
-                    DateAdmission, PlaceBirth, DateGraduated, DateGraduation
-                  </strong>
-                </div>
-
-                <div className="small text-muted mt-2">
-                  Best practice: add <strong>ProgramCode</strong> and optional
-                  <strong> CurriculumYear</strong> in future imports so the curriculum
-                  link becomes exact, not only name-matched.
-                </div>
-              </div>
-
-              {studentImportFileName ? (
-                <div className="border rounded-3 p-3">
-                  <div className="fw-semibold">{studentImportFileName}</div>
-                  <div className="small text-muted">
-                    Sheet: {studentImportSheetName || '—'} | Rows: {studentImportRows.length}
-                  </div>
-                  <div className="small text-muted mt-2">
-                    Columns: {studentImportColumns.join(', ') || '—'}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="d-flex justify-content-end">
-                <button
-                  className="btn btn-primary"
-                  onClick={handleImportStudents}
-                  disabled={importingStudents || !studentImportRows.length}
-                >
-                  {importingStudents ? 'Importing...' : 'Import Student Data'}
-                </button>
-              </div>
-
-              <DataPreview rows={studentImportRows} />
-            </div>
-          </div>
+          <ImportPanel
+            title="Import Student Data"
+            description="Upload student records first."
+            fileName={studentImport.fileName}
+            sheetName={studentImport.sheetName}
+            rows={studentImport.rows}
+            loading={studentImport.loading}
+            buttonText="Import Student Data"
+            onFileChange={handleStudentFileChange}
+            onImport={handleImportStudents}
+            helperText={
+              <>
+                Recognized student columns include <strong>StudentNo, StudentName, ExtensionName, Gender, PermAddress, ResAddress, EntranceCredentials, HighSchool, DegreeTitle, Major, DateAdmission, PlaceBirth, DateGraduated, DateGraduation</strong>. Add <strong>ProgramCode</strong> and optional <strong>CurriculumYear</strong> when available for better curriculum matching.
+              </>
+            }
+          />
         ) : null}
 
         {activeTab === 'importGrades' ? (
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4 d-flex flex-column gap-4">
-              <div>
-                <h2 className="h5 mb-1">Import Grades</h2>
-                <p className="text-muted mb-0">
-                  Grades can only be imported after the student already exists.
-                </p>
-              </div>
-
-              <div className="alert alert-warning mb-0">
-                Grade import will skip any row where the student does not exist yet or the
-                student has no linked curriculum.
-              </div>
-
-              <div className="border rounded-3 p-3 bg-light">
-                <label className="form-label fw-semibold">Select Excel / CSV file</label>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="form-control"
-                  onChange={handleGradeFileChange}
-                />
-
-                <div className="small text-muted mt-2">
-                  Recognized grade columns include:
-                  {' '}
-                  <strong>
-                    StudentNo or StudentNumber, SubjectCode or Code, SubjectTitle or Title,
-                    Units, FinalGrade or Grade, Remarks, YearLevel or Year,
-                    Semester or Sem, SchoolYear, TermName
-                  </strong>
-                </div>
-              </div>
-
-              {gradeImportFileName ? (
-                <div className="border rounded-3 p-3">
-                  <div className="fw-semibold">{gradeImportFileName}</div>
-                  <div className="small text-muted">
-                    Sheet: {gradeImportSheetName || '—'} | Rows: {gradeImportRows.length}
-                  </div>
-                  <div className="small text-muted mt-2">
-                    Columns: {gradeImportColumns.join(', ') || '—'}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="d-flex justify-content-end">
-                <button
-                  className="btn btn-primary"
-                  onClick={handleImportGrades}
-                  disabled={importingGrades || !gradeImportRows.length}
-                >
-                  {importingGrades ? 'Importing...' : 'Import Grades'}
-                </button>
-              </div>
-
-              <DataPreview rows={gradeImportRows} />
-            </div>
-          </div>
+          <ImportPanel
+            title="Import Grades"
+            description="Grades can only be imported after the student already exists."
+            warning="Grade import will skip any row where the student does not exist yet or the student has no linked curriculum."
+            fileName={gradeImport.fileName}
+            sheetName={gradeImport.sheetName}
+            rows={gradeImport.rows}
+            loading={gradeImport.loading}
+            buttonText="Import Grades"
+            onFileChange={handleGradeFileChange}
+            onImport={handleImportGrades}
+            helperText={
+              <>
+                Recognized grade columns include <strong>StudentNo or StudentNumber, SubjectCode or Code, SubjectTitle or Title, Units, FinalGrade or Grade, Remarks, YearLevel or Year, Semester or Sem, SchoolYear, TermName</strong>.
+              </>
+            }
+          />
         ) : null}
       </div>
 
-      <StudentProfileModal
-        student={selectedStudent}
-        onClose={() => setSelectedStudent(null)}
-        onOpenGrades={handleOpenGrades}
-      />
+<StudentProfileModal
+  student={selectedStudent}
+  initialEditing={profileMode === 'edit'}
+  onClose={() => {
+    setSelectedStudent(null);
+    setProfileMode('view');
+  }}
+  onOpenGrades={handleOpenGrades}
+  onSave={handleSaveStudentProfile}
+/>
 
       <StudentGradesModal
         data={selectedGradesData}

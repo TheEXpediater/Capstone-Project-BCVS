@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "generate:grade-template": "node src/script/students/generate_grade_import_template.js",
+    "backfill:student-curriculum": "node src/script/students/backfill_student_curriculum.js"
   },
   "keywords": [],
   "author": "",
