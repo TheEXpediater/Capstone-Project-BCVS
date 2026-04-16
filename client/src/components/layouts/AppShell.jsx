@@ -14,6 +14,7 @@ import {
   FaSignOutAlt,
   FaBook,
   FaUserGraduate,
+  FaFileSignature,
 } from 'react-icons/fa';
 import { signOut } from '../../features/auth/authSlice';
 import './app-shell.css';
@@ -88,7 +89,8 @@ export default function AppShell({ children }) {
   const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
   const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
-  const canSeeStudents = ['super_admin', 'developer'].includes(user?.role);
+  const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);
+  const canSeeCredentialDrafts = ['admin', 'super_admin', 'developer'].includes(user?.role);
 
   const links = useMemo(() => {
     const items = [{ to: '/', label: 'Dashboard', icon: <FaHome /> }];
@@ -98,6 +100,14 @@ export default function AppShell({ children }) {
         to: '/students',
         label: 'Student Records',
         icon: <FaUserGraduate />,
+      });
+    }
+
+    if (canSeeCredentialDrafts) {
+      items.push({
+        to: '/credentials',
+        label: 'VC Drafts',
+        icon: <FaFileSignature />,
       });
     }
 
@@ -133,6 +143,7 @@ export default function AppShell({ children }) {
   }, [
     isDeveloper,
     canSeeStudents,
+    canSeeCredentialDrafts,
     canSeeCurriculum,
     canSeeContracts,
     canSeeSettings,

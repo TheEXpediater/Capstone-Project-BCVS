@@ -28,28 +28,28 @@ router.post(
 router.get(
   '/',
   protect({ kind: 'web' }),
-  allowRoles('super_admin', 'developer'),
+  allowRoles('admin', 'super_admin', 'developer'),
   listStudents
 );
 
 router.get(
   '/:id/grades',
   protect({ kind: 'web' }),
-  allowRoles('super_admin', 'developer'),
+  allowRoles('admin', 'super_admin', 'developer'),
   getStudentGrades
 );
 
 router.put(
   '/:id',
   protect({ kind: 'web' }),
-  allowRoles('super_admin', 'developer'),
+  allowRoles('admin', 'super_admin', 'developer'),
   updateStudentById
 );
 
 router.get(
   '/:id',
   protect({ kind: 'web' }),
-  allowRoles('super_admin', 'developer'),
+  allowRoles('admin', 'super_admin', 'developer'),
   getStudentById
 );
 

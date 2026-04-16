@@ -8,6 +8,7 @@ import {
   listStudents,
   updateStudentProfile,
 } from '../studentsAPI';
+import { createCredentialDraftFromStudent } from '../../credentials/credentialsAPI';
 
 function formatDate(value) {
   if (!value) return '—';
@@ -38,11 +39,7 @@ function buildSummaryText(label, summary) {
 }
 
 function getErrorMessage(error, fallback) {
-  return (
-    error?.response?.data?.message ||
-    error?.message ||
-    fallback
-  );
+  return error?.response?.data?.message || error?.message || fallback;
 }
 
 function normalizeHeaderKey(key) {
@@ -123,6 +120,7 @@ function createStudentForm(student) {
     curriculumYear: student?.curriculum?.curriculumYear || '',
   };
 }
+
 function FeedbackAlert({ feedback }) {
   if (!feedback?.text) return null;
 
@@ -536,6 +534,7 @@ function StudentProfileModal({
     </>
   );
 }
+
 function buildGradeDisplayRows(grades) {
   const yearCounts = new Map();
   const semesterCounts = new Map();
@@ -915,44 +914,45 @@ export default function StudentImportManagerPage() {
   }
 
   async function handleOpenProfile(studentId, mode = 'view') {
-  try {
-    setProfileLoading(true);
-    const data = await getStudentProfile(studentId);
-    setSelectedStudent(data);
-    setProfileMode(mode);
-  } catch (error) {
-    setFeedback({
-      type: 'danger',
-      text: getErrorMessage(error, 'Failed to load student profile.'),
-      issues: [],
-    });
-  } finally {
-    setProfileLoading(false);
+    try {
+      setProfileLoading(true);
+      const data = await getStudentProfile(studentId);
+      setSelectedStudent(data);
+      setProfileMode(mode);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to load student profile.'),
+        issues: [],
+      });
+    } finally {
+      setProfileLoading(false);
+    }
   }
-}
-async function handleSaveStudentProfile(studentId, payload) {
-  try {
-    const updated = await updateStudentProfile(studentId, payload);
 
-    setSelectedStudent(updated);
-    await loadStudents(true);
+  async function handleSaveStudentProfile(studentId, payload) {
+    try {
+      const updated = await updateStudentProfile(studentId, payload);
 
-    setFeedback({
-      type: 'success',
-      text: 'Student profile updated successfully.',
-      issues: [],
-    });
+      setSelectedStudent(updated);
+      await loadStudents(true);
 
-    return updated;
-  } catch (error) {
-    setFeedback({
-      type: 'danger',
-      text: getErrorMessage(error, 'Failed to update student profile.'),
-      issues: [],
-    });
-    throw error;
+      setFeedback({
+        type: 'success',
+        text: 'Student profile updated successfully.',
+        issues: [],
+      });
+
+      return updated;
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to update student profile.'),
+        issues: [],
+      });
+      throw error;
+    }
   }
-}
 
   async function handleOpenGrades(studentId) {
     try {
@@ -968,6 +968,36 @@ async function handleSaveStudentProfile(studentId, payload) {
       });
     } finally {
       setGradesLoadingId('');
+    }
+  }
+
+  async function handleCreateVcDraft(studentId) {
+    const approved = window.confirm(
+      'Create a VC draft from this student profile and current grades?'
+    );
+
+    if (!approved) return;
+
+    try {
+      const data = await createCredentialDraftFromStudent(studentId, {
+        credentialType: 'student_record',
+        notes: '',
+      });
+
+      setFeedback({
+        type: 'success',
+        text: `VC draft created for ${data.studentName}.`,
+        issues: [],
+      });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to create VC draft.',
+        issues: [],
+      });
     }
   }
 
@@ -1057,30 +1087,37 @@ async function handleSaveStudentProfile(studentId, payload) {
                           </td>
                           <td>
                             <div className="d-flex flex-wrap gap-2">
-  <button
-    className="btn btn-outline-primary btn-sm"
-    onClick={() => handleOpenProfile(student._id, 'view')}
-    disabled={profileLoading}
-  >
-    Profile
-  </button>
+                              <button
+                                className="btn btn-outline-primary btn-sm"
+                                onClick={() => handleOpenProfile(student._id, 'view')}
+                                disabled={profileLoading}
+                              >
+                                Profile
+                              </button>
 
-  <button
-    className="btn btn-outline-warning btn-sm"
-    onClick={() => handleOpenProfile(student._id, 'edit')}
-    disabled={profileLoading}
-  >
-    Edit
-  </button>
+                              <button
+                                className="btn btn-outline-warning btn-sm"
+                                onClick={() => handleOpenProfile(student._id, 'edit')}
+                                disabled={profileLoading}
+                              >
+                                Edit
+                              </button>
 
-  <button
-    className="btn btn-outline-secondary btn-sm"
-    onClick={() => handleOpenGrades(student._id)}
-    disabled={gradesLoadingId === student._id}
-  >
-    {gradesLoadingId === student._id ? 'Loading...' : 'Grades'}
-  </button>
-</div>
+                              <button
+                                className="btn btn-outline-secondary btn-sm"
+                                onClick={() => handleOpenGrades(student._id)}
+                                disabled={gradesLoadingId === student._id}
+                              >
+                                {gradesLoadingId === student._id ? 'Loading...' : 'Grades'}
+                              </button>
+
+                              <button
+                                className="btn btn-outline-success btn-sm"
+                                onClick={() => handleCreateVcDraft(student._id)}
+                              >
+                                Create VC Draft
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1132,16 +1169,16 @@ async function handleSaveStudentProfile(studentId, payload) {
         ) : null}
       </div>
 
-<StudentProfileModal
-  student={selectedStudent}
-  initialEditing={profileMode === 'edit'}
-  onClose={() => {
-    setSelectedStudent(null);
-    setProfileMode('view');
-  }}
-  onOpenGrades={handleOpenGrades}
-  onSave={handleSaveStudentProfile}
-/>
+      <StudentProfileModal
+        student={selectedStudent}
+        initialEditing={profileMode === 'edit'}
+        onClose={() => {
+          setSelectedStudent(null);
+          setProfileMode('view');
+        }}
+        onOpenGrades={handleOpenGrades}
+        onSave={handleSaveStudentProfile}
+      />
 
       <StudentGradesModal
         data={selectedGradesData}

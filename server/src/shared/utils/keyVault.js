@@ -26,6 +26,12 @@ export function encryptPrivateKey(privateKeyPem) {
 }
 
 export function decryptPrivateKey({ ciphertext, iv, authTag }) {
+  if (!ciphertext || !iv || !authTag) {
+    throw new Error(
+      'Encrypted private key payload is incomplete. Missing ciphertext, iv, or authTag.'
+    );
+  }
+
   const decipher = crypto.createDecipheriv(
     ALGORITHM,
     getMasterKey(),

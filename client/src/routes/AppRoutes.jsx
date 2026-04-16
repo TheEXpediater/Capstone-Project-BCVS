@@ -1,9 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
-import ProtectedRoute from './ProtectedRoute';
-import RoleRoute from './RoleRoute';
-
 import AppShell from '../components/layouts/AppShell';
 import LoginPage from '../features/auth/pages/LoginPage';
+import CredentialDraftsPage from '../features/credentials/pages/CredentialDraftsPage';
 import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
 import UserManagementPage from '../features/users/pages/UserManagementPage';
 import ContractManagerPage from '../features/contracts/pages/ContractManagerPage';
@@ -12,6 +10,8 @@ import StudentImportManagerPage from '../features/students/pages/StudentImportMa
 import Dashboard from '../pages/Dashboard';
 import NotFound from '../pages/NotFound';
 import Unauthorized from '../pages/Unauthorized';
+import ProtectedRoute from './ProtectedRoute';
+import RoleRoute from './RoleRoute';
 
 function ShellPage({ children }) {
   return (
@@ -33,9 +33,22 @@ export default function AppRoutes() {
         path="/students"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['super_admin', 'developer']}>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
               <AppShell>
                 <StudentImportManagerPage />
+              </AppShell>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/credentials"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
+              <AppShell>
+                <CredentialDraftsPage />
               </AppShell>
             </RoleRoute>
           </ProtectedRoute>
