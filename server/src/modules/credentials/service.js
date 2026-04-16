@@ -106,8 +106,16 @@ async function getStudentBundle(studentId) {
 
   const Student = getStudentModel();
   const StudentGrade = getStudentGradeModel();
+  const { getCurriculumModel } = await import('../curriculum/model.js');
+  const Curriculum = getCurriculumModel();
 
-  const student = await Student.findById(studentId).lean();
+  const student = await Student.findById(studentId)
+    .populate({
+      path: 'curriculumId',
+      model: Curriculum,
+      select: 'program programName curriculumYear structure',
+    })
+    .lean();
 
   if (!student) {
     throw new ApiError(404, 'Student not found');
@@ -240,7 +248,17 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
     studentName: student.studentName,
     profileSnapshot: clonePlain(student),
     gradesSnapshot: clonePlain(grades),
-    curriculumSnapshot: clonePlain(student.curriculum || null),
+    curriculumSnapshot: clonePlain(
+  student.curriculumId
+    ? {
+        _id: student.curriculumId._id,
+        program: student.curriculumId.program,
+        programName: student.curriculumId.programName,
+        curriculumYear: student.curriculumId.curriculumYear,
+        structure: student.curriculumId.structure || null,
+      }
+    : null
+),
     notes,
     createdBy: actor?._id || null,
     status: 'draft',
