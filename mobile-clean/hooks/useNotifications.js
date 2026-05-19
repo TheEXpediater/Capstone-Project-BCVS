@@ -8,6 +8,10 @@ import {
 import { useAppStore } from '@/store/useAppStore';
 
 function routeFromNotificationData(data) {
+  if (data?.type === 'credential_ready') {
+    return '/(tabs)/scan';
+  }
+
   const sessionId = data?.sessionId || data?.session_id;
   if (sessionId) {
     return `/verification/consent?sessionId=${encodeURIComponent(String(sessionId))}`;
@@ -37,6 +41,17 @@ export function useNotifications() {
       })
       .catch(() => {});
 
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (!mounted || !response) return;
+        const notification = response.notification;
+        const data = notification?.request?.content?.data || {};
+        addActivity(notificationToEvent(notification)).catch(() => {});
+        router.push(routeFromNotificationData(data));
+        Notifications.clearLastNotificationResponseAsync?.().catch(() => {});
+      })
+      .catch(() => {});
+
     const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
       addActivity(notificationToEvent(notification)).catch(() => {});
     });
@@ -55,4 +70,3 @@ export function useNotifications() {
     };
   }, [user, addActivity, registerPushToken]);
 }
-

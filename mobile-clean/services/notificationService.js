@@ -4,6 +4,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { EAS_PROJECT_ID, ENDPOINTS } from '@/constants/config';
 import { api, apiErrorMessage } from '@/services/apiClient';
+import { getDeviceId } from '@/utils/device';
 import { readJson, STORAGE_KEYS, writeJson } from '@/utils/storage';
 
 Notifications.setNotificationHandler({
@@ -81,7 +82,11 @@ export async function registerForPushNotifications() {
 export async function registerPushToken(token) {
   if (!token) return null;
   try {
-    const { data } = await api.post(ENDPOINTS.notifications.registerPush, { token });
+    const deviceId = await getDeviceId();
+    const { data } = await api.post(ENDPOINTS.notifications.registerPush, {
+      token,
+      deviceId
+    });
     return data;
   } catch (error) {
     throw new Error(apiErrorMessage(error, 'Failed to register push token'));

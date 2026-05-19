@@ -65,6 +65,44 @@ export const signCredentialDraft = asyncHandler(async (req, res) => {
   });
 });
 
+export const createCredentialClaimToken = asyncHandler(async (req, res) => {
+  const data = await credentialService.createCredentialClaimToken(
+    req.params.id,
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Credential claim QR generated successfully.',
+  });
+});
+
+export const listMobileCredentials = asyncHandler(async (req, res) => {
+  const items = await credentialService.listMobileCredentials(req.user);
+
+  res.status(200).json({
+    success: true,
+    items,
+    data: items,
+  });
+});
+
+export const claimMobileCredential = asyncHandler(async (req, res) => {
+  const data = await credentialService.claimMobileCredential(
+    req.body || {},
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    credential: data.credential,
+    metadata: data.metadata,
+    data,
+    message: 'Credential claimed successfully.',
+  });
+});
+
 export const scheduleCredentialAnchor = asyncHandler(async (req, res) => {
   const data = await credentialService.scheduleCredentialAnchor(
     req.params.id,

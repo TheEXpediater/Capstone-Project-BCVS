@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 
 export const STORAGE_KEYS = {
   USER: '@bvcs.user',
@@ -7,24 +6,25 @@ export const STORAGE_KEYS = {
   TOKEN: '@bvcs.token',
   CREDENTIALS: '@bvcs.credentials',
   NOTIFICATIONS: '@bvcs.notifications',
-  LAST_SEEN_AT: '@bvcs.lastSeenAt'
+  LAST_SEEN_AT: '@bvcs.lastSeenAt',
+  DEVICE_ID: '@bvcs.deviceId'
 };
 
-async function secureSet(key, value) {
+async function storageSet(key, value) {
   if (!value) {
-    await SecureStore.deleteItemAsync(key);
+    await AsyncStorage.removeItem(key);
     return;
   }
-  await SecureStore.setItemAsync(key, String(value));
+  await AsyncStorage.setItem(key, String(value));
 }
 
-async function secureGet(key) {
-  return SecureStore.getItemAsync(key);
+async function storageGet(key) {
+  return AsyncStorage.getItem(key);
 }
 
 export async function saveSession({ token, sessionId, user }) {
   await Promise.all([
-    secureSet(STORAGE_KEYS.TOKEN, token),
+    storageSet(STORAGE_KEYS.TOKEN, token),
     sessionId
       ? AsyncStorage.setItem(STORAGE_KEYS.SESSION_ID, String(sessionId))
       : AsyncStorage.removeItem(STORAGE_KEYS.SESSION_ID),
@@ -36,7 +36,7 @@ export async function saveSession({ token, sessionId, user }) {
 
 export async function loadSession() {
   const [token, sessionId, rawUser] = await Promise.all([
-    secureGet(STORAGE_KEYS.TOKEN),
+    storageGet(STORAGE_KEYS.TOKEN),
     AsyncStorage.getItem(STORAGE_KEYS.SESSION_ID),
     AsyncStorage.getItem(STORAGE_KEYS.USER)
   ]);
@@ -53,13 +53,16 @@ export async function loadSession() {
 
 export async function clearSession() {
   await Promise.all([
-    SecureStore.deleteItemAsync(STORAGE_KEYS.TOKEN),
-    AsyncStorage.multiRemove([STORAGE_KEYS.USER, STORAGE_KEYS.SESSION_ID])
+    AsyncStorage.multiRemove([
+      STORAGE_KEYS.TOKEN,
+      STORAGE_KEYS.USER,
+      STORAGE_KEYS.SESSION_ID
+    ])
   ]);
 }
 
 export async function getSessionToken() {
-  return secureGet(STORAGE_KEYS.TOKEN);
+  return storageGet(STORAGE_KEYS.TOKEN);
 }
 
 export async function readJson(key, fallback) {
@@ -74,4 +77,3 @@ export async function readJson(key, fallback) {
 export async function writeJson(key, value) {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
-

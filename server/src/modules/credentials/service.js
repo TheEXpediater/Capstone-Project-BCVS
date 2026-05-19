@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { createHash, createSign } from 'node:crypto';
+import { createHash, createSign, randomBytes } from 'node:crypto';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { decryptPrivateKey } from '../../shared/utils/keyVault.js';
 import { getCredentialDraftModel } from './model.js';
@@ -7,6 +7,9 @@ import { getStudentModel, getStudentGradeModel } from '../students/model.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
 import { getContractModel } from '../contracts/model.js';
+import { notifyStudentByStudentNo } from '../notifications/service.js';
+
+const CLAIM_TOKEN_TTL_MINUTES = 15;
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
@@ -33,6 +36,34 @@ function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + Number(days || 0));
   return next;
+}
+
+function addMinutes(date, minutes) {
+  const next = new Date(date);
+  next.setMinutes(next.getMinutes() + Number(minutes || 0));
+  return next;
+}
+
+function generateClaimToken() {
+  return randomBytes(32).toString('base64url');
+}
+
+function hashClaimToken(token) {
+  return createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function normalizeStudentNo(value) {
+  return cleanString(value).toLowerCase();
+}
+
+function assertMobileStudent(actor) {
+  if (!actor || actor.kind !== 'mobile' || actor.role !== 'student') {
+    throw new ApiError(403, 'Only authenticated student mobile users can claim credentials');
+  }
+
+  if (!cleanString(actor.studentId)) {
+    throw new ApiError(403, 'Mobile user is not linked to a student number');
+  }
 }
 
 async function ensureMainSettings() {
@@ -99,6 +130,53 @@ async function resolveActiveContractAddress(settings) {
 function serializeDraft(doc) {
   const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
   return clonePlain(raw);
+}
+
+function serializeWalletCredential(doc) {
+  const draft = serializeDraft(doc);
+  const credential = clonePlain(draft.signedCredential);
+
+  if (!credential) {
+    throw new ApiError(409, 'Signed credential payload is missing');
+  }
+
+  return {
+    ...credential,
+    _id: draft._id,
+    credentialId: draft._id,
+    credentialHash: draft.credentialHash,
+    status: draft.status,
+    meta: {
+      ...(credential.meta || {}),
+      title: 'Student Academic Record Credential',
+      fullName: draft.studentName,
+      studentNo: draft.studentNo,
+      issuedAt: draft.signedAt,
+      signedAt: draft.signedAt,
+      claimedAt: draft.claimedAt,
+      credentialHash: draft.credentialHash,
+      status: draft.status,
+    },
+  };
+}
+
+function buildClaimResponse(draft) {
+  const credential = serializeWalletCredential(draft);
+  const serialized = serializeDraft(draft);
+
+  return {
+    credential,
+    metadata: {
+      credentialId: serialized._id,
+      credentialHash: serialized.credentialHash,
+      status: serialized.status,
+      studentNo: serialized.studentNo,
+      studentName: serialized.studentName,
+      signedAt: serialized.signedAt,
+      claimReadyAt: serialized.claimReadyAt,
+      claimedAt: serialized.claimedAt,
+    },
+  };
 }
 
 async function getStudentBundle(studentId) {
@@ -230,7 +308,7 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
     student: student._id,
     credentialType,
     status: {
-      $in: ['draft', 'for_signature', 'signed', 'queued_for_anchor'],
+      $in: ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor'],
     },
   }).lean();
 
@@ -354,6 +432,160 @@ export async function signCredentialDraft(id, actor) {
 
   await draft.save();
   return serializeDraft(draft);
+}
+
+export async function createCredentialClaimToken(id, actor) {
+  assertRegistrar(actor);
+  assertObjectId(id, 'credential draft id');
+
+  const CredentialDraft = getCredentialDraftModel();
+  const draft = await CredentialDraft.findById(id);
+
+  if (!draft) {
+    throw new ApiError(404, 'Credential draft not found');
+  }
+
+  if (!['signed', 'claim_ready'].includes(draft.status)) {
+    throw new ApiError(409, 'Only signed credentials can be prepared for claiming');
+  }
+
+  if (!draft.signedCredential) {
+    throw new ApiError(409, 'Signed credential payload is missing');
+  }
+
+  const now = new Date();
+  const token = generateClaimToken();
+  const expiresAt = addMinutes(now, CLAIM_TOKEN_TTL_MINUTES);
+
+  draft.status = 'claim_ready';
+  draft.claimTokenHash = hashClaimToken(token);
+  draft.claimTokenExpiresAt = expiresAt;
+  draft.claimReadyAt = now;
+  draft.claimedAt = null;
+  draft.claimedBy = null;
+  draft.claimedDeviceId = '';
+
+  await draft.save();
+
+  await notifyStudentByStudentNo(draft.studentNo, {
+    type: 'credential_ready',
+    title: 'Credential ready for claim',
+    body: 'Your signed academic credential is ready to claim.',
+    data: {
+      credentialId: draft._id.toString(),
+      status: 'claim_ready',
+    },
+  }).catch(() => null);
+
+  return {
+    credential: serializeDraft(draft),
+    token,
+    claimUri: `bcvs://claim?token=${encodeURIComponent(token)}`,
+    expiresAt,
+    ttlMinutes: CLAIM_TOKEN_TTL_MINUTES,
+  };
+}
+
+export async function listMobileCredentials(actor) {
+  assertMobileStudent(actor);
+
+  const CredentialDraft = getCredentialDraftModel();
+  const studentNo = cleanString(actor.studentId);
+
+  const drafts = await CredentialDraft.find({
+    studentNo,
+    status: { $in: ['claimed', 'shared'] },
+    signedCredential: { $ne: null },
+  })
+    .sort({ claimedAt: -1, signedAt: -1 })
+    .lean();
+
+  return drafts.map(serializeWalletCredential);
+}
+
+export async function claimMobileCredential(payload = {}, actor) {
+  assertMobileStudent(actor);
+
+  const token = cleanString(payload?.token);
+  const deviceId = cleanString(payload?.deviceId);
+  const requestStudentId = cleanString(payload?.studentId);
+  const actorStudentNo = cleanString(actor.studentId);
+
+  if (!token) {
+    throw new ApiError(400, 'Claim token is required');
+  }
+
+  if (
+    requestStudentId &&
+    normalizeStudentNo(requestStudentId) !== normalizeStudentNo(actorStudentNo)
+  ) {
+    throw new ApiError(403, 'Claim request student does not match the authenticated user');
+  }
+
+  const CredentialDraft = getCredentialDraftModel();
+  const tokenHash = hashClaimToken(token);
+  const now = new Date();
+
+  const candidate = await CredentialDraft.findOne({ claimTokenHash: tokenHash });
+
+  if (!candidate) {
+    throw new ApiError(404, 'Claim token not found');
+  }
+
+  if (normalizeStudentNo(candidate.studentNo) !== normalizeStudentNo(actorStudentNo)) {
+    throw new ApiError(403, 'This credential belongs to another student');
+  }
+
+  if (candidate.status === 'claimed') {
+    throw new ApiError(409, 'Credential has already been claimed');
+  }
+
+  if (candidate.claimedAt) {
+    throw new ApiError(409, 'Credential has already been claimed');
+  }
+
+  if (!['signed', 'claim_ready'].includes(candidate.status)) {
+    throw new ApiError(409, 'Credential is not available for claiming');
+  }
+
+  if (candidate.status !== 'claim_ready') {
+    throw new ApiError(409, 'Credential QR has not been prepared for claiming');
+  }
+
+  if (!candidate.signedCredential) {
+    throw new ApiError(409, 'Signed credential payload is missing');
+  }
+
+  if (!candidate.claimTokenExpiresAt || candidate.claimTokenExpiresAt.getTime() <= now.getTime()) {
+    throw new ApiError(410, 'Claim token has expired');
+  }
+
+  const claimed = await CredentialDraft.findOneAndUpdate(
+    {
+      _id: candidate._id,
+      status: 'claim_ready',
+      claimedAt: null,
+      claimTokenHash: tokenHash,
+      claimTokenExpiresAt: { $gt: now },
+    },
+    {
+      $set: {
+        status: 'claimed',
+        claimedAt: now,
+        claimedBy: actor._id,
+        claimedDeviceId: deviceId,
+        claimTokenHash: '',
+        claimTokenExpiresAt: null,
+      },
+    },
+    { new: true }
+  );
+
+  if (!claimed) {
+    throw new ApiError(409, 'Credential claim could not be completed. Please refresh and try again.');
+  }
+
+  return buildClaimResponse(claimed);
 }
 
 export async function scheduleCredentialAnchor(id, payload = {}, actor) {

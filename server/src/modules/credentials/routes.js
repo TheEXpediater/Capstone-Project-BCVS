@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import {
+  createCredentialClaimToken,
   createCredentialDraftFromStudent,
   getCredentialDraftById,
   listCredentialDrafts,
@@ -45,6 +46,13 @@ router.put(
   protect({ kind: 'web' }),
   allowRoles('super_admin'),
   signCredentialDraft
+);
+
+router.post(
+  '/:id/claim-token',
+  protect({ kind: 'web' }),
+  allowRoles('super_admin'),
+  createCredentialClaimToken
 );
 
 router.put(

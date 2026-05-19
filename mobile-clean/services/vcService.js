@@ -1,7 +1,8 @@
 import { ENDPOINTS } from '@/constants/config';
 import { api, apiErrorMessage } from '@/services/apiClient';
+import { getDeviceId } from '@/utils/device';
 import { normalizeCredential } from '@/utils/credentialUtils';
-import { readJson, STORAGE_KEYS, writeJson } from '@/utils/storage';
+import { loadSession, readJson, STORAGE_KEYS, writeJson } from '@/utils/storage';
 
 async function readLocalCredentials() {
   return readJson(STORAGE_KEYS.CREDENTIALS, []);
@@ -56,22 +57,27 @@ export async function claimCredential(scanResult) {
     return saveCredential(scanResult.credential);
   }
 
-  if (scanResult?.kind === 'claim_url' && scanResult.url) {
+  if (scanResult?.kind === 'claim_url' || scanResult?.token) {
     try {
-      const response = await fetch(scanResult.url, { cache: 'no-store' });
-      const payload = await response.json();
-      return saveCredential(payload.credential || payload.vc || payload);
-    } catch (error) {
-      throw new Error(error?.message || 'Failed to claim credential from QR');
-    }
-  }
-
-  if (scanResult?.token) {
-    try {
+      const { user } = await loadSession();
+      const deviceId = await getDeviceId();
       const { data } = await api.post(ENDPOINTS.credentials.claim, {
-        token: scanResult.token
+        token: scanResult.token,
+        studentId: user?.studentId || '',
+        deviceId
       });
-      return saveCredential(data.credential || data.vc || data);
+      const credential =
+        data?.credential ||
+        data?.data?.credential ||
+        data?.vc ||
+        data?.data?.vc ||
+        null;
+
+      if (!credential) {
+        throw new Error('Claim response did not include a signed credential');
+      }
+
+      return saveCredential(credential);
     } catch (error) {
       throw new Error(apiErrorMessage(error, 'Failed to claim credential'));
     }
@@ -79,4 +85,3 @@ export async function claimCredential(scanResult) {
 
   throw new Error('QR code does not contain a claimable credential');
 }
-

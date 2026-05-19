@@ -57,6 +57,10 @@ const credentialDraftSchema = new mongoose.Schema(
         'draft',
         'for_signature',
         'signed',
+        'claim_ready',
+        'claimed',
+        'shared',
+        'revoked',
         'rejected',
         'queued_for_anchor',
         'anchored',
@@ -95,6 +99,41 @@ const credentialDraftSchema = new mongoose.Schema(
     signedAt: {
       type: Date,
       default: null,
+    },
+
+    claimTokenHash: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    claimTokenExpiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    claimReadyAt: {
+      type: Date,
+      default: null,
+    },
+
+    claimedAt: {
+      type: Date,
+      default: null,
+    },
+
+    claimedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+
+    claimedDeviceId: {
+      type: String,
+      default: '',
+      trim: true,
     },
 
     anchorMode: {

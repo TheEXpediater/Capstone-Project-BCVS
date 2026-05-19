@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
+  createCredentialClaimToken,
   getCredentialDraftById,
   listCredentialDrafts,
   rejectCredentialDraft,
@@ -21,6 +23,10 @@ function getStatusBadge(status) {
     draft: 'text-bg-secondary',
     for_signature: 'text-bg-warning',
     signed: 'text-bg-primary',
+    claim_ready: 'text-bg-info',
+    claimed: 'text-bg-success',
+    shared: 'text-bg-success',
+    revoked: 'text-bg-dark',
     rejected: 'text-bg-danger',
     queued_for_anchor: 'text-bg-info',
     anchored: 'text-bg-success',
@@ -240,6 +246,88 @@ function DraftDetailsModal({ draft, onClose }) {
   );
 }
 
+function ClaimQrModal({ claimQr, onClose, onRefresh }) {
+  const [remainingSeconds, setRemainingSeconds] = useState(
+    claimQr?.initialRemainingSeconds || 0
+  );
+
+  useEffect(() => {
+    if (!claimQr) return undefined;
+
+    const timer = window.setInterval(() => {
+      setRemainingSeconds(
+        Math.max(0, Math.floor(((claimQr.expiresAtMs || 0) - Date.now()) / 1000))
+      );
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [claimQr]);
+
+  if (!claimQr) return null;
+
+  const isExpired = remainingSeconds <= 0;
+  const minutes = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
+  const seconds = String(remainingSeconds % 60).padStart(2, '0');
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">Claim QR</h2>
+                <p className="text-muted mb-0 small">
+                  {claimQr.credential?.studentNo || 'Student'} - scan with the mobile wallet.
+                </p>
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+            </div>
+
+            <div className="modal-body text-center">
+              {claimQr.dataUrl ? (
+                <img
+                  src={claimQr.dataUrl}
+                  width="260"
+                  height="260"
+                  alt="Credential claim QR"
+                  className="border rounded-3 p-2 bg-white"
+                />
+              ) : null}
+
+              <div className="mt-3">
+                <div className={`badge ${isExpired ? 'text-bg-danger' : 'text-bg-success'}`}>
+                  {isExpired ? 'Expired' : `Expires in ${minutes}:${seconds}`}
+                </div>
+              </div>
+
+              <div className="small text-muted mt-3 text-break">
+                {claimQr.claimUri}
+              </div>
+
+              <div className="alert alert-light border mt-3 mb-0 text-start small">
+                The QR contains only a temporary claim token. The signed VC is delivered only
+                after the student signs in and claims it from the backend.
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onRefresh}>
+                Refresh List
+              </button>
+              <button className="btn btn-primary" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="modal-backdrop show" onClick={onClose} />
+    </>
+  );
+}
+
 export default function CredentialDraftsPage() {
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentRole = auth?.user?.role || '';
@@ -250,6 +338,7 @@ export default function CredentialDraftsPage() {
   const [busyId, setBusyId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [selectedDraft, setSelectedDraft] = useState(null);
+  const [claimQr, setClaimQr] = useState(null);
 
   async function loadDrafts(nextStatus = statusFilter) {
     try {
@@ -372,6 +461,41 @@ export default function CredentialDraftsPage() {
     }
   }
 
+  async function handleViewQr(id) {
+    try {
+      setBusyId(id);
+      const data = await createCredentialClaimToken(id);
+      const dataUrl = await QRCode.toDataURL(data.claimUri, {
+        margin: 2,
+        width: 260,
+      });
+
+      setClaimQr({
+        ...data,
+        dataUrl,
+        expiresAtMs: data.expiresAt ? new Date(data.expiresAt).getTime() : 0,
+        initialRemainingSeconds: data.expiresAt
+          ? Math.max(0, Math.floor((new Date(data.expiresAt).getTime() - Date.now()) / 1000))
+          : 0,
+      });
+      setFeedback({
+        type: 'success',
+        text: 'Claim QR generated. The credential is now ready for mobile claim.',
+      });
+      await loadDrafts();
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to generate claim QR.',
+      });
+    } finally {
+      setBusyId('');
+    }
+  }
+
   async function handleQueueSameDay(id) {
     const approved = window.confirm('Queue this signed credential for same-day anchoring?');
     if (!approved) return;
@@ -429,6 +553,8 @@ export default function CredentialDraftsPage() {
     { label: 'Draft', value: 'draft' },
     { label: 'For Signature', value: 'for_signature' },
     { label: 'Signed', value: 'signed' },
+    { label: 'Claim Ready', value: 'claim_ready' },
+    { label: 'Claimed', value: 'claimed' },
     { label: 'Queued', value: 'queued_for_anchor' },
     { label: 'Rejected', value: 'rejected' },
     { label: 'Anchored', value: 'anchored' },
@@ -564,6 +690,17 @@ export default function CredentialDraftsPage() {
                               </>
                             ) : null}
 
+                            {['signed', 'claim_ready'].includes(item.status) &&
+                            currentRole === 'super_admin' ? (
+                              <button
+                                className="btn btn-info btn-sm"
+                                onClick={() => handleViewQr(item._id)}
+                                disabled={busyId === item._id}
+                              >
+                                {busyId === item._id ? 'Preparing...' : 'View QR'}
+                              </button>
+                            ) : null}
+
                             {item.status === 'signed' && currentRole === 'super_admin' ? (
                               <>
                                 <button
@@ -598,6 +735,16 @@ export default function CredentialDraftsPage() {
       <DraftDetailsModal
         draft={selectedDraft}
         onClose={() => setSelectedDraft(null)}
+      />
+
+      <ClaimQrModal
+        key={claimQr?.claimUri || 'claim-qr'}
+        claimQr={claimQr}
+        onRefresh={() => loadDrafts()}
+        onClose={async () => {
+          setClaimQr(null);
+          await loadDrafts();
+        }}
       />
     </>
   );

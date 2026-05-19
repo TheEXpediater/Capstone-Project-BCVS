@@ -196,7 +196,6 @@ expo-camera
 expo-notifications
 expo-device
 expo-constants
-expo-secure-store
 expo-status-bar
 @react-native-async-storage/async-storage
 @expo/vector-icons
@@ -213,7 +212,7 @@ react
 react-native
 ```
 
-Note: `expo-secure-store` is used only for the auth token. Credentials and activity history remain AsyncStorage-based for simplicity.
+Note: session tokens, profile data, credentials, and activity history are stored with AsyncStorage for compatibility with the current Android dev build.
 
 ## 7. State Management Decision
 
@@ -235,7 +234,7 @@ Redux is justified only if the app grows into a multi-role enterprise client wit
 ```text
 App opens
   -> useBootstrap()
-  -> load token from SecureStore
+  -> load token from AsyncStorage
   -> load user from AsyncStorage
   -> if token exists: go to tabs/home
   -> else: go to auth/login
@@ -251,13 +250,13 @@ Register
 Login
   -> submit email/password
   -> backend returns token/user
-  -> token saved in SecureStore
+  -> token saved in AsyncStorage
   -> user saved in AsyncStorage
   -> go to tabs/home
 
 Logout
   -> call /auth/logout
-  -> clear SecureStore token
+  -> clear AsyncStorage token
   -> clear local user/session
   -> go to auth/login
 ```

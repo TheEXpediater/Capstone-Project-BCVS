@@ -30,6 +30,11 @@ export async function signCredentialDraft(id) {
   return response.data.data;
 }
 
+export async function createCredentialClaimToken(id) {
+  const response = await api.post(`/credentials/${id}/claim-token`);
+  return response.data.data;
+}
+
 export async function scheduleCredentialAnchor(id, payload = {}) {
   const response = await api.put(`/credentials/${id}/schedule-anchor`, payload);
   return response.data.data;
