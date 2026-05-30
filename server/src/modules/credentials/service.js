@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { createHash, createSign, randomBytes } from 'node:crypto';
+import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { decryptPrivateKey } from '../../shared/utils/keyVault.js';
 import { getCredentialDraftModel } from './model.js';
@@ -7,6 +8,7 @@ import { getStudentModel, getStudentGradeModel } from '../students/model.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
 import { getContractModel } from '../contracts/model.js';
+import { getExplorerBaseUrl } from '../contracts/service.js';
 import { notifyStudentByStudentNo } from '../notifications/service.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
@@ -127,12 +129,88 @@ async function resolveActiveContractAddress(settings) {
   return cleanString(latest?.address);
 }
 
+function getUrlOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return '';
+  }
+}
+
+function buildExplorerLink({ explorerBaseUrl, anchorTxHash, contractAddress }) {
+  const base = cleanString(explorerBaseUrl);
+  const txHash = cleanString(anchorTxHash);
+  const address = cleanString(contractAddress);
+
+  if (!base) return '';
+  if (txHash) return `${base}/tx/${encodeURIComponent(txHash)}`;
+  if (address) return `${base}/address/${encodeURIComponent(address)}`;
+
+  return '';
+}
+
+async function findContractForAddress(contractAddress) {
+  const normalized = cleanString(contractAddress);
+  if (!normalized) return null;
+
+  const Contract = getContractModel();
+  const clauses = [{ address: normalized }];
+
+  if (Types.ObjectId.isValid(normalized)) {
+    clauses.push({ _id: normalized });
+  }
+
+  return Contract.findOne({
+    status: 'success',
+    $or: clauses,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+}
+
+async function buildBlockchainMetadata(draft) {
+  const contractAddress = cleanString(draft?.contractAddress);
+  const anchorTxHash = cleanString(draft?.anchorTxHash);
+
+  if (!contractAddress && !anchorTxHash) {
+    return null;
+  }
+
+  const contract = contractAddress
+    ? await findContractForAddress(contractAddress)
+    : null;
+  const chainId = contract?.chainId ?? env.blockchain.chainId ?? null;
+  const explorerBaseUrl =
+    getUrlOrigin(contract?.explorerUrl) ||
+    getExplorerBaseUrl(chainId) ||
+    getExplorerBaseUrl(env.blockchain.chainId) ||
+    '';
+  const anchorUrl = buildExplorerLink({
+    explorerBaseUrl,
+    anchorTxHash,
+    contractAddress,
+  });
+
+  return {
+    contractAddress,
+    anchorTxHash,
+    anchorMode: draft?.anchorMode || 'none',
+    anchorStatus: draft?.anchorStatus || 'not_requested',
+    scheduledAnchorAt: draft?.scheduledAnchorAt || null,
+    anchoredAt: draft?.anchoredAt || null,
+    chainId,
+    network: contract?.network || '',
+    explorerBaseUrl,
+    anchorUrl,
+  };
+}
+
 function serializeDraft(doc) {
   const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
   return clonePlain(raw);
 }
 
-function serializeWalletCredential(doc) {
+async function serializeWalletCredential(doc) {
   const draft = serializeDraft(doc);
   const credential = clonePlain(draft.signedCredential);
 
@@ -140,12 +218,25 @@ function serializeWalletCredential(doc) {
     throw new ApiError(409, 'Signed credential payload is missing');
   }
 
+  const blockchain = await buildBlockchainMetadata(draft);
+
   return {
     ...credential,
     _id: draft._id,
     credentialId: draft._id,
     credentialHash: draft.credentialHash,
     status: draft.status,
+    ...(blockchain
+      ? {
+          blockchain: {
+            ...(credential.blockchain || {}),
+            ...blockchain,
+          },
+          blockchainUrl: blockchain.anchorUrl,
+          contractAddress: blockchain.contractAddress,
+          anchorTxHash: blockchain.anchorTxHash,
+        }
+      : {}),
     meta: {
       ...(credential.meta || {}),
       title: 'Student Academic Record Credential',
@@ -156,12 +247,21 @@ function serializeWalletCredential(doc) {
       claimedAt: draft.claimedAt,
       credentialHash: draft.credentialHash,
       status: draft.status,
+      ...(blockchain
+        ? {
+            blockchainUrl: blockchain.anchorUrl,
+            contractAddress: blockchain.contractAddress,
+            anchorTxHash: blockchain.anchorTxHash,
+            anchorStatus: blockchain.anchorStatus,
+            anchoredAt: blockchain.anchoredAt,
+          }
+        : {}),
     },
   };
 }
 
-function buildClaimResponse(draft) {
-  const credential = serializeWalletCredential(draft);
+async function buildClaimResponse(draft) {
+  const credential = await serializeWalletCredential(draft);
   const serialized = serializeDraft(draft);
 
   return {
@@ -175,6 +275,8 @@ function buildClaimResponse(draft) {
       signedAt: serialized.signedAt,
       claimReadyAt: serialized.claimReadyAt,
       claimedAt: serialized.claimedAt,
+      blockchain: credential.blockchain || null,
+      blockchainUrl: credential.blockchainUrl || '',
     },
   };
 }
@@ -445,8 +547,11 @@ export async function createCredentialClaimToken(id, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (!['signed', 'claim_ready'].includes(draft.status)) {
-    throw new ApiError(409, 'Only signed credentials can be prepared for claiming');
+  if (!['signed', 'claim_ready', 'anchored'].includes(draft.status)) {
+    throw new ApiError(
+      409,
+      'Only signed, anchored, or claim-ready credentials can be prepared for claiming'
+    );
   }
 
   if (!draft.signedCredential) {
@@ -500,7 +605,7 @@ export async function listMobileCredentials(actor) {
     .sort({ claimedAt: -1, signedAt: -1 })
     .lean();
 
-  return drafts.map(serializeWalletCredential);
+  return Promise.all(drafts.map(serializeWalletCredential));
 }
 
 export async function claimMobileCredential(payload = {}, actor) {

@@ -48,7 +48,7 @@ function loadArtifact() {
   return artifact;
 }
 
-function getExplorerBaseUrl(chainId) {
+export function getExplorerBaseUrl(chainId) {
   if (Number(chainId) === 80002) {
     return 'https://amoy.polygonscan.com';
   }

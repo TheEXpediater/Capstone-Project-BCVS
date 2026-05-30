@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
@@ -34,6 +34,8 @@ function getStatusBadge(status) {
 
   return map[status] || 'text-bg-secondary';
 }
+
+const CLAIM_QR_STATUSES = new Set(['signed', 'claim_ready', 'anchored']);
 
 function DraftDetailsModal({ draft, onClose }) {
   if (!draft) return null;
@@ -278,7 +280,7 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
               <div>
                 <h2 className="h5 mb-1">Claim QR</h2>
                 <p className="text-muted mb-0 small">
-                  {claimQr.credential?.studentNo || 'Student'} - scan with the mobile wallet.
+                  {claimQr.credential?.studentNo || 'Student'} - scan with the mobile app.
                 </p>
               </div>
               <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
@@ -340,30 +342,40 @@ export default function CredentialDraftsPage() {
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [claimQr, setClaimQr] = useState(null);
 
-  async function loadDrafts(nextStatus = statusFilter) {
-    try {
-      setLoading(true);
-      const data = await listCredentialDrafts(
-        nextStatus ? { status: nextStatus } : {}
-      );
-      setRows(data || []);
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error?.response?.data?.message ||
-          error?.message ||
-          'Failed to load credential drafts.',
-      });
-    } finally {
-      setLoading(false);
-    }
-  }
+  const loadDrafts = useCallback(
+    async (nextStatus = statusFilter) => {
+      try {
+        setLoading(true);
+        const data = await listCredentialDrafts(
+          nextStatus ? { status: nextStatus } : {}
+        );
+        setRows(data || []);
+      } catch (error) {
+        setFeedback({
+          type: 'danger',
+          text:
+            error?.response?.data?.message ||
+            error?.message ||
+            'Failed to load credential drafts.',
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [statusFilter]
+  );
 
   useEffect(() => {
-    loadDrafts(statusFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+    loadDrafts();
+  }, [loadDrafts]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadDrafts().catch(() => {});
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, [loadDrafts]);
 
   async function openDraft(id) {
     try {
@@ -551,12 +563,9 @@ export default function CredentialDraftsPage() {
   const filters = [
     { label: 'All', value: '' },
     { label: 'Draft', value: 'draft' },
-    { label: 'For Signature', value: 'for_signature' },
     { label: 'Signed', value: 'signed' },
     { label: 'Claim Ready', value: 'claim_ready' },
     { label: 'Claimed', value: 'claimed' },
-    { label: 'Queued', value: 'queued_for_anchor' },
-    { label: 'Rejected', value: 'rejected' },
     { label: 'Anchored', value: 'anchored' },
   ];
 
@@ -690,14 +699,18 @@ export default function CredentialDraftsPage() {
                               </>
                             ) : null}
 
-                            {['signed', 'claim_ready'].includes(item.status) &&
+                            {CLAIM_QR_STATUSES.has(item.status) &&
                             currentRole === 'super_admin' ? (
                               <button
                                 className="btn btn-info btn-sm"
                                 onClick={() => handleViewQr(item._id)}
                                 disabled={busyId === item._id}
                               >
-                                {busyId === item._id ? 'Preparing...' : 'View QR'}
+                                {busyId === item._id
+                                  ? 'Preparing...'
+                                  : item.status === 'claim_ready'
+                                    ? 'View QR'
+                                    : 'Generate QR'}
                               </button>
                             ) : null}
 
