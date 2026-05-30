@@ -9,7 +9,7 @@ function trimSlashes(value) {
 const configuredOrigin =
   process.env.EXPO_PUBLIC_API_URL ||
   extra.API_URL ||
-  'http://localhost:5000';
+  'http://192.168.100.12:5000';
 
 export const API_ORIGIN = trimSlashes(configuredOrigin);
 export const API_BASE_URL = /\/api$/.test(API_ORIGIN)
@@ -51,5 +51,9 @@ export const ENDPOINTS = {
   notifications: {
     registerPush: '/push/register',
     history: '/mobile/notifications'
+  },
+  uploads: {
+    health: '/health',
+    testImage: '/uploads/test-image'
   }
 };
