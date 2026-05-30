@@ -18,7 +18,10 @@
     "android": {
       "permissions": [
         "CAMERA",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ],
       "package": "com.psau.credpocket.clean"
     },
@@ -30,9 +33,25 @@
       [
         "expo-splash-screen",
         {
+          "image": "./assets/splashscreen_logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
         }
-      ]
+      ],
+      "react-native-vision-camera",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 26,
+            "kotlinVersion": "2.1.20"
+          }
+        }
+      ],
+      "expo-font"
     ],
     "extra": {
       "API_URL": "http://localhost:5000",
