@@ -12,6 +12,40 @@ async function writeLocalCredentials(credentials) {
   await writeJson(STORAGE_KEYS.CREDENTIALS, credentials || []);
 }
 
+function claimErrorMessage(message) {
+  const text = String(message || '');
+  const normalized = text.toLowerCase();
+
+  if (normalized.includes('verified')) {
+    return 'Your account must be verified before claiming this credential.';
+  }
+
+  if (
+    normalized.includes('claim qr has expired') ||
+    (normalized.includes('claim token') && normalized.includes('expired'))
+  ) {
+    return 'This claim QR has expired. Please generate a new QR.';
+  }
+
+  if (normalized.includes('belongs to another student')) {
+    return 'This credential belongs to another student.';
+  }
+
+  if (normalized.includes('already claimed')) {
+    return 'This credential was already claimed.';
+  }
+
+  if (
+    normalized.includes('claim token') ||
+    normalized.includes('claim request student does not match') ||
+    normalized.includes('qr code does not contain')
+  ) {
+    return 'Invalid claim QR.';
+  }
+
+  return text || 'Failed to claim credential';
+}
+
 export async function listCredentials() {
   return readLocalCredentials();
 }
@@ -64,7 +98,7 @@ export async function claimCredential(scanResult) {
         ).trim();
 
   if (!token) {
-    throw new Error('QR code does not contain a claim token');
+    throw new Error('Invalid claim QR.');
   }
 
   try {
@@ -88,6 +122,6 @@ export async function claimCredential(scanResult) {
 
     return saveCredential(credential);
   } catch (error) {
-    throw new Error(apiErrorMessage(error, 'Failed to claim credential'));
+    throw new Error(claimErrorMessage(apiErrorMessage(error, 'Failed to claim credential')));
   }
 }

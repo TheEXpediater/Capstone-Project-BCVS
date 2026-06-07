@@ -12,6 +12,20 @@ const initialLoaders = {
   notifications: false
 };
 
+const VERIFICATION_REQUIRED_MESSAGE = 'Your account must be verified before claiming this credential.';
+
+function hasVerifiedStatus(user) {
+  if (user?.verified === true) return true;
+
+  return [user?.verified, user?.verificationStatus, user?.status].some(
+    (value) => String(value || '').trim().toLowerCase() === 'verified'
+  );
+}
+
+function isVerifiedAndLinked(user) {
+  return hasVerifiedStatus(user) && Boolean(String(user?.studentId || '').trim());
+}
+
 export const useAppStore = create((set, get) => ({
   bootstrapped: false,
   user: null,
@@ -166,9 +180,14 @@ export const useAppStore = create((set, get) => ({
   },
 
   async claimCredential(scanResult) {
-    const user = get().user;
-    if (String(user?.verified || 'unverified').toLowerCase() !== 'verified' || !user?.studentId) {
-      throw new Error('Your account must be verified before claiming this credential.');
+    let user = get().user;
+
+    if (!isVerifiedAndLinked(user)) {
+      user = await get().refreshAccount();
+    }
+
+    if (!isVerifiedAndLinked(user)) {
+      throw new Error(VERIFICATION_REQUIRED_MESSAGE);
     }
 
     const saved = await vcService.claimCredential(scanResult);
