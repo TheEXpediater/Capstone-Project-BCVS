@@ -6,6 +6,7 @@ import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
 import UserManagementPage from '../features/users/pages/UserManagementPage';
 import ContractManagerPage from '../features/contracts/pages/ContractManagerPage';
 import CurriculumManagerPage from '../features/curriculum/pages/CurriculumManagerPage';
+import LinkAccountsPage from '../features/students/pages/LinkAccountsPage';
 import StudentImportManagerPage from '../features/students/pages/StudentImportManagerPage';
 import Dashboard from '../pages/Dashboard';
 import NotFound from '../pages/NotFound';
@@ -43,6 +44,19 @@ export default function AppRoutes() {
       />
 
       <Route
+        path="/link-accounts"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
+              <AppShell>
+                <LinkAccountsPage />
+              </AppShell>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/credentials"
         element={
           <ProtectedRoute>
@@ -72,7 +86,7 @@ export default function AppRoutes() {
         path="/users"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['developer']}>
+            <RoleRoute allowedRoles={['developer', 'super_admin']}>
               <AppShell>
                 <UserManagementPage />
               </AppShell>

@@ -3,7 +3,7 @@ import * as authService from '@/services/authService';
 import * as notificationService from '@/services/notificationService';
 import * as vcService from '@/services/vcService';
 import * as verificationService from '@/services/verificationService';
-import { clearSession, loadSession, STORAGE_KEYS, writeJson } from '@/utils/storage';
+import { clearSession, loadSession, saveSession, STORAGE_KEYS, writeJson } from '@/utils/storage';
 
 const initialLoaders = {
   auth: false,
@@ -99,8 +99,20 @@ export const useAppStore = create((set, get) => ({
 
   async refreshAccount() {
     const user = await authService.fetchMe();
+    const { token, sessionId } = await loadSession();
+    await saveSession({ token, sessionId, user });
     set({ user });
     return user;
+  },
+
+  async loadAccountVerification() {
+    return verificationService.getAccountVerification();
+  },
+
+  async submitAccountVerification(payload) {
+    const submission = await verificationService.submitAccountVerification(payload);
+    await get().refreshAccount();
+    return submission;
   },
 
   async requestEmailOtp(email) {
@@ -154,6 +166,11 @@ export const useAppStore = create((set, get) => ({
   },
 
   async claimCredential(scanResult) {
+    const user = get().user;
+    if (String(user?.verified || 'unverified').toLowerCase() !== 'verified' || !user?.studentId) {
+      throw new Error('Your account must be verified before claiming this credential.');
+    }
+
     const saved = await vcService.claimCredential(scanResult);
     await get().loadCredentials();
     await get().addActivity({

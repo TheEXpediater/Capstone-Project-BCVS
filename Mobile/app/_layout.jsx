@@ -29,6 +29,7 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="vc/[id]" />
         <Stack.Screen name="vc/share" />
+        <Stack.Screen name="verification/account" />
         <Stack.Screen name="verification/consent" />
       </Stack>
     </SafeAreaProvider>

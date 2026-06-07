@@ -44,6 +44,8 @@ export const ENDPOINTS = {
     claim: '/mobile/credentials/claim'
   },
   verification: {
+    account: '/verification/me',
+    submitAccount: '/verification/submit',
     createSession: '/verification/session',
     session: (sessionId) => `/verification/session/${encodeURIComponent(sessionId)}`,
     present: (sessionId) => `/verification/session/${encodeURIComponent(sessionId)}/present`

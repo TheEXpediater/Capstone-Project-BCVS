@@ -8,6 +8,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "generate:grade-template": "node src/script/students/generate_grade_import_template.js",
+    "generate:grade-import-db": "node src/script/students/generate_grade_import_from_db.js",
+    "generate:manual-test-imports": "node src/script/students/generate_manual_test_imports_from_curricula.js",
     "backfill:student-curriculum": "node src/script/students/backfill_student_curriculum.js"
   },
   "keywords": [],
@@ -25,7 +27,8 @@
     "joi": "^18.1.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.3.1",
-    "multer": "^2.1.1"
+    "multer": "^2.1.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

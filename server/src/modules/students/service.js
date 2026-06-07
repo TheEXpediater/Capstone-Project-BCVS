@@ -150,6 +150,24 @@ async function resolveCurriculum(row) {
   return null;
 }
 
+async function resolveExactCurriculumForImport(row) {
+  const Curriculum = getCurriculumModel();
+
+  const programCode = normalizeProgramCode(
+    row?.programcode || row?.program || row?.curriculumcode
+  );
+  const curriculumYear = cleanString(row?.curriculumyear);
+
+  if (!programCode || !curriculumYear) {
+    return null;
+  }
+
+  return Curriculum.findOne({
+    program: programCode,
+    curriculumYear,
+  }).lean();
+}
+
 function mapStudentListRow(row) {
   return {
     _id: row._id,
@@ -252,6 +270,46 @@ export async function listStudents() {
   return rows.map(mapStudentListRow);
 }
 
+export async function searchStudents(query = '') {
+  const Student = getStudentModel();
+  const search = cleanString(query);
+
+  if (!search) {
+    return [];
+  }
+
+  const regex = new RegExp(escapeRegex(search), 'i');
+  const rows = await Student.find(
+    {
+      $or: [
+        { studentNo: regex },
+        { studentName: regex },
+        { programCode: regex },
+      ],
+    },
+    {
+      studentNo: 1,
+      studentName: 1,
+      programCode: 1,
+      programName: 1,
+      curriculumYear: 1,
+      curriculumId: 1,
+    }
+  )
+    .sort({ studentNo: 1 })
+    .limit(20)
+    .lean();
+
+  return rows.map((row) => ({
+    _id: row._id,
+    studentNo: row.studentNo,
+    studentName: row.studentName,
+    programCode: row.programCode || '',
+    programName: row.programName || '',
+    curriculumYear: row.curriculumYear || '',
+    curriculumId: row.curriculumId || null,
+  }));
+}
 
 export async function getStudentById(id) {
   const Student = getStudentModel();
@@ -349,7 +407,17 @@ export async function importStudents(rows, actor) {
       continue;
     }
 
-    const curriculum = await resolveCurriculum(raw);
+    const curriculum = await resolveExactCurriculumForImport(raw);
+
+    if (!curriculum) {
+      skipped += 1;
+      withoutCurriculum += 1;
+      issues.push({
+        studentNo,
+        reason: 'Curriculum not found for ProgramCode + CurriculumYear.',
+      });
+      continue;
+    }
 
     const dateGraduated = toDateOrNull(raw?.dategraduated);
     const dateGraduation = toDateOrNull(raw?.dategraduation);
@@ -367,34 +435,25 @@ export async function importStudents(rows, actor) {
       residentialAddress: cleanString(raw?.resaddress || raw?.residentialaddress),
       entranceCredentials: cleanString(raw?.entrancecredentials),
       highSchool: cleanString(raw?.highschool),
-      degreeTitle: cleanString(raw?.degreetitle),
+      degreeTitle: cleanString(raw?.degreetitle || curriculum?.programName || ''),
       major: cleanString(raw?.major),
       dateAdmission: toDateOrNull(raw?.dateadmission),
       placeBirth: cleanString(raw?.placebirth),
       dateGraduated,
       dateGraduation,
       graduated,
-      programCode: normalizeProgramCode(
-        raw?.programcode ||
-          raw?.program ||
-          curriculum?.program ||
-          ''
-      ),
+      programCode: curriculum?.program || normalizeProgramCode(raw?.programcode || raw?.program || ''),
       programName: cleanString(
         raw?.programname ||
           raw?.degreetitle ||
           curriculum?.programName ||
           ''
       ),
-      curriculumId: curriculum?._id || null,
+      curriculumId: curriculum._id,
       curriculumYear: curriculum?.curriculumYear || '',
       importedBy: actor?._id || null,
       updatedBy: actor?._id || null,
     };
-
-    if (!payload.curriculumId) {
-      withoutCurriculum += 1;
-    }
 
     const existing = await Student.findOne({ studentNo }).lean();
 
@@ -486,7 +545,7 @@ export async function importStudentGrades(rows, actor) {
       skipped += 1;
       issues.push({
         studentNo,
-        reason: 'Student does not exist yet. Import student data first.',
+        reason: 'StudentNo not found.',
       });
       continue;
     }
@@ -495,7 +554,7 @@ export async function importStudentGrades(rows, actor) {
       skipped += 1;
       issues.push({
         studentNo,
-        reason: 'Student has no linked curriculum. Resolve curriculum first.',
+        reason: 'Student has no linked curriculum.',
       });
       continue;
     }

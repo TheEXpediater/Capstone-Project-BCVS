@@ -12,6 +12,11 @@ export const listStudents = asyncHandler(async (_req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+export const searchStudents = asyncHandler(async (req, res) => {
+  const data = await studentService.searchStudents(req.query?.query || '');
+  res.status(200).json({ success: true, data });
+});
+
 export const getStudentById = asyncHandler(async (req, res) => {
   const data = await studentService.getStudentById(req.params.id);
   res.status(200).json({ success: true, data });

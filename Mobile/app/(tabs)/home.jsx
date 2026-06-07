@@ -12,6 +12,7 @@ export default function HomeScreen() {
   const notifications = useAppStore((state) => state.notifications);
   const loadCredentials = useAppStore((state) => state.loadCredentials);
   const loadNotifications = useAppStore((state) => state.loadNotifications);
+  const isVerified = String(user?.verified || 'unverified').toLowerCase() === 'verified' && !!user?.studentId;
 
   useFocusEffect(
     useCallback(() => {
@@ -25,6 +26,16 @@ export default function HomeScreen() {
       <Text style={styles.eyebrow}>CredPocket</Text>
       <Text style={styles.title}>Hello, {user?.fullName || user?.username || 'Student'}</Text>
       <Text style={styles.subtitle}>Your credentials stay on this device until you approve sharing.</Text>
+
+      {!isVerified ? (
+        <Pressable style={styles.verifyCard} onPress={() => router.push('/verification/account')}>
+          <Ionicons name="shield-checkmark-outline" size={22} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.verifyTitle}>Account verification required</Text>
+            <Text style={styles.verifyText}>Submit your ID and selfie proof for registrar review.</Text>
+          </View>
+        </Pressable>
+      ) : null}
 
       <View style={styles.grid}>
         <Pressable style={styles.card} onPress={() => router.push('/(tabs)/credentials')}>
@@ -100,6 +111,25 @@ const styles = StyleSheet.create({
   scanText: {
     color: '#FFFFFF',
     fontWeight: '800'
+  },
+  verifyCard: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    flexDirection: 'row',
+    gap: spacing.md,
+    alignItems: 'center'
+  },
+  verifyTitle: {
+    color: colors.text,
+    fontWeight: '900'
+  },
+  verifyText: {
+    color: colors.muted,
+    marginTop: 2
   }
 });
 

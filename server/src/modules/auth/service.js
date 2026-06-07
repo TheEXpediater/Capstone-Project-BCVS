@@ -64,10 +64,37 @@ function sanitizeUser(user) {
       ...baseUser,
       studentId: user.studentId || '',
       verified: user.verified ?? 'unverified',
+      verifiedAt: user.verifiedAt || null,
     };
   }
 
   return baseUser;
+}
+
+function normalizeAccountType(kind) {
+  return kind === 'mobile' ? 'mobile' : 'web';
+}
+
+function normalizeUserStatus(user) {
+  const rawStatus = String(user.status || user.accountStatus || '').trim().toLowerCase();
+
+  if (rawStatus === 'suspended') {
+    return 'suspended';
+  }
+
+  return user.isActive ? 'active' : 'inactive';
+}
+
+function normalizeManagedUser(user) {
+  return {
+    id: String(user._id),
+    fullName: user.fullName || user.username || '',
+    email: user.email || '',
+    accountType: normalizeAccountType(user.kind),
+    role: user.role,
+    status: normalizeUserStatus(user),
+    createdAt: user.createdAt,
+  };
 }
 
 function getRequestContext(req) {
@@ -207,6 +234,45 @@ export async function listWebUsers() {
   return {
     success: true,
     users: users.map((user) => sanitizeUser(user)),
+  };
+}
+
+export async function listAllUsers(query = {}) {
+  await ensureRoles();
+  const User = getUserModel();
+
+  const accountType = String(query.accountType || '').trim().toLowerCase();
+  const role = String(query.role || '').trim().toLowerCase();
+  const status = String(query.status || '').trim().toLowerCase();
+
+  const filter = {
+    kind: { $in: ['web', 'mobile'] },
+  };
+
+  if (accountType === 'web' || accountType === 'mobile') {
+    filter.kind = accountType;
+  }
+
+  if (['student', 'admin', 'super_admin', 'developer', 'cashier'].includes(role)) {
+    filter.role = role;
+  }
+
+  const users = await User.find(filter)
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const normalized = users
+    .map((user) => normalizeManagedUser(user))
+    .filter((user) => {
+      if (!['active', 'inactive', 'suspended'].includes(status)) {
+        return true;
+      }
+
+      return user.status === status;
+    });
+
+  return {
+    users: normalized,
   };
 }
 

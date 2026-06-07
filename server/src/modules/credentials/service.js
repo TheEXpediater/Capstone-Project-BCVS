@@ -63,8 +63,14 @@ function assertMobileStudent(actor) {
     throw new ApiError(403, 'Only authenticated student mobile users can claim credentials');
   }
 
+  const verificationStatus = cleanString(actor.verified || actor.verificationStatus, 'unverified').toLowerCase();
+
+  if (verificationStatus !== 'verified') {
+    throw new ApiError(403, 'Your account must be verified before claiming this credential.');
+  }
+
   if (!cleanString(actor.studentId)) {
-    throw new ApiError(403, 'Mobile user is not linked to a student number');
+    throw new ApiError(403, 'Your account must be verified before claiming this credential.');
   }
 }
 

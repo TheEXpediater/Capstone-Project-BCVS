@@ -6,3 +6,5 @@ server/node_modules/
 .env
 *.env
 server/src/config/.env
+
+server/src/script/students/output/

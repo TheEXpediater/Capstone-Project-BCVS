@@ -101,6 +101,11 @@ export default function AppShell({ children }) {
         label: 'Student Records',
         icon: <FaUserGraduate />,
       });
+      items.push({
+        to: '/link-accounts',
+        label: 'Link Accounts',
+        icon: <FaUsers />,
+      });
     }
 
     if (canSeeCredentialDrafts) {
@@ -119,7 +124,7 @@ export default function AppShell({ children }) {
       });
     }
 
-    if (isDeveloper) {
+    if (isDeveloper || user?.role === 'super_admin') {
       items.push({ to: '/users', label: 'Manage Users', icon: <FaUsers /> });
     }
 

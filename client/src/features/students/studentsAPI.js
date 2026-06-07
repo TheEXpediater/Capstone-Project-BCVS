@@ -5,6 +5,11 @@ export async function listStudents() {
   return response.data.data;
 }
 
+export async function searchStudents(query) {
+  const response = await api.get('/students/search', { params: { query } });
+  return response.data.data;
+}
+
 export async function getStudentProfile(id) {
   const response = await api.get(`/students/${id}`);
   return response.data.data;

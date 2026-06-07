@@ -1,7 +1,7 @@
 import api from '../../services/api';
 
-export async function listWebUsers() {
-  const response = await api.get('/auth/web/users');
+export async function listUsers(params = {}) {
+  const response = await api.get('/users', { params });
   return response.data.users;
 }
 

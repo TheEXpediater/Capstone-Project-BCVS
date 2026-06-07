@@ -31,7 +31,7 @@ function buildSummaryText(label, summary) {
     `skipped: ${summary.skipped ?? 0}`,
   ];
 
-  if (typeof summary.withoutCurriculum === 'number') {
+  if (typeof summary.withoutCurriculum === 'number' && summary.withoutCurriculum > 0) {
     parts.push(`without curriculum: ${summary.withoutCurriculum}`);
   }
 
@@ -1142,7 +1142,7 @@ export default function StudentImportManagerPage() {
             onImport={handleImportStudents}
             helperText={
               <>
-                Recognized student columns include <strong>StudentNo, StudentName, ExtensionName, Gender, PermAddress, ResAddress, EntranceCredentials, HighSchool, DegreeTitle, Major, DateAdmission, PlaceBirth, DateGraduated, DateGraduation</strong>. Add <strong>ProgramCode</strong> and optional <strong>CurriculumYear</strong> when available for better curriculum matching.
+                Recognized student columns include <strong>StudentNo, StudentName, ProgramCode, ProgramName, CurriculumYear, DegreeTitle, Gender, DateAdmission, Graduated</strong>. Student imports are linked only when <strong>ProgramCode</strong> and <strong>CurriculumYear</strong> match an existing curriculum.
               </>
             }
           />
@@ -1162,7 +1162,7 @@ export default function StudentImportManagerPage() {
             onImport={handleImportGrades}
             helperText={
               <>
-                Recognized grade columns include <strong>StudentNo or StudentNumber, SubjectCode or Code, SubjectTitle or Title, Units, FinalGrade or Grade, Remarks, YearLevel or Year, Semester or Sem, SchoolYear, TermName</strong>.
+                Recognized grade columns include <strong>StudentNo, StudentName, ProgramCode, ProgramName, CurriculumYear, YearLevel, Semester, SubjectCode, SubjectTitle, Units, FinalGrade, Remarks, SchoolYear, TermName</strong>. Grades are skipped when the student is missing or has no linked curriculum.
               </>
             }
           />

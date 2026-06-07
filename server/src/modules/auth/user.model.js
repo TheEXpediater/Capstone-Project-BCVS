@@ -66,6 +66,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    verifiedAt: {
+      type: Date,
+      default: null,
+    },
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -88,15 +96,13 @@ userSchema.pre('validate', function () {
 
     this.studentId = null;
     this.verified = null;
+    this.verifiedAt = null;
+    this.verifiedBy = null;
   }
 
   if (this.kind === 'mobile') {
     if (this.role !== 'student') {
       throw new Error('Mobile users must have student role');
-    }
-
-    if (!this.studentId) {
-      throw new Error('studentId is required for mobile users');
     }
 
     if (this.verified === null || this.verified === undefined) {

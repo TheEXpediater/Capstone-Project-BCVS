@@ -6,6 +6,7 @@ import {
   importStudentGrades,
   importStudents,
   listStudents,
+  searchStudents,
   updateStudentById,
 } from './controller.js';
 
@@ -30,6 +31,13 @@ router.get(
   protect({ kind: 'web' }),
   allowRoles('admin', 'super_admin', 'developer'),
   listStudents
+);
+
+router.get(
+  '/search',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  searchStudents
 );
 
 router.get(

@@ -23,6 +23,15 @@ export default function ScanScreen() {
         const credential = await claimCredential(parsed);
         router.push(`/vc/${encodeURIComponent(credential.id)}`);
       } catch (error) {
+        if (String(error.message || '').toLowerCase().includes('verified')) {
+          Alert.alert(
+            'Verification required',
+            'Your account must be verified by the registrar before claiming credentials.',
+            [{ text: 'Start Verification', onPress: () => router.push('/verification/account') }]
+          );
+          return;
+        }
+
         Alert.alert('Claim failed', error.message);
       }
       return;

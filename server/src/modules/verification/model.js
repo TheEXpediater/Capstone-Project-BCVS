@@ -97,3 +97,101 @@ export function getVerificationSessionModel() {
     connection.model('VerificationSession', verificationSessionSchema)
   );
 }
+
+const verificationSubmissionSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      index: true,
+    },
+    fullName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    email: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true,
+    },
+    submittedStudentNo: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    idFrontUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    idBackUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    selfieUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    livenessImageUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    answers: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+    status: {
+      type: String,
+      enum: ['draft', 'pending', 'approved', 'rejected'],
+      default: 'draft',
+      index: true,
+    },
+    linkedStudentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    linkedStudentNo: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    reviewedAt: {
+      type: Date,
+      default: null,
+    },
+    rejectionReason: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+  },
+  {
+    timestamps: true,
+    collection: 'verification_submissions',
+  }
+);
+
+verificationSubmissionSchema.index(
+  { userId: 1, status: 1 },
+  { name: 'verification_submission_user_status_idx' }
+);
+
+export function getVerificationSubmissionModel() {
+  const connection = getPlatformConnection();
+  return (
+    connection.models.VerificationSubmission ||
+    connection.model('VerificationSubmission', verificationSubmissionSchema)
+  );
+}
