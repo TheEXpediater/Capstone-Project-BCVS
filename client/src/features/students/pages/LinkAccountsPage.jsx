@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { searchStudents } from '../studentsAPI';
 import {
   approveVerificationSubmission,
@@ -32,7 +32,7 @@ function ProofImage({ label, src }) {
   const url = proofUrl(src);
 
   return (
-    <div className="col-md-4">
+    <div className="col-md-3">
       <div className="small text-muted mb-2">{label}</div>
       {url ? (
         <a href={url} target="_blank" rel="noreferrer">
@@ -46,6 +46,31 @@ function ProofImage({ label, src }) {
       ) : (
         <div className="border rounded p-3 text-muted small">No image submitted.</div>
       )}
+    </div>
+  );
+}
+
+function LivenessCheck({ submission }) {
+  const passed = Boolean(submission?.livenessPassed || submission?.answers?.livenessPassed);
+  const method = submission?.livenessMethod || submission?.answers?.livenessMethod || 'FaceVerifier local liveness';
+  const passedAt = submission?.livenessPassedAt || submission?.answers?.livenessPassedAt;
+
+  return (
+    <div className="col-md-3">
+      <div className="small text-muted mb-2">Liveness Check</div>
+      <div className="border rounded p-3 h-100">
+        <div>
+          <span className={`badge ${passed ? 'text-bg-success' : 'text-bg-warning'}`}>
+            {passed ? 'Passed' : 'Not recorded'}
+          </span>
+        </div>
+        <div className="small mt-3">
+          <strong>Method:</strong> {method}
+        </div>
+        <div className="small mt-2">
+          <strong>Passed At:</strong> {passedAt ? formatDate(passedAt) : 'Not recorded'}
+        </div>
+      </div>
     </div>
   );
 }
@@ -128,7 +153,8 @@ function ReviewModal({
                 <div className="row g-3">
                   <ProofImage label="Valid ID front" src={submission.idFrontUrl} />
                   <ProofImage label="Valid ID back" src={submission.idBackUrl} />
-                  <ProofImage label="Selfie/liveness proof" src={submission.livenessImageUrl || submission.selfieUrl} />
+                  <ProofImage label="Selfie proof" src={submission.selfieUrl} />
+                  <LivenessCheck submission={submission} />
                 </div>
               </section>
 
@@ -259,7 +285,7 @@ export default function LinkAccountsPage() {
   const [searchingStudents, setSearchingStudents] = useState(false);
   const [acting, setActing] = useState(false);
 
-  async function loadSubmissions() {
+  const loadSubmissions = useCallback(async () => {
     try {
       setLoading(true);
       const data = await listVerificationSubmissions({ status, search });
@@ -272,11 +298,11 @@ export default function LinkAccountsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [search, status]);
 
   useEffect(() => {
     loadSubmissions();
-  }, [status]);
+  }, [loadSubmissions]);
 
   function showToast(message) {
     setToast(message);

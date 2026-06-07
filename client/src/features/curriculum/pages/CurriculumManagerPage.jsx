@@ -317,6 +317,42 @@ function JsonToolsModal({
   );
 }
 
+function ReadOnlyCurriculumModal({ curriculum, onClose, onEdit }) {
+  if (!curriculum) return null;
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">
+                  {curriculum.program} {curriculum.curriculumYear}
+                </h2>
+                <p className="text-muted mb-0 small">{curriculum.programName || 'Read-only curriculum view'}</p>
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+            </div>
+            <div className="modal-body">
+              <CurriculumViewer curriculum={curriculum} />
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onClose}>
+                Close
+              </button>
+              <button className="btn btn-primary" onClick={() => onEdit(curriculum._id)}>
+                Edit in Workspace
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" onClick={onClose} />
+    </>
+  );
+}
+
 function CurriculumEditor({
   form,
   stats,
@@ -584,6 +620,8 @@ export default function CurriculumManagerPage() {
   const [deletingId, setDeletingId] = useState('');
   const [loadingId, setLoadingId] = useState('');
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('workspace');
+  const [viewingCurriculum, setViewingCurriculum] = useState(null);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [baselineSnapshot, setBaselineSnapshot] = useState(getFormSnapshot(EMPTY_FORM));
 
@@ -712,6 +750,8 @@ export default function CurriculumManagerPage() {
       setForm(next);
       setSelectedCurriculumId(data._id);
       setWorkspaceMode(nextMode);
+      setActiveTab('workspace');
+      setViewingCurriculum(null);
       syncJson(next.structure);
       syncBaseline(next);
       setFeedback({
@@ -727,6 +767,27 @@ export default function CurriculumManagerPage() {
     } finally {
       setLoadingId('');
     }
+  }
+
+  async function openCurriculumReadOnly(id) {
+    try {
+      setLoadingId(id);
+      const data = await getCurriculumById(id);
+      setViewingCurriculum(data);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error.response?.data?.message || error.message || 'Failed to open curriculum.',
+      });
+    } finally {
+      setLoadingId('');
+    }
+  }
+
+  async function editFromReadOnlyModal(id) {
+    setViewingCurriculum(null);
+    await loadCurriculumIntoWorkspace(id, 'edit');
   }
 
  async function handleSaveCurriculum() {
@@ -1016,6 +1077,8 @@ export default function CurriculumManagerPage() {
       'You have unsaved changes. Start a new curriculum without saving?'
     );
     if (!approved) return;
+    setActiveTab('workspace');
+    setViewingCurriculum(null);
     resetForm('edit');
   }
 
@@ -1051,6 +1114,22 @@ export default function CurriculumManagerPage() {
           </div>
         ) : null}
 
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            className={`btn ${activeTab === 'workspace' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setActiveTab('workspace')}
+          >
+            Workspace
+          </button>
+          <button
+            className={`btn ${activeTab === 'view' ? 'btn-primary' : 'btn-outline-primary'}`}
+            onClick={() => setActiveTab('view')}
+          >
+            View
+          </button>
+        </div>
+
+        {activeTab === 'view' ? (
         <div className="card border-0 shadow-sm">
           <div className="card-body p-4">
             <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
@@ -1103,7 +1182,7 @@ export default function CurriculumManagerPage() {
                             <div className="d-flex flex-wrap gap-2">
                               <button
                                 className="btn btn-outline-primary btn-sm"
-                                onClick={() => loadCurriculumIntoWorkspace(item._id, 'view')}
+                                onClick={() => openCurriculumReadOnly(item._id)}
                                 disabled={loadingId === item._id}
                               >
                                 {loadingId === item._id && !isSelected ? 'Opening...' : 'View'}
@@ -1135,7 +1214,9 @@ export default function CurriculumManagerPage() {
             )}
           </div>
         </div>
+        ) : null}
 
+        {activeTab === 'workspace' ? (
         <div className="card border-0 shadow-sm">
           <div className="card-body p-4">
             <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -1208,6 +1289,7 @@ export default function CurriculumManagerPage() {
             )}
           </div>
         </div>
+        ) : null}
       </div>
 
       <JsonToolsModal
@@ -1218,6 +1300,12 @@ export default function CurriculumManagerPage() {
         onUpload={handleJsonFileUpload}
         onCopy={handleCopyJson}
         onLoad={handleLoadJsonToEditor}
+      />
+
+      <ReadOnlyCurriculumModal
+        curriculum={viewingCurriculum}
+        onClose={() => setViewingCurriculum(null)}
+        onEdit={editFromReadOnlyModal}
       />
     </>
   );

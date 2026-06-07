@@ -16,7 +16,7 @@ import {
 
 const router = express.Router();
 
-router.get('/dashboard', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), getDashboard);
+router.get('/dashboard', protect({ kind: 'web' }), allowRoles('admin', 'super_admin', 'developer'), getDashboard);
 
 router.get('/issuer-keys', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), getIssuerKeys);
 router.post('/issuer-keys', protect({ kind: 'web' }), allowRoles('developer'), createIssuerKey);

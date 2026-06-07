@@ -21,7 +21,15 @@ export async function getAccountVerification() {
   }
 }
 
-export async function submitAccountVerification({ idFront, idBack, selfie, answers }) {
+export async function submitAccountVerification({
+  idFront,
+  idBack,
+  selfie,
+  answers,
+  livenessPassed,
+  livenessPassedAt,
+  livenessMethod
+}) {
   try {
     const formData = new FormData();
     appendImage(formData, 'idFront', idFront, 'id-front.jpg');
@@ -30,6 +38,9 @@ export async function submitAccountVerification({ idFront, idBack, selfie, answe
     formData.append('answers', JSON.stringify(answers || {}));
     formData.append('submittedStudentNo', answers?.studentNo || '');
     formData.append('fullName', answers?.fullName || '');
+    formData.append('livenessPassed', livenessPassed || answers?.livenessPassed ? 'true' : 'false');
+    formData.append('livenessPassedAt', livenessPassedAt || answers?.livenessPassedAt || '');
+    formData.append('livenessMethod', livenessMethod || answers?.livenessMethod || '');
 
     const { data } = await api.post(ENDPOINTS.verification.submitAccount, formData, {
       headers: {

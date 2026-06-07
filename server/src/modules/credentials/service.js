@@ -12,6 +12,7 @@ import { getExplorerBaseUrl } from '../contracts/service.js';
 import { notifyStudentByStudentNo } from '../notifications/service.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
+const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor'];
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
@@ -52,6 +53,49 @@ function generateClaimToken() {
 
 function hashClaimToken(token) {
   return createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function randomCode(length = 6) {
+  return randomBytes(6).toString('hex').slice(0, length).toUpperCase();
+}
+
+function compactDateStamp(date = new Date()) {
+  return date.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+async function generateUniquePaymentCode(CredentialDraft) {
+  const stamp = compactDateStamp();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const paymentCode = `PAY-${stamp}-${randomCode(6)}`;
+    const exists = await CredentialDraft.exists({ paymentCode });
+    if (!exists) return paymentCode;
+  }
+
+  throw new ApiError(500, 'Could not generate a payment code');
+}
+
+async function generateUniqueReceiptNo(CredentialDraft) {
+  const stamp = compactDateStamp();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const receiptNo = `RCPT-${stamp}-${randomCode(6)}`;
+    const exists = await CredentialDraft.exists({ receiptNo });
+    if (!exists) return receiptNo;
+  }
+
+  throw new ApiError(500, 'Could not generate a receipt number');
+}
+
+function normalizeAmount(value, fallback = 0) {
+  const amount = Number(value ?? fallback);
+  return Number.isFinite(amount) && amount >= 0 ? amount : fallback;
+}
+
+function assertCashierActor(actor) {
+  if (!actor || !['cashier', 'admin', 'super_admin', 'developer'].includes(actor.role)) {
+    throw new ApiError(403, 'Only cashier, admin, super admin, or MIS developer can update payments');
+  }
 }
 
 function normalizeStudentNo(value) {
@@ -321,6 +365,23 @@ async function getStudentBundle(studentId) {
   };
 }
 
+async function getStudentBundleByStudentNo(studentNo) {
+  const normalizedStudentNo = cleanString(studentNo);
+
+  if (!normalizedStudentNo) {
+    throw new ApiError(403, 'Your account must be verified before requesting this credential.');
+  }
+
+  const Student = getStudentModel();
+  const student = await Student.findOne({ studentNo: normalizedStudentNo }).lean();
+
+  if (!student) {
+    throw new ApiError(404, 'Linked student record was not found');
+  }
+
+  return getStudentBundle(student._id);
+}
+
 function buildVcPayload(draft, issuerKey) {
   return {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
@@ -409,15 +470,14 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
   const CredentialDraft = getCredentialDraftModel();
   const credentialType = cleanString(payload?.credentialType, 'student_record');
   const notes = cleanString(payload?.notes);
+  const paymentCode = await generateUniquePaymentCode(CredentialDraft);
 
   const { student, grades } = await getStudentBundle(studentId);
 
   const existingOpenDraft = await CredentialDraft.findOne({
     student: student._id,
     credentialType,
-    status: {
-      $in: ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor'],
-    },
+    status: { $in: OPEN_REQUEST_STATUSES },
   }).lean();
 
   if (existingOpenDraft) {
@@ -446,11 +506,87 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
     : null
 ),
     notes,
+    requestSource: 'web',
+    requestedBy: actor?._id || null,
+    paymentStatus: 'unpaid',
+    paymentCode,
+    amount: normalizeAmount(payload?.amount, 0),
     createdBy: actor?._id || null,
     status: 'draft',
   });
 
   return serializeDraft(draft);
+}
+
+export async function requestMobileCredential(payload = {}, actor) {
+  assertMobileStudent(actor);
+
+  const CredentialDraft = getCredentialDraftModel();
+  const credentialType = cleanString(payload?.credentialType, 'student_record');
+  const notes = cleanString(payload?.notes);
+  const { student, grades } = await getStudentBundleByStudentNo(actor.studentId);
+
+  const existingOpenDraft = await CredentialDraft.findOne({
+    studentNo: student.studentNo,
+    credentialType,
+    status: { $in: OPEN_REQUEST_STATUSES },
+  }).lean();
+
+  if (existingOpenDraft) {
+    throw new ApiError(
+      409,
+      'This student already has an open credential request for this credential type'
+    );
+  }
+
+  const paymentCode = await generateUniquePaymentCode(CredentialDraft);
+  const draft = await CredentialDraft.create({
+    credentialType,
+    student: student._id,
+    studentNo: student.studentNo,
+    studentName: student.studentName,
+    profileSnapshot: clonePlain(student),
+    gradesSnapshot: clonePlain(grades),
+    curriculumSnapshot: clonePlain(
+      student.curriculumId
+        ? {
+            _id: student.curriculumId._id,
+            program: student.curriculumId.program,
+            programName: student.curriculumId.programName,
+            curriculumYear: student.curriculumId.curriculumYear,
+            structure: student.curriculumId.structure || null,
+          }
+        : null
+    ),
+    notes,
+    requestSource: 'mobile',
+    requestedBy: actor?._id || null,
+    paymentStatus: 'unpaid',
+    paymentCode,
+    amount: normalizeAmount(payload?.amount, 0),
+    createdBy: actor?._id || null,
+    status: 'draft',
+  });
+
+  return {
+    request: serializeDraft(draft),
+    paymentCode,
+    processingNote: 'Processing may take up to 3 working days after payment.',
+  };
+}
+
+export async function listMobileCredentialRequests(actor) {
+  assertMobileStudent(actor);
+
+  const CredentialDraft = getCredentialDraftModel();
+  const requests = await CredentialDraft.find({
+    studentNo: cleanString(actor.studentId),
+  })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  return requests.map(serializeDraft);
 }
 
 export async function submitCredentialDraft(id, actor) {
@@ -515,13 +651,17 @@ export async function signCredentialDraft(id, actor) {
     throw new ApiError(409, 'Only drafts pending signature can be signed');
   }
 
-    const issuerKey = await getActiveIssuerKeyOrThrow();
+  if (cleanString(draft.paymentStatus, 'unpaid').toLowerCase() !== 'paid') {
+    throw new ApiError(409, 'Payment is required before signing this credential.');
+  }
 
-    const privateKeyPem = decryptPrivateKey({
+  const issuerKey = await getActiveIssuerKeyOrThrow();
+
+  const privateKeyPem = decryptPrivateKey({
     ciphertext: issuerKey.privateKeyCiphertext,
     iv: issuerKey.privateKeyIv,
     authTag: issuerKey.privateKeyAuthTag,
-    });
+  });
 
   const vcPayload = buildVcPayload(draft, issuerKey);
   const { credentialHash, signedCredential } = signCredentialPayload(
@@ -595,6 +735,99 @@ export async function createCredentialClaimToken(id, actor) {
     expiresAt,
     ttlMinutes: CLAIM_TOKEN_TTL_MINUTES,
   };
+}
+
+export async function listCredentialPayments(query = {}, actor) {
+  assertCashierActor(actor);
+
+  const CredentialDraft = getCredentialDraftModel();
+  const paymentStatus = cleanString(query?.paymentStatus || query?.status).toLowerCase();
+  const search = cleanString(query?.search);
+  const filter = {};
+
+  if (['unpaid', 'paid'].includes(paymentStatus)) {
+    filter.paymentStatus = paymentStatus;
+  }
+
+  if (search) {
+    const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filter.$or = [
+      { paymentCode: regex },
+      { receiptNo: regex },
+      { studentNo: regex },
+      { studentName: regex },
+      { credentialType: regex },
+    ];
+  }
+
+  const rows = await CredentialDraft.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
+
+  const normalized = [];
+
+  for (const row of rows) {
+    let draft = row;
+
+    if (!cleanString(draft.paymentCode)) {
+      const saved = await CredentialDraft.findById(draft._id);
+      if (saved) {
+        saved.paymentCode = await generateUniquePaymentCode(CredentialDraft);
+        await saved.save();
+        draft = saved.toObject();
+      }
+    }
+
+    normalized.push(serializeDraft(draft));
+  }
+
+  return normalized;
+}
+
+export async function markCredentialPaymentPaid(id, payload = {}, actor) {
+  assertCashierActor(actor);
+  assertObjectId(id, 'credential draft id');
+
+  const CredentialDraft = getCredentialDraftModel();
+  const draft = await CredentialDraft.findById(id);
+
+  if (!draft) {
+    throw new ApiError(404, 'Credential request not found');
+  }
+
+  if (!cleanString(draft.paymentCode)) {
+    draft.paymentCode = await generateUniquePaymentCode(CredentialDraft);
+  }
+
+  if (draft.paymentStatus === 'paid') {
+    return serializeDraft(draft);
+  }
+
+  const now = new Date();
+  draft.paymentStatus = 'paid';
+  draft.receiptNo = await generateUniqueReceiptNo(CredentialDraft);
+  draft.amount = normalizeAmount(payload?.amount, draft.amount || 0);
+  draft.paidAt = now;
+  draft.paidBy = actor?._id || null;
+  draft.paymentNotes = cleanString(payload?.paymentNotes || payload?.notes);
+
+  await draft.save();
+
+  await notifyStudentByStudentNo(draft.studentNo, {
+    type: 'payment_received',
+    title: 'Payment received',
+    body: `Your payment has been recorded. Receipt No: ${draft.receiptNo}`,
+    data: {
+      credentialId: draft._id.toString(),
+      paymentCode: draft.paymentCode,
+      receiptNo: draft.receiptNo,
+      paidAt: draft.paidAt,
+      paymentStatus: draft.paymentStatus,
+    },
+  }).catch(() => null);
+
+  return serializeDraft(draft);
 }
 
 export async function listMobileCredentials(actor) {

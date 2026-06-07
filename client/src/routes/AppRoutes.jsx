@@ -47,7 +47,7 @@ export default function AppRoutes() {
         path="/link-accounts"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer', 'cashier']}>
               <AppShell>
                 <LinkAccountsPage />
               </AppShell>
@@ -112,7 +112,7 @@ export default function AppRoutes() {
         path="/system-settings"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['super_admin', 'developer']}>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
               <AppShell>
                 <SystemSettingsPage />
               </AppShell>

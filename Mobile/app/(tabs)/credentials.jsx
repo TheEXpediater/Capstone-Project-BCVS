@@ -1,21 +1,131 @@
-import { useCallback } from 'react';
-import { FlatList, StyleSheet, Text } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import CredentialCard from '@/components/vc/CredentialCard';
 import EmptyState from '@/components/ui/EmptyState';
+import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
-import { colors, spacing } from '@/constants/theme';
+import TextField from '@/components/ui/TextField';
+import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
+
+function formatDate(value) {
+  if (!value) return 'Not available';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Not available';
+  return parsed.toLocaleString();
+}
+
+function RequestStatusCard({ request }) {
+  const paid = String(request?.paymentStatus || 'unpaid').toLowerCase() === 'paid';
+  const signed = ['signed', 'claim_ready', 'claimed', 'anchored'].includes(String(request?.status || ''));
+
+  return (
+    <View style={styles.requestStatus}>
+      <View style={styles.statusHeader}>
+        <Text style={styles.statusTitle}>{request?.credentialType || 'Student Record Credential'}</Text>
+        <Text style={[styles.badge, paid ? styles.badgePaid : styles.badgeUnpaid]}>
+          {paid ? 'Payment received' : 'Waiting for payment'}
+        </Text>
+      </View>
+      <Text style={styles.statusLine}>Request status: {request?.status || 'draft'}</Text>
+      <Text style={styles.statusLine}>Payment code: {request?.paymentCode || 'Not generated'}</Text>
+      {request?.receiptNo ? <Text style={styles.statusLine}>Receipt No: {request.receiptNo}</Text> : null}
+      <Text style={styles.statusLine}>Paid at: {formatDate(request?.paidAt)}</Text>
+      <Text style={styles.statusLine}>Credential status: {signed ? request.status : 'Processing'}</Text>
+      {signed ? <Text style={styles.note}>Use the Scan tab to claim the VC when the claim QR is ready.</Text> : null}
+      <Text style={styles.note}>Processing may take up to 3 working days after payment.</Text>
+    </View>
+  );
+}
 
 export default function CredentialsScreen() {
   const credentials = useAppStore((state) => state.credentials);
+  const credentialRequests = useAppStore((state) => state.credentialRequests);
+  const loadingRequests = useAppStore((state) => state.loading.requests);
   const loadCredentials = useAppStore((state) => state.loadCredentials);
+  const loadCredentialRequests = useAppStore((state) => state.loadCredentialRequests);
+  const requestCredential = useAppStore((state) => state.requestCredential);
+  const [notes, setNotes] = useState('');
+  const [lastRequest, setLastRequest] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       loadCredentials().catch(() => {});
-    }, [loadCredentials])
+      loadCredentialRequests().catch(() => {});
+    }, [loadCredentials, loadCredentialRequests])
   );
+
+  async function handleRequestCredential() {
+    try {
+      setSubmitting(true);
+      const result = await requestCredential({
+        credentialType: 'student_record',
+        notes: notes.trim()
+      });
+      setNotes('');
+      const paymentCode = result?.paymentCode || result?.request?.paymentCode || 'your payment code';
+      setLastRequest(result);
+      Alert.alert(
+        'Request submitted',
+        `Your request was submitted. Processing may take up to 3 working days after payment.\n\nPayment code: ${paymentCode}\nPresent this code to the cashier.`
+      );
+    } catch (error) {
+      Alert.alert('Request failed', error.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function renderHeader() {
+    return (
+      <View style={styles.header}>
+        <Text style={styles.title}>Stored Credentials</Text>
+
+        <View style={styles.requestCard}>
+          <Text style={styles.requestTitle}>Request Credential</Text>
+          <Text style={styles.note}>Processing may take up to 3 working days after payment.</Text>
+          <TextField
+            label="Notes"
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Optional request note"
+          />
+          <Button
+            title="Submit Request"
+            loading={submitting}
+            onPress={handleRequestCredential}
+          />
+          <Text style={styles.note}>After submitting, present the generated payment code to the cashier.</Text>
+        </View>
+
+        {lastRequest ? (
+          <View style={styles.confirmationCard}>
+            <Text style={styles.requestTitle}>Request Submitted</Text>
+            <Text style={styles.statusLine}>Payment code: {lastRequest.paymentCode || lastRequest.request?.paymentCode || 'Not generated'}</Text>
+            <Text style={styles.statusLine}>Status: {lastRequest.request?.status || lastRequest.status || 'draft'}</Text>
+            <Text style={styles.note}>Processing may take up to 3 working days after payment.</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionTitle}>Request Status</Text>
+          {loadingRequests ? (
+            <Text style={styles.note}>Loading requests...</Text>
+          ) : credentialRequests.length ? (
+            credentialRequests.slice(0, 3).map((request) => (
+              <RequestStatusCard key={request._id || request.id} request={request} />
+            ))
+          ) : (
+            <Text style={styles.note}>No credential requests yet.</Text>
+          )}
+        </View>
+
+        <Text style={styles.sectionTitle}>Wallet</Text>
+      </View>
+    );
+  }
 
   return (
     <Screen padded={false}>
@@ -23,7 +133,7 @@ export default function CredentialsScreen() {
         data={credentials}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.content}
-        ListHeaderComponent={<Text style={styles.title}>Stored Credentials</Text>}
+        ListHeaderComponent={renderHeader}
         renderItem={({ item }) => (
           <CredentialCard
             credential={item}
@@ -48,11 +158,85 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md
   },
+  header: {
+    gap: spacing.md
+  },
   title: {
     color: colors.text,
     fontSize: 26,
     fontWeight: '900',
     marginBottom: spacing.sm
+  },
+  requestCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: spacing.lg,
+    gap: spacing.md
+  },
+  confirmationCard: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: spacing.lg,
+    gap: spacing.xs
+  },
+  requestTitle: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 18
+  },
+  sectionBlock: {
+    gap: spacing.sm
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 17
+  },
+  requestStatus: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs
+  },
+  statusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    alignItems: 'flex-start'
+  },
+  statusTitle: {
+    color: colors.text,
+    fontWeight: '900',
+    flex: 1
+  },
+  statusLine: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 13
+  },
+  badge: {
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    fontSize: 11,
+    fontWeight: '900'
+  },
+  badgePaid: {
+    color: colors.primary,
+    backgroundColor: colors.primarySoft
+  },
+  badgeUnpaid: {
+    color: colors.warning,
+    backgroundColor: '#FEF3C7'
+  },
+  note: {
+    color: colors.muted,
+    lineHeight: 20
   }
 });
 

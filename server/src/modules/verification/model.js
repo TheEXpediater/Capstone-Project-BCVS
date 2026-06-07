@@ -142,6 +142,19 @@ const verificationSubmissionSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    livenessPassed: {
+      type: Boolean,
+      default: false,
+    },
+    livenessMethod: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    livenessPassedAt: {
+      type: Date,
+      default: null,
+    },
     answers: {
       type: mongoose.Schema.Types.Mixed,
       default: {},

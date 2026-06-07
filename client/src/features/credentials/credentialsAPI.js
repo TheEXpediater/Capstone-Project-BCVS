@@ -15,6 +15,16 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}) 
   return response.data.data;
 }
 
+export async function listCredentialPayments(params = {}) {
+  const response = await api.get('/credentials/payments', { params });
+  return response.data.data;
+}
+
+export async function markCredentialPaymentPaid(id, payload = {}) {
+  const response = await api.put(`/credentials/payments/${id}/paid`, payload);
+  return response.data.data;
+}
+
 export async function submitCredentialDraft(id) {
   const response = await api.put(`/credentials/${id}/submit`);
   return response.data.data;

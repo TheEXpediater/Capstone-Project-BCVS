@@ -392,6 +392,45 @@ export default function SystemSettingsPage() {
     );
   }
 
+  const limitedSettingsView =
+    access.canViewIssuerKeys &&
+    !access.canEditBusinessSettings &&
+    !access.canEditSystemLocks &&
+    !access.canViewBlockchain &&
+    !access.canEditPermissions;
+
+  if (limitedSettingsView) {
+    return (
+      <div className="d-flex flex-column gap-4">
+        <div>
+          <h1 className="h3 mb-1">System Settings</h1>
+          <p className="text-muted mb-0">
+            Read-only registrar view of the active issuer key.
+          </p>
+        </div>
+
+        {feedback.text ? (
+          <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
+        ) : null}
+
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <h2 className="h5 mb-3">Active Issuer Key</h2>
+            <ActiveIssuerKeyRow
+              activeIssuerKey={activeIssuerKey}
+              canManage={false}
+              isOpen={false}
+              onToggle={() => {}}
+            />
+            <div className="alert alert-light border mt-3 mb-0">
+              This view is read-only. Private keys and developer controls are hidden.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="d-flex flex-column gap-4">
       <div>

@@ -3,6 +3,8 @@ import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js'
 import {
   claimMobileCredential,
   listMobileCredentials,
+  listMobileCredentialRequests,
+  requestMobileCredential,
 } from './controller.js';
 
 const router = express.Router();
@@ -12,6 +14,20 @@ router.get(
   protect({ kind: 'mobile' }),
   allowRoles('student'),
   listMobileCredentials
+);
+
+router.get(
+  '/credentials/requests',
+  protect({ kind: 'mobile' }),
+  allowRoles('student'),
+  listMobileCredentialRequests
+);
+
+router.post(
+  '/credentials/request',
+  protect({ kind: 'mobile' }),
+  allowRoles('student'),
+  requestMobileCredential
 );
 
 router.post(

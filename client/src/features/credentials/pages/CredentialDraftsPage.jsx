@@ -4,7 +4,9 @@ import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
   createCredentialClaimToken,
   getCredentialDraftById,
+  listCredentialPayments,
   listCredentialDrafts,
+  markCredentialPaymentPaid,
   rejectCredentialDraft,
   scheduleCredentialAnchor,
   signCredentialDraft,
@@ -33,6 +35,23 @@ function getStatusBadge(status) {
   };
 
   return map[status] || 'text-bg-secondary';
+}
+
+function isPaid(draft) {
+  return String(draft?.paymentStatus || 'unpaid').toLowerCase() === 'paid';
+}
+
+function getPaymentBadge(draft) {
+  return isPaid(draft) ? 'text-bg-success' : 'text-bg-warning';
+}
+
+function formatCurrency(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 'Not set';
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'PHP',
+  }).format(amount);
 }
 
 const CLAIM_QR_STATUSES = new Set(['signed', 'claim_ready', 'anchored']);
@@ -77,6 +96,15 @@ function DraftDetailsModal({ draft, onClose }) {
                 </div>
 
                 <div className="col-md-3">
+                  <div className="small text-muted">Payment</div>
+                  <div>
+                    <span className={`badge ${getPaymentBadge(draft)}`}>
+                      {isPaid(draft) ? 'Paid' : 'Unpaid'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="col-md-3">
                   <div className="small text-muted">Created</div>
                   <div className="fw-semibold">{formatDate(draft.createdAt)}</div>
                 </div>
@@ -89,6 +117,31 @@ function DraftDetailsModal({ draft, onClose }) {
                 <div className="col-md-3">
                   <div className="small text-muted">Signed</div>
                   <div className="fw-semibold">{formatDate(draft.signedAt)}</div>
+                </div>
+              </div>
+
+              <div className="border rounded-3 p-3 bg-light">
+                <h3 className="h6 mb-3">Payment</h3>
+                <div className="row g-3">
+                  <div className="col-md-3">
+                    <div className="small text-muted">Payment Code</div>
+                    <div className="fw-semibold">{draft.paymentCode || 'Not generated'}</div>
+                  </div>
+
+                  <div className="col-md-3">
+                    <div className="small text-muted">Receipt No</div>
+                    <div className="fw-semibold">{draft.receiptNo || 'Not paid yet'}</div>
+                  </div>
+
+                  <div className="col-md-3">
+                    <div className="small text-muted">Amount</div>
+                    <div className="fw-semibold">{formatCurrency(draft.amount)}</div>
+                  </div>
+
+                  <div className="col-md-3">
+                    <div className="small text-muted">Paid At</div>
+                    <div className="fw-semibold">{formatDate(draft.paidAt)}</div>
+                  </div>
                 </div>
               </div>
 
@@ -335,8 +388,13 @@ export default function CredentialDraftsPage() {
   const currentRole = auth?.user?.role || '';
 
   const [rows, setRows] = useState([]);
+  const [paymentRows, setPaymentRows] = useState([]);
+  const [activeTab, setActiveTab] = useState(currentRole === 'cashier' ? 'payments' : 'drafts');
   const [statusFilter, setStatusFilter] = useState('');
+  const [paymentSearch, setPaymentSearch] = useState('');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('unpaid');
   const [loading, setLoading] = useState(true);
+  const [paymentLoading, setPaymentLoading] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [selectedDraft, setSelectedDraft] = useState(null);
@@ -365,17 +423,47 @@ export default function CredentialDraftsPage() {
     [statusFilter]
   );
 
+  const loadPayments = useCallback(async () => {
+    try {
+      setPaymentLoading(true);
+      const data = await listCredentialPayments({
+        paymentStatus: paymentStatusFilter,
+        search: paymentSearch,
+      });
+      setPaymentRows(data || []);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to load payment requests.',
+      });
+    } finally {
+      setPaymentLoading(false);
+    }
+  }, [paymentSearch, paymentStatusFilter]);
+
   useEffect(() => {
-    loadDrafts();
-  }, [loadDrafts]);
+    if (currentRole !== 'cashier') {
+      loadDrafts();
+    }
+    if (currentRole === 'cashier') {
+      loadPayments();
+    }
+  }, [currentRole, loadDrafts, loadPayments]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      loadDrafts().catch(() => {});
+      if (currentRole !== 'cashier') {
+        loadDrafts().catch(() => {});
+      } else {
+        loadPayments().catch(() => {});
+      }
     }, 15000);
 
     return () => window.clearInterval(timer);
-  }, [loadDrafts]);
+  }, [currentRole, loadDrafts, loadPayments]);
 
   async function openDraft(id) {
     try {
@@ -449,6 +537,15 @@ export default function CredentialDraftsPage() {
   }
 
   async function handleSign(id) {
+    const draft = rows.find((item) => item._id === id);
+    if (draft && !isPaid(draft)) {
+      setFeedback({
+        type: 'warning',
+        text: 'Payment is required before signing.',
+      });
+      return;
+    }
+
     const approved = window.confirm('Sign this credential draft now?');
     if (!approved) return;
 
@@ -467,6 +564,36 @@ export default function CredentialDraftsPage() {
           error?.response?.data?.message ||
           error?.message ||
           'Failed to sign draft.',
+      });
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function handleMarkPaid(item) {
+    const approved = window.confirm(
+      `Mark payment ${item.paymentCode || item._id} as paid?`
+    );
+    if (!approved) return;
+
+    try {
+      setBusyId(item._id);
+      await markCredentialPaymentPaid(item._id);
+      setFeedback({
+        type: 'success',
+        text: 'Payment marked as paid. Receipt number generated and student notified.',
+      });
+      await loadPayments();
+      if (currentRole !== 'cashier') {
+        await loadDrafts();
+      }
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to mark payment as paid.',
       });
     } finally {
       setBusyId('');
@@ -535,7 +662,7 @@ export default function CredentialDraftsPage() {
 
   async function handleQueueSettingsSchedule(id) {
     const approved = window.confirm(
-      'Queue this signed credential using the anchor interval from System Settings?'
+      'Schedule this signed credential for anchoring after one week?'
     );
     if (!approved) return;
 
@@ -544,7 +671,7 @@ export default function CredentialDraftsPage() {
       await scheduleCredentialAnchor(id, { anchorMode: 'scheduled' });
       setFeedback({
         type: 'success',
-        text: 'Credential queued using settings schedule.',
+        text: 'Credential scheduled for anchoring.',
       });
       await loadDrafts();
     } catch (error) {
@@ -563,19 +690,38 @@ export default function CredentialDraftsPage() {
   const filters = [
     { label: 'All', value: '' },
     { label: 'Draft', value: 'draft' },
+    { label: 'For Signature', value: 'for_signature' },
     { label: 'Signed', value: 'signed' },
     { label: 'Claim Ready', value: 'claim_ready' },
     { label: 'Claimed', value: 'claimed' },
     { label: 'Anchored', value: 'anchored' },
   ];
 
+  const tabs = [
+    ...(currentRole === 'cashier'
+      ? [{ key: 'payments', label: 'Payments' }]
+      : []),
+    ...(currentRole !== 'cashier'
+      ? [
+          { key: 'drafts', label: 'Drafts' },
+          { key: 'signing', label: 'Signing' },
+          { key: 'anchor', label: 'Anchor' },
+        ]
+      : []),
+  ];
+  const draftRows = activeTab === 'signing'
+    ? rows.filter((item) => item.status === 'for_signature')
+    : activeTab === 'anchor'
+      ? rows.filter((item) => ['signed', 'queued_for_anchor', 'anchored'].includes(item.status))
+      : rows;
+
   return (
     <>
       <div className="d-flex flex-column gap-4">
         <div>
-          <h1 className="h3 mb-1">VC Drafts</h1>
+          <h1 className="h3 mb-1">VC</h1>
           <p className="text-muted mb-0">
-            Staff admin prepares and submits drafts. Registrar signs and schedules anchoring.
+            Manage requests, cashier payments, registrar signing, claim QR generation, and anchoring.
           </p>
         </div>
 
@@ -583,6 +729,123 @@ export default function CredentialDraftsPage() {
           <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
         ) : null}
 
+        <div className="d-flex flex-wrap gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              className={`btn ${activeTab === tab.key ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'payments' ? (
+          <div className="card border-0 shadow-sm">
+            <div className="card-body p-4">
+              <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                <div>
+                  <h2 className="h5 mb-1">Cashier Payment Table</h2>
+                  <p className="text-muted mb-0">
+                    Search a payment code and mark requests as paid after collecting payment.
+                  </p>
+                </div>
+
+                <button
+                  className="btn btn-outline-secondary"
+                  onClick={loadPayments}
+                  disabled={paymentLoading}
+                >
+                  {paymentLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+
+              <div className="row g-3 align-items-end mb-3">
+                <div className="col-md-6">
+                  <label className="form-label">Search</label>
+                  <input
+                    className="form-control"
+                    value={paymentSearch}
+                    onChange={(event) => setPaymentSearch(event.target.value)}
+                    placeholder="Payment code, receipt, student no, or name"
+                  />
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">Payment Status</label>
+                  <select
+                    className="form-select"
+                    value={paymentStatusFilter}
+                    onChange={(event) => setPaymentStatusFilter(event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="unpaid">Unpaid</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </div>
+                <div className="col-md-3 d-grid">
+                  <button className="btn btn-primary" onClick={loadPayments} disabled={paymentLoading}>
+                    Apply
+                  </button>
+                </div>
+              </div>
+
+              {paymentLoading ? (
+                <div className="text-muted">Loading payment requests...</div>
+              ) : paymentRows.length === 0 ? (
+                <div className="alert alert-light border mb-0">No payment requests found.</div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="table align-middle">
+                    <thead>
+                      <tr>
+                        <th>Payment Code</th>
+                        <th>Student No</th>
+                        <th>Student Name</th>
+                        <th>Credential Type</th>
+                        <th>Request Date</th>
+                        <th>Payment Status</th>
+                        <th>Amount</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentRows.map((item) => (
+                        <tr key={item._id}>
+                          <td className="fw-semibold">{item.paymentCode || 'Not generated'}</td>
+                          <td>{item.studentNo}</td>
+                          <td>{item.studentName}</td>
+                          <td>{item.credentialType || 'student_record'}</td>
+                          <td>{formatDate(item.createdAt)}</td>
+                          <td>
+                            <span className={`badge ${getPaymentBadge(item)}`}>
+                              {isPaid(item) ? 'Paid' : 'Unpaid'}
+                            </span>
+                            {item.receiptNo ? (
+                              <div className="small text-muted mt-1">{item.receiptNo}</div>
+                            ) : null}
+                          </td>
+                          <td>{formatCurrency(item.amount)}</td>
+                          <td>
+                            <button
+                              className="btn btn-success btn-sm"
+                              onClick={() => handleMarkPaid(item)}
+                              disabled={busyId === item._id || isPaid(item)}
+                            >
+                              {isPaid(item) ? 'Paid' : 'Mark as Paid'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab !== 'payments' ? (
         <div className="card border-0 shadow-sm">
           <div className="card-body p-4">
             <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
@@ -618,7 +881,7 @@ export default function CredentialDraftsPage() {
 
             {loading ? (
               <div className="text-muted">Loading drafts...</div>
-            ) : rows.length === 0 ? (
+            ) : draftRows.length === 0 ? (
               <div className="alert alert-light border mb-0">
                 No credential drafts found for this filter.
               </div>
@@ -629,6 +892,7 @@ export default function CredentialDraftsPage() {
                     <tr>
                       <th>Student</th>
                       <th>Status</th>
+                      <th>Payment</th>
                       <th>Anchor</th>
                       <th>Created</th>
                       <th>Signed</th>
@@ -636,7 +900,7 @@ export default function CredentialDraftsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((item) => (
+                    {draftRows.map((item) => (
                       <tr key={item._id}>
                         <td>
                           <div className="fw-semibold">{item.studentName}</div>
@@ -647,6 +911,19 @@ export default function CredentialDraftsPage() {
                           <span className={`badge ${getStatusBadge(item.status)}`}>
                             {item.status}
                           </span>
+                        </td>
+
+                        <td>
+                          <span className={`badge ${getPaymentBadge(item)}`}>
+                            {isPaid(item) ? 'Paid' : 'Unpaid'}
+                          </span>
+                          <div className="small text-muted mt-1">
+                            {isPaid(item)
+                              ? activeTab === 'signing'
+                                ? 'Ready to Sign.'
+                                : item.receiptNo || 'Payment received'
+                              : 'Unpaid - waiting for cashier payment.'}
+                          </div>
                         </td>
 
                         <td>
@@ -684,10 +961,17 @@ export default function CredentialDraftsPage() {
                                 <button
                                   className="btn btn-success btn-sm"
                                   onClick={() => handleSign(item._id)}
-                                  disabled={busyId === item._id}
+                                  disabled={busyId === item._id || !isPaid(item)}
+                                  title={!isPaid(item) ? 'Payment is required before signing.' : ''}
                                 >
                                   Sign
                                 </button>
+
+                                {!isPaid(item) ? (
+                                  <span className="small text-warning align-self-center">
+                                    Payment is required before signing.
+                                  </span>
+                                ) : null}
 
                                 <button
                                   className="btn btn-outline-danger btn-sm"
@@ -721,7 +1005,7 @@ export default function CredentialDraftsPage() {
                                   onClick={() => handleQueueSameDay(item._id)}
                                   disabled={busyId === item._id}
                                 >
-                                  Queue Same Day
+                                  Anchor Now
                                 </button>
 
                                 <button
@@ -729,7 +1013,7 @@ export default function CredentialDraftsPage() {
                                   onClick={() => handleQueueSettingsSchedule(item._id)}
                                   disabled={busyId === item._id}
                                 >
-                                  Use Settings Schedule
+                                  Schedule After One Week
                                 </button>
                               </>
                             ) : null}
@@ -743,6 +1027,7 @@ export default function CredentialDraftsPage() {
             )}
           </div>
         </div>
+        ) : null}
       </div>
 
       <DraftDetailsModal

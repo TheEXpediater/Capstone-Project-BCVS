@@ -71,6 +71,12 @@ function parseAnswers(value) {
   }
 }
 
+function toDateOrNull(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function serializeVerificationSubmission(doc, extras = {}) {
   const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
   const serialized = clonePlain(raw);
@@ -275,6 +281,11 @@ export async function submitAccountVerification(payload = {}, actor) {
   const idFrontUrl = cleanString(payload.idFrontUrl);
   const idBackUrl = cleanString(payload.idBackUrl);
   const livenessImageUrl = cleanString(payload.livenessImageUrl || payload.selfieUrl);
+  const livenessPassed =
+    payload.livenessPassed === true ||
+    payload.livenessPassed === 'true' ||
+    answers.livenessPassed === true ||
+    answers.livenessPassed === 'true';
 
   if (!idFrontUrl) {
     throw new ApiError(400, 'Valid ID front image is required');
@@ -318,6 +329,9 @@ export async function submitAccountVerification(payload = {}, actor) {
         idBackUrl,
         selfieUrl: livenessImageUrl,
         livenessImageUrl,
+        livenessPassed,
+        livenessMethod: cleanString(payload.livenessMethod || answers.livenessMethod),
+        livenessPassedAt: toDateOrNull(payload.livenessPassedAt || answers.livenessPassedAt),
         answers,
         status: 'pending',
         linkedStudentId: null,

@@ -60,7 +60,7 @@ function assertDeveloper(actor, message = 'Only the MIS developer can perform th
 }
 
 function assertSettingsViewer(actor) {
-  if (!actor || !['super_admin', 'developer'].includes(actor.role)) {
+  if (!actor || !['admin', 'super_admin', 'developer'].includes(actor.role)) {
     throw new ApiError(403, 'You do not have access to settings');
   }
 }
@@ -96,12 +96,12 @@ function serializeIssuerKey(key) {
 
 function buildAccess(actor) {
   return {
-    canViewPage: ['super_admin', 'developer'].includes(actor.role),
+    canViewPage: ['admin', 'super_admin', 'developer'].includes(actor.role),
     canEditBusinessSettings: actor.role === 'super_admin',
     canEditSystemLocks: actor.role === 'developer',
     canEditPermissions: actor.role === 'developer',
     canViewBlockchain: ['super_admin', 'developer'].includes(actor.role),
-    canViewIssuerKeys: ['super_admin', 'developer'].includes(actor.role),
+    canViewIssuerKeys: ['admin', 'super_admin', 'developer'].includes(actor.role),
     canManageIssuerKeys: actor.role === 'developer',
     canManageActiveContract: actor.role === 'developer',
   };
@@ -267,6 +267,31 @@ async function createIssuerKeyRecord({ name, activate = false, rotationReason = 
 
 export async function getDashboard(actor) {
   assertSettingsViewer(actor);
+
+  if (actor.role === 'admin') {
+    const [settings, keyDocs] = await Promise.all([
+      ensureMainSettings(),
+      getIssuerKeyModel().find({ isActive: true, status: 'active' }).sort({ activatedAt: -1 }).lean(),
+    ]);
+
+    const issuerKeys = keyDocs.map(serializeIssuerKey);
+    const activeIssuerKey = issuerKeys[0] || null;
+
+    return {
+      settings: {
+        blockchain: {
+          selectedContractId: settings.blockchain?.selectedContractId || '',
+          selectedContractName: settings.blockchain?.selectedContractName || '',
+        },
+      },
+      admins: [],
+      wallet: null,
+      availableContracts: [],
+      issuerKeys,
+      activeIssuerKey,
+      access: buildAccess(actor),
+    };
+  }
 
   const [settings, admins, keyDocs, contractsDashboard] = await Promise.all([
     ensureMainSettings(),

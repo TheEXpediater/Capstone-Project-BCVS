@@ -4,7 +4,9 @@ import {
   createCredentialClaimToken,
   createCredentialDraftFromStudent,
   getCredentialDraftById,
+  listCredentialPayments,
   listCredentialDrafts,
+  markCredentialPaymentPaid,
   rejectCredentialDraft,
   scheduleCredentialAnchor,
   signCredentialDraft,
@@ -25,6 +27,20 @@ router.post(
   protect({ kind: 'web' }),
   allowRoles('admin', 'super_admin', 'developer'),
   createCredentialDraftFromStudent
+);
+
+router.get(
+  '/payments',
+  protect({ kind: 'web' }),
+  allowRoles('cashier', 'admin', 'super_admin', 'developer'),
+  listCredentialPayments
+);
+
+router.put(
+  '/payments/:id/paid',
+  protect({ kind: 'web' }),
+  allowRoles('cashier', 'admin', 'super_admin', 'developer'),
+  markCredentialPaymentPaid
 );
 
 router.put(

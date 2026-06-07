@@ -86,6 +86,28 @@ export async function syncFromBackend() {
   }
 }
 
+export async function listCredentialRequests() {
+  try {
+    const { data } = await api.get(ENDPOINTS.credentials.requests);
+    return Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : [];
+  } catch (error) {
+    if (error?.response?.status === 404) return [];
+    throw new Error(apiErrorMessage(error, 'Failed to load credential requests'));
+  }
+}
+
+export async function requestCredential(payload = {}) {
+  try {
+    const { data } = await api.post(ENDPOINTS.credentials.request, {
+      credentialType: payload.credentialType || 'student_record',
+      notes: payload.notes || ''
+    });
+    return data?.data || data;
+  } catch (error) {
+    throw new Error(apiErrorMessage(error, 'Failed to submit credential request'));
+  }
+}
+
 export async function claimCredential(scanResult) {
   const token =
     typeof scanResult === 'string'

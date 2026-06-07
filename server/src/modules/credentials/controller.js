@@ -25,6 +25,19 @@ export const createCredentialDraftFromStudent = asyncHandler(async (req, res) =>
   });
 });
 
+export const requestMobileCredential = asyncHandler(async (req, res) => {
+  const data = await credentialService.requestMobileCredential(
+    req.body || {},
+    req.user
+  );
+
+  res.status(201).json({
+    success: true,
+    data,
+    message: 'Credential request submitted successfully.',
+  });
+});
+
 export const submitCredentialDraft = asyncHandler(async (req, res) => {
   const data = await credentialService.submitCredentialDraft(
     req.params.id,
@@ -78,8 +91,42 @@ export const createCredentialClaimToken = asyncHandler(async (req, res) => {
   });
 });
 
+export const listCredentialPayments = asyncHandler(async (req, res) => {
+  const items = await credentialService.listCredentialPayments(req.query || {}, req.user);
+
+  res.status(200).json({
+    success: true,
+    items,
+    data: items,
+  });
+});
+
+export const markCredentialPaymentPaid = asyncHandler(async (req, res) => {
+  const data = await credentialService.markCredentialPaymentPaid(
+    req.params.id,
+    req.body || {},
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Payment marked as paid.',
+  });
+});
+
 export const listMobileCredentials = asyncHandler(async (req, res) => {
   const items = await credentialService.listMobileCredentials(req.user);
+
+  res.status(200).json({
+    success: true,
+    items,
+    data: items,
+  });
+});
+
+export const listMobileCredentialRequests = asyncHandler(async (req, res) => {
+  const items = await credentialService.listMobileCredentialRequests(req.user);
 
   res.status(200).json({
     success: true,

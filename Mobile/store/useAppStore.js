@@ -8,6 +8,7 @@ import { clearSession, loadSession, saveSession, STORAGE_KEYS, writeJson } from 
 const initialLoaders = {
   auth: false,
   credentials: false,
+  requests: false,
   verification: false,
   notifications: false
 };
@@ -31,6 +32,7 @@ export const useAppStore = create((set, get) => ({
   user: null,
   sessionId: '',
   credentials: [],
+  credentialRequests: [],
   notifications: [],
   activeRequest: null,
   error: '',
@@ -66,6 +68,7 @@ export const useAppStore = create((set, get) => ({
       user: token ? user : null,
       sessionId: sessionId || '',
       credentials,
+      credentialRequests: [],
       notifications
     });
   },
@@ -106,6 +109,7 @@ export const useAppStore = create((set, get) => ({
     set({
       user: null,
       sessionId: '',
+      credentialRequests: [],
       activeRequest: null,
       error: ''
     });
@@ -160,6 +164,42 @@ export const useAppStore = create((set, get) => ({
     } finally {
       get().setLoading('credentials', false);
     }
+  },
+
+  async loadCredentialRequests() {
+    get().setLoading('requests', true);
+    try {
+      const requests = await vcService.listCredentialRequests();
+      set({ credentialRequests: requests });
+      return requests;
+    } finally {
+      get().setLoading('requests', false);
+    }
+  },
+
+  async requestCredential(payload = {}) {
+    let user = get().user;
+
+    if (!isVerifiedAndLinked(user)) {
+      user = await get().refreshAccount();
+    }
+
+    if (!isVerifiedAndLinked(user)) {
+      throw new Error('Your account must be verified before requesting this credential.');
+    }
+
+    const result = await vcService.requestCredential(payload);
+    await get().loadCredentialRequests().catch(() => {});
+    await get().addActivity({
+      type: 'credential_requested',
+      title: 'Credential request submitted',
+      body: result?.processingNote || 'Processing may take up to 3 working days after payment.',
+      data: {
+        credentialRequestId: result?.request?._id,
+        paymentCode: result?.paymentCode || result?.request?.paymentCode || ''
+      }
+    });
+    return result;
   },
 
   async saveCredential(credential) {

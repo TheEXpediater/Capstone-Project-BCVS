@@ -86,11 +86,11 @@ export default function AppShell({ children }) {
   }
 
   const isDeveloper = user?.role === 'developer';
-  const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
+  const canSeeSettings = ['admin', 'developer', 'super_admin'].includes(user?.role);
   const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
   const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);
-  const canSeeCredentialDrafts = ['admin', 'super_admin', 'developer'].includes(user?.role);
+  const canSeeCredentialDrafts = ['admin', 'super_admin', 'developer', 'cashier'].includes(user?.role);
 
   const links = useMemo(() => {
     const items = [{ to: '/', label: 'Dashboard', icon: <FaHome /> }];
@@ -111,7 +111,7 @@ export default function AppShell({ children }) {
     if (canSeeCredentialDrafts) {
       items.push({
         to: '/credentials',
-        label: 'VC Drafts',
+        label: 'VC',
         icon: <FaFileSignature />,
       });
     }
@@ -146,6 +146,7 @@ export default function AppShell({ children }) {
 
     return items;
   }, [
+    user?.role,
     isDeveloper,
     canSeeStudents,
     canSeeCredentialDrafts,

@@ -51,6 +51,64 @@ const credentialDraftSchema = new mongoose.Schema(
       trim: true,
     },
 
+    requestSource: {
+      type: String,
+      enum: ['web', 'mobile'],
+      default: 'web',
+      index: true,
+    },
+
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+
+    paymentStatus: {
+      type: String,
+      enum: ['unpaid', 'paid'],
+      default: 'unpaid',
+      index: true,
+    },
+
+    paymentCode: {
+      type: String,
+      default: '',
+      trim: true,
+      uppercase: true,
+      index: true,
+    },
+
+    receiptNo: {
+      type: String,
+      default: '',
+      trim: true,
+      uppercase: true,
+      index: true,
+    },
+
+    amount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    paidAt: {
+      type: Date,
+      default: null,
+    },
+
+    paidBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+
+    paymentNotes: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     status: {
       type: String,
       enum: [

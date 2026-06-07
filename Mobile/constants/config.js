@@ -41,6 +41,8 @@ export const ENDPOINTS = {
   },
   credentials: {
     list: '/mobile/credentials',
+    requests: '/mobile/credentials/requests',
+    request: '/mobile/credentials/request',
     claim: '/mobile/credentials/claim'
   },
   verification: {
