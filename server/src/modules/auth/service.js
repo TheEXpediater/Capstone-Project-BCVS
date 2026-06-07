@@ -45,6 +45,28 @@ const DEFAULT_ROLES = [
   },
 ];
 
+function cleanString(value, fallback = '') {
+  if (value === null || value === undefined) return fallback;
+  return String(value).trim();
+}
+
+function buildUsername(payload = {}) {
+  const explicit = cleanString(payload?.username);
+  if (explicit) return explicit;
+
+  const fromName = cleanString(payload?.fullName)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+
+  if (fromName) return fromName.slice(0, 100);
+
+  const email = cleanString(payload?.email).toLowerCase();
+  if (email.includes('@')) return email.split('@')[0].slice(0, 100);
+
+  return `user-${Date.now()}`;
+}
+
 function sanitizeUser(user) {
   const baseUser = {
     _id: user._id,
@@ -63,7 +85,10 @@ function sanitizeUser(user) {
     return {
       ...baseUser,
       studentId: user.studentId || '',
-      verified: user.verified ?? 'unverified',
+      verified:
+        user.verified === true || String(user.verified || '').toLowerCase() === 'true'
+          ? 'verified'
+          : user.verified ?? 'unverified',
       verifiedAt: user.verifiedAt || null,
     };
   }
@@ -86,7 +111,7 @@ function normalizeUserStatus(user) {
 }
 
 function normalizeManagedUser(user) {
-  return {
+  const normalized = {
     id: String(user._id),
     fullName: user.fullName || user.username || '',
     email: user.email || '',
@@ -95,6 +120,20 @@ function normalizeManagedUser(user) {
     status: normalizeUserStatus(user),
     createdAt: user.createdAt,
   };
+
+  if (user.kind === 'mobile') {
+    const verificationStatus =
+      user.verified === true || String(user.verified || '').toLowerCase() === 'true'
+        ? 'verified'
+        : user.verified || 'unverified';
+
+    normalized.studentId = user.studentId || '';
+    normalized.verified = verificationStatus;
+    normalized.verificationStatus = verificationStatus;
+    normalized.linkedStatus = cleanString(user.studentId) ? 'linked' : 'unlinked';
+  }
+
+  return normalized;
 }
 
 function getRequestContext(req) {
@@ -205,14 +244,46 @@ export async function createWebUser(payload, actor) {
   const user = await User.create({
     kind: 'web',
     role: payload.role,
-    username: payload.username,
+    username: buildUsername(payload),
     fullName: payload.fullName,
     email: payload.email.toLowerCase(),
     password: passwordHash,
     contactNo: payload.contactNo || '',
     address: payload.address || '',
     profilePicture: payload.profilePicture || '',
-    isActive: true,
+    isActive: payload.isActive !== false,
+  });
+
+  return {
+    success: true,
+    user: sanitizeUser(user),
+  };
+}
+
+export async function createMobileUser(payload, actor) {
+  await ensureRoles();
+  if (!actor || !['super_admin', 'developer'].includes(actor.role)) {
+    throw new ApiError(403, 'Only super admin or MIS developer can create mobile users');
+  }
+
+  const User = getUserModel();
+  const existingEmail = await User.exists({ email: payload.email.toLowerCase() });
+  if (existingEmail) {
+    throw new ApiError(409, 'Email already exists');
+  }
+
+  const passwordHash = await bcrypt.hash(payload.password, Number(env.bcryptSaltRounds || 10));
+
+  const user = await User.create({
+    kind: 'mobile',
+    role: 'student',
+    username: buildUsername(payload),
+    fullName: payload.fullName,
+    email: payload.email.toLowerCase(),
+    password: passwordHash,
+    studentId: payload.studentId || '',
+    verified: 'unverified',
+    isActive: payload.isActive !== false,
   });
 
   return {
@@ -290,7 +361,7 @@ export async function registerMobile(payload, req) {
   const user = await User.create({
     kind: 'mobile',
     role: 'student',
-    username: payload.username,
+    username: buildUsername(payload),
     fullName: payload.fullName || payload.username,
     email: payload.email.toLowerCase(),
     password: passwordHash,

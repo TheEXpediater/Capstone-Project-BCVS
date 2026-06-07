@@ -1,11 +1,9 @@
-import { useCallback, useState } from 'react';
-import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
+import { useCallback } from 'react';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import CredentialCard from '@/components/vc/CredentialCard';
 import EmptyState from '@/components/ui/EmptyState';
-import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
-import TextField from '@/components/ui/TextField';
 import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -45,10 +43,6 @@ export default function CredentialsScreen() {
   const loadingRequests = useAppStore((state) => state.loading.requests);
   const loadCredentials = useAppStore((state) => state.loadCredentials);
   const loadCredentialRequests = useAppStore((state) => state.loadCredentialRequests);
-  const requestCredential = useAppStore((state) => state.requestCredential);
-  const [notes, setNotes] = useState('');
-  const [lastRequest, setLastRequest] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -57,57 +51,10 @@ export default function CredentialsScreen() {
     }, [loadCredentials, loadCredentialRequests])
   );
 
-  async function handleRequestCredential() {
-    try {
-      setSubmitting(true);
-      const result = await requestCredential({
-        credentialType: 'student_record',
-        notes: notes.trim()
-      });
-      setNotes('');
-      const paymentCode = result?.paymentCode || result?.request?.paymentCode || 'your payment code';
-      setLastRequest(result);
-      Alert.alert(
-        'Request submitted',
-        `Your request was submitted. Processing may take up to 3 working days after payment.\n\nPayment code: ${paymentCode}\nPresent this code to the cashier.`
-      );
-    } catch (error) {
-      Alert.alert('Request failed', error.message);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   function renderHeader() {
     return (
       <View style={styles.header}>
         <Text style={styles.title}>Stored Credentials</Text>
-
-        <View style={styles.requestCard}>
-          <Text style={styles.requestTitle}>Request Credential</Text>
-          <Text style={styles.note}>Processing may take up to 3 working days after payment.</Text>
-          <TextField
-            label="Notes"
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Optional request note"
-          />
-          <Button
-            title="Submit Request"
-            loading={submitting}
-            onPress={handleRequestCredential}
-          />
-          <Text style={styles.note}>After submitting, present the generated payment code to the cashier.</Text>
-        </View>
-
-        {lastRequest ? (
-          <View style={styles.confirmationCard}>
-            <Text style={styles.requestTitle}>Request Submitted</Text>
-            <Text style={styles.statusLine}>Payment code: {lastRequest.paymentCode || lastRequest.request?.paymentCode || 'Not generated'}</Text>
-            <Text style={styles.statusLine}>Status: {lastRequest.request?.status || lastRequest.status || 'draft'}</Text>
-            <Text style={styles.note}>Processing may take up to 3 working days after payment.</Text>
-          </View>
-        ) : null}
 
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Request Status</Text>
@@ -166,27 +113,6 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '900',
     marginBottom: spacing.sm
-  },
-  requestCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: spacing.lg,
-    gap: spacing.md
-  },
-  confirmationCard: {
-    backgroundColor: colors.primarySoft,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: spacing.lg,
-    gap: spacing.xs
-  },
-  requestTitle: {
-    color: colors.text,
-    fontWeight: '900',
-    fontSize: 18
   },
   sectionBlock: {
     gap: spacing.sm

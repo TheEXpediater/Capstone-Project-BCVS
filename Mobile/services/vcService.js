@@ -100,7 +100,13 @@ export async function requestCredential(payload = {}) {
   try {
     const { data } = await api.post(ENDPOINTS.credentials.request, {
       credentialType: payload.credentialType || 'student_record',
-      notes: payload.notes || ''
+      anchorPreference: payload.anchorPreference || 'after_signing',
+      remarks: payload.remarks || payload.notes || '',
+      presetRemark: payload.presetRemark || '',
+      livenessPassed: payload.livenessPassed === true,
+      livenessMethod: payload.livenessMethod || 'faceVerifierLocal',
+      livenessPassedAt: payload.livenessPassedAt || new Date().toISOString(),
+      notes: payload.notes || payload.remarks || ''
     });
     return data?.data || data;
   } catch (error) {

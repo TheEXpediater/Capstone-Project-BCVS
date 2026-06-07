@@ -2,6 +2,7 @@ import express from 'express';
 import {
   bootstrapSuperAdmin,
   createWebUser,
+  createMobileUser,
   getMobileMe,
   getWebMe,
   listWebUsers,
@@ -15,6 +16,7 @@ import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js'
 import {
   bootstrapSuperAdminSchema,
   createWebUserSchema,
+  createMobileUserSchema,
   webLoginSchema,
   mobileRegisterSchema,
   mobileLoginSchema,
@@ -28,6 +30,7 @@ router.post('/web/login', validate(webLoginSchema), loginWeb);
 router.get('/web/me', protect({ kind: 'web' }), getWebMe);
 router.get('/web/users', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), listWebUsers);
 router.post('/web/users', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), validate(createWebUserSchema), createWebUser);
+router.post('/mobile/users', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), validate(createMobileUserSchema), createMobileUser);
 
 router.post('/mobile/register', validate(mobileRegisterSchema), registerMobile);
 router.post('/mobile/login', validate(mobileLoginSchema), loginMobile);

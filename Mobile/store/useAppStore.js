@@ -19,7 +19,7 @@ function hasVerifiedStatus(user) {
   if (user?.verified === true) return true;
 
   return [user?.verified, user?.verificationStatus, user?.status].some(
-    (value) => String(value || '').trim().toLowerCase() === 'verified'
+    (value) => ['verified', 'true'].includes(String(value || '').trim().toLowerCase())
   );
 }
 

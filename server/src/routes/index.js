@@ -2,6 +2,7 @@ import express from 'express';
 import authRoutes from '../modules/auth/routes.js';
 import { listAllUsers } from '../modules/auth/controller.js';
 import contractRoutes from '../modules/contracts/routes.js';
+import dashboardRoutes from '../modules/dashboard/routes.js';
 import mobileCredentialRoutes from '../modules/credentials/mobile.routes.js';
 import credentialRoutes from '../modules/credentials/routes.js';
 import curriculumRoutes from '../modules/curriculum/routes.js';
@@ -30,6 +31,7 @@ router.get(
 
 router.use('/auth', authRoutes);
 router.use('/contracts', contractRoutes);
+router.use('/dashboard', dashboardRoutes);
 router.use('/credentials', credentialRoutes);
 router.use('/curricula', curriculumRoutes);
 router.use('/mobile', mobileCredentialRoutes);

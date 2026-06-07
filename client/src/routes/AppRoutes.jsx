@@ -47,7 +47,7 @@ export default function AppRoutes() {
         path="/link-accounts"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer', 'cashier']}>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
               <AppShell>
                 <LinkAccountsPage />
               </AppShell>
@@ -60,7 +60,7 @@ export default function AppRoutes() {
         path="/credentials"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
+            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer', 'cashier']}>
               <AppShell>
                 <CredentialDraftsPage />
               </AppShell>

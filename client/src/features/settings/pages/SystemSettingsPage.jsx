@@ -427,6 +427,31 @@ export default function SystemSettingsPage() {
             </div>
           </div>
         </div>
+
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <h2 className="h5 mb-3">Active Contract</h2>
+            <div className="border rounded-3 p-3 bg-light">
+              <div className="row g-3">
+                <div className="col-md-5">
+                  <div className="small text-muted">Contract Name</div>
+                  <div className="fw-semibold">
+                    {settings.blockchain?.selectedContractName || 'Not selected'}
+                  </div>
+                </div>
+                <div className="col-md-7">
+                  <div className="small text-muted">Contract Address / ID</div>
+                  <div className="fw-semibold text-break">
+                    {settings.blockchain?.selectedContractId || 'Not selected'}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="alert alert-light border mt-3 mb-0">
+              Network and deployment controls are hidden in the registrar view.
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

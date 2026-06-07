@@ -51,6 +51,41 @@ const credentialDraftSchema = new mongoose.Schema(
       trim: true,
     },
 
+    remarks: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    presetRemark: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorPreference: {
+      type: String,
+      enum: ['none', 'request', 'after_signing'],
+      default: 'after_signing',
+      index: true,
+    },
+
+    livenessPassed: {
+      type: Boolean,
+      default: false,
+    },
+
+    livenessMethod: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    livenessPassedAt: {
+      type: Date,
+      default: null,
+    },
+
     requestSource: {
       type: String,
       enum: ['web', 'mobile'],

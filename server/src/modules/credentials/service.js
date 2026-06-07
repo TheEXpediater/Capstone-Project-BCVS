@@ -9,7 +9,7 @@ import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
 import { getContractModel } from '../contracts/model.js';
 import { getExplorerBaseUrl } from '../contracts/service.js';
-import { notifyStudentByStudentNo } from '../notifications/service.js';
+import { notifyStudentByStudentNo, notifyUser } from '../notifications/service.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
 const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor'];
@@ -30,8 +30,8 @@ function assertObjectId(value, label = 'id') {
 }
 
 function assertRegistrar(actor) {
-  if (!actor || actor.role !== 'super_admin') {
-    throw new ApiError(403, 'Only the registrar can perform this action');
+  if (!actor || !['admin', 'super_admin', 'developer'].includes(actor.role)) {
+    throw new ApiError(403, 'Only admin, super admin, or MIS developer can perform this action');
   }
 }
 
@@ -92,6 +92,29 @@ function normalizeAmount(value, fallback = 0) {
   return Number.isFinite(amount) && amount >= 0 ? amount : fallback;
 }
 
+function normalizeBoolean(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+
+  return String(value || '').trim().toLowerCase() === 'true';
+}
+
+function normalizeAnchorPreference(value) {
+  const normalized = cleanString(value, 'after_signing').toLowerCase();
+
+  if (['none', 'request', 'after_signing'].includes(normalized)) {
+    return normalized;
+  }
+
+  return 'after_signing';
+}
+
+function toDateOrNull(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function assertCashierActor(actor) {
   if (!actor || !['cashier', 'admin', 'super_admin', 'developer'].includes(actor.role)) {
     throw new ApiError(403, 'Only cashier, admin, super admin, or MIS developer can update payments');
@@ -102,19 +125,21 @@ function normalizeStudentNo(value) {
   return cleanString(value).toLowerCase();
 }
 
-function assertMobileStudent(actor) {
+function assertMobileStudent(actor, action = 'claiming') {
+  const actionLabel = action === 'requesting' ? 'request' : 'claim';
+
   if (!actor || actor.kind !== 'mobile' || actor.role !== 'student') {
-    throw new ApiError(403, 'Only authenticated student mobile users can claim credentials');
+    throw new ApiError(403, `Only authenticated student mobile users can ${actionLabel} credentials`);
   }
 
   const verificationStatus = cleanString(actor.verified || actor.verificationStatus, 'unverified').toLowerCase();
 
-  if (verificationStatus !== 'verified') {
-    throw new ApiError(403, 'Your account must be verified before claiming this credential.');
+  if (!['verified', 'true'].includes(verificationStatus)) {
+    throw new ApiError(403, `Your account must be verified before ${actionLabel}ing this credential.`);
   }
 
   if (!cleanString(actor.studentId)) {
-    throw new ApiError(403, 'Your account must be verified before claiming this credential.');
+    throw new ApiError(403, `Your account must be verified before ${actionLabel}ing this credential.`);
   }
 }
 
@@ -471,6 +496,7 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
   const credentialType = cleanString(payload?.credentialType, 'student_record');
   const notes = cleanString(payload?.notes);
   const paymentCode = await generateUniquePaymentCode(CredentialDraft);
+  const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
 
   const { student, grades } = await getStudentBundle(studentId);
 
@@ -506,6 +532,9 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
     : null
 ),
     notes,
+    remarks: notes,
+    presetRemark: '',
+    anchorPreference,
     requestSource: 'web',
     requestedBy: actor?._id || null,
     paymentStatus: 'unpaid',
@@ -519,11 +548,21 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
 }
 
 export async function requestMobileCredential(payload = {}, actor) {
-  assertMobileStudent(actor);
+  assertMobileStudent(actor, 'requesting');
 
   const CredentialDraft = getCredentialDraftModel();
   const credentialType = cleanString(payload?.credentialType, 'student_record');
-  const notes = cleanString(payload?.notes);
+  const remarks = cleanString(payload?.remarks || payload?.notes);
+  const presetRemark = cleanString(payload?.presetRemark);
+  const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
+  const livenessPassed = normalizeBoolean(payload?.livenessPassed);
+  const livenessMethod = cleanString(payload?.livenessMethod, 'faceVerifierLocal');
+  const livenessPassedAt = toDateOrNull(payload?.livenessPassedAt) || new Date();
+
+  if (!livenessPassed) {
+    throw new ApiError(400, 'FaceVerifier liveness check is required before requesting this credential.');
+  }
+
   const { student, grades } = await getStudentBundleByStudentNo(actor.studentId);
 
   const existingOpenDraft = await CredentialDraft.findOne({
@@ -558,7 +597,13 @@ export async function requestMobileCredential(payload = {}, actor) {
           }
         : null
     ),
-    notes,
+    notes: remarks,
+    remarks,
+    presetRemark,
+    anchorPreference,
+    livenessPassed,
+    livenessMethod,
+    livenessPassedAt,
     requestSource: 'mobile',
     requestedBy: actor?._id || null,
     paymentStatus: 'unpaid',
@@ -568,15 +613,33 @@ export async function requestMobileCredential(payload = {}, actor) {
     status: 'draft',
   });
 
+  await notifyUser(actor._id, {
+    type: 'credential_requested',
+    title: 'Credential request submitted',
+    body: `Present payment code ${paymentCode} to the cashier.`,
+    data: {
+      credentialId: draft._id.toString(),
+      paymentCode,
+      paymentStatus: draft.paymentStatus,
+      anchorPreference,
+      remarks,
+      presetRemark,
+      livenessMethod,
+    },
+  }).catch(() => null);
+
   return {
     request: serializeDraft(draft),
+    requestId: draft._id,
     paymentCode,
+    paymentStatus: draft.paymentStatus,
     processingNote: 'Processing may take up to 3 working days after payment.',
+    message: 'Processing may take up to 3 working days after payment.',
   };
 }
 
 export async function listMobileCredentialRequests(actor) {
-  assertMobileStudent(actor);
+  assertMobileStudent(actor, 'requesting');
 
   const CredentialDraft = getCredentialDraftModel();
   const requests = await CredentialDraft.find({
@@ -744,20 +807,36 @@ export async function listCredentialPayments(query = {}, actor) {
   const paymentStatus = cleanString(query?.paymentStatus || query?.status).toLowerCase();
   const search = cleanString(query?.search);
   const filter = {};
+  const clauses = [];
 
-  if (['unpaid', 'paid'].includes(paymentStatus)) {
+  if (paymentStatus === 'unpaid') {
+    clauses.push({
+      $or: [
+        { paymentStatus: 'unpaid' },
+        { paymentStatus: '' },
+        { paymentStatus: null },
+        { paymentStatus: { $exists: false } },
+      ],
+    });
+  } else if (paymentStatus === 'paid') {
     filter.paymentStatus = paymentStatus;
   }
 
   if (search) {
     const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    filter.$or = [
-      { paymentCode: regex },
-      { receiptNo: regex },
-      { studentNo: regex },
-      { studentName: regex },
-      { credentialType: regex },
-    ];
+    clauses.push({
+      $or: [
+        { paymentCode: regex },
+        { receiptNo: regex },
+        { studentNo: regex },
+        { studentName: regex },
+        { credentialType: regex },
+      ],
+    });
+  }
+
+  if (clauses.length) {
+    filter.$and = clauses;
   }
 
   const rows = await CredentialDraft.find(filter)

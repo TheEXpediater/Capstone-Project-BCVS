@@ -53,28 +53,28 @@ router.put(
 router.put(
   '/:id/reject',
   protect({ kind: 'web' }),
-  allowRoles('super_admin'),
+  allowRoles('admin', 'super_admin', 'developer'),
   rejectCredentialDraft
 );
 
 router.put(
   '/:id/sign',
   protect({ kind: 'web' }),
-  allowRoles('super_admin'),
+  allowRoles('admin', 'super_admin', 'developer'),
   signCredentialDraft
 );
 
 router.post(
   '/:id/claim-token',
   protect({ kind: 'web' }),
-  allowRoles('super_admin'),
+  allowRoles('admin', 'super_admin', 'developer'),
   createCredentialClaimToken
 );
 
 router.put(
   '/:id/schedule-anchor',
   protect({ kind: 'web' }),
-  allowRoles('super_admin'),
+  allowRoles('admin', 'super_admin', 'developer'),
   scheduleCredentialAnchor
 );
 

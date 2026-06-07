@@ -55,6 +55,8 @@ function formatCurrency(value) {
 }
 
 const CLAIM_QR_STATUSES = new Set(['signed', 'claim_ready', 'anchored']);
+const PAYMENT_TAB_ROLES = new Set(['cashier', 'super_admin', 'developer']);
+const MANAGE_CREDENTIAL_ROLES = new Set(['admin', 'super_admin', 'developer']);
 
 function DraftDetailsModal({ draft, onClose }) {
   if (!draft) return null;
@@ -386,6 +388,8 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
 export default function CredentialDraftsPage() {
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentRole = auth?.user?.role || '';
+  const canSeePaymentsTab = PAYMENT_TAB_ROLES.has(currentRole);
+  const canManageCredentials = MANAGE_CREDENTIAL_ROLES.has(currentRole);
 
   const [rows, setRows] = useState([]);
   const [paymentRows, setPaymentRows] = useState([]);
@@ -445,25 +449,25 @@ export default function CredentialDraftsPage() {
   }, [paymentSearch, paymentStatusFilter]);
 
   useEffect(() => {
-    if (currentRole !== 'cashier') {
-      loadDrafts();
-    }
-    if (currentRole === 'cashier') {
+    if (activeTab === 'payments') {
       loadPayments();
+      return;
     }
-  }, [currentRole, loadDrafts, loadPayments]);
+
+    loadDrafts();
+  }, [activeTab, loadDrafts, loadPayments]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (currentRole !== 'cashier') {
-        loadDrafts().catch(() => {});
-      } else {
+      if (activeTab === 'payments') {
         loadPayments().catch(() => {});
+      } else {
+        loadDrafts().catch(() => {});
       }
     }, 15000);
 
     return () => window.clearInterval(timer);
-  }, [currentRole, loadDrafts, loadPayments]);
+  }, [activeTab, loadDrafts, loadPayments]);
 
   async function openDraft(id) {
     try {
@@ -697,18 +701,14 @@ export default function CredentialDraftsPage() {
     { label: 'Anchored', value: 'anchored' },
   ];
 
-  const tabs = [
-    ...(currentRole === 'cashier'
-      ? [{ key: 'payments', label: 'Payments' }]
-      : []),
-    ...(currentRole !== 'cashier'
-      ? [
-          { key: 'drafts', label: 'Drafts' },
-          { key: 'signing', label: 'Signing' },
-          { key: 'anchor', label: 'Anchor' },
-        ]
-      : []),
-  ];
+  const tabs = currentRole === 'cashier'
+    ? [{ key: 'payments', label: 'Payments' }]
+    : [
+        { key: 'drafts', label: 'Drafts' },
+        { key: 'signing', label: 'Signing' },
+        { key: 'anchor', label: 'Anchor' },
+        ...(canSeePaymentsTab ? [{ key: 'payments', label: 'Payments' }] : []),
+      ];
   const draftRows = activeTab === 'signing'
     ? rows.filter((item) => item.status === 'for_signature')
     : activeTab === 'anchor'
@@ -805,6 +805,7 @@ export default function CredentialDraftsPage() {
                         <th>Credential Type</th>
                         <th>Request Date</th>
                         <th>Payment Status</th>
+                        <th>Receipt No</th>
                         <th>Amount</th>
                         <th>Action</th>
                       </tr>
@@ -821,10 +822,8 @@ export default function CredentialDraftsPage() {
                             <span className={`badge ${getPaymentBadge(item)}`}>
                               {isPaid(item) ? 'Paid' : 'Unpaid'}
                             </span>
-                            {item.receiptNo ? (
-                              <div className="small text-muted mt-1">{item.receiptNo}</div>
-                            ) : null}
                           </td>
+                          <td>{item.receiptNo || '-'}</td>
                           <td>{formatCurrency(item.amount)}</td>
                           <td>
                             <button
@@ -956,7 +955,7 @@ export default function CredentialDraftsPage() {
                               </button>
                             ) : null}
 
-                            {item.status === 'for_signature' && currentRole === 'super_admin' ? (
+                            {item.status === 'for_signature' && canManageCredentials ? (
                               <>
                                 <button
                                   className="btn btn-success btn-sm"
@@ -984,7 +983,7 @@ export default function CredentialDraftsPage() {
                             ) : null}
 
                             {CLAIM_QR_STATUSES.has(item.status) &&
-                            currentRole === 'super_admin' ? (
+                            canManageCredentials ? (
                               <button
                                 className="btn btn-info btn-sm"
                                 onClick={() => handleViewQr(item._id)}
@@ -998,7 +997,7 @@ export default function CredentialDraftsPage() {
                               </button>
                             ) : null}
 
-                            {item.status === 'signed' && currentRole === 'super_admin' ? (
+                            {item.status === 'signed' && canManageCredentials ? (
                               <>
                                 <button
                                   className="btn btn-warning btn-sm"

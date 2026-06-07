@@ -18,13 +18,14 @@ export const bootstrapSuperAdminSchema = Joi.object({
 });
 
 export const createWebUserSchema = Joi.object({
-  username: Joi.string().trim().min(2).max(100).required(),
+  username: Joi.string().trim().min(2).max(100).optional().allow('', null),
   fullName: Joi.string().trim().min(2).max(200).required(),
   email,
   password,
   role: Joi.string()
     .valid('admin', 'super_admin', 'developer', 'cashier')
     .required(),
+  isActive: Joi.boolean().optional(),
   contactNo: optionalString.optional(),
   address: optionalString.optional(),
   profilePicture: Joi.string().trim().uri().optional().allow('', null),
@@ -41,6 +42,15 @@ export const mobileRegisterSchema = Joi.object({
   email,
   password,
   studentId: Joi.string().trim().max(100).optional().allow('', null),
+});
+
+export const createMobileUserSchema = Joi.object({
+  username: Joi.string().trim().min(2).max(100).optional().allow('', null),
+  fullName: Joi.string().trim().min(2).max(200).required(),
+  email,
+  password,
+  studentId: Joi.string().trim().max(100).optional().allow('', null),
+  isActive: Joi.boolean().optional(),
 });
 
 export const mobileLoginSchema = Joi.object({
