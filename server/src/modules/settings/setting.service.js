@@ -22,6 +22,13 @@ const DEFAULT_PERMISSIONS = {
     canManageSystemSettings: false,
     canManageContracts: false,
     canViewWallet: false,
+    canConfirmPayments: true,
+    canManageVC: true,
+    canSignVC: true,
+    canGenerateClaimQr: true,
+    canAnchorVC: true,
+    canManageUsers: false,
+    canManageSettings: false,
   },
   super_admin: {
     canIssueVC: true,
@@ -30,6 +37,13 @@ const DEFAULT_PERMISSIONS = {
     canManageSystemSettings: true,
     canManageContracts: false,
     canViewWallet: true,
+    canConfirmPayments: true,
+    canManageVC: true,
+    canSignVC: true,
+    canGenerateClaimQr: true,
+    canAnchorVC: true,
+    canManageUsers: true,
+    canManageSettings: true,
   },
   developer: {
     canIssueVC: false,
@@ -38,6 +52,13 @@ const DEFAULT_PERMISSIONS = {
     canManageSystemSettings: true,
     canManageContracts: true,
     canViewWallet: true,
+    canConfirmPayments: true,
+    canManageVC: true,
+    canSignVC: true,
+    canGenerateClaimQr: true,
+    canAnchorVC: true,
+    canManageUsers: true,
+    canManageSettings: true,
   },
   cashier: {
     canIssueVC: false,
@@ -46,6 +67,13 @@ const DEFAULT_PERMISSIONS = {
     canManageSystemSettings: false,
     canManageContracts: false,
     canViewWallet: false,
+    canConfirmPayments: true,
+    canManageVC: false,
+    canSignVC: false,
+    canGenerateClaimQr: false,
+    canAnchorVC: false,
+    canManageUsers: false,
+    canManageSettings: false,
   },
 };
 
@@ -480,6 +508,10 @@ export async function updateBusinessSettings(payload, actor) {
 
   settings.qrDelivery.allowEmail =
     payload?.qrDelivery?.allowEmail ?? settings.qrDelivery.allowEmail;
+  settings.qrDelivery.claimQrExpiryMinutes =
+    payload?.qrDelivery?.claimQrExpiryMinutes ?? settings.qrDelivery.claimQrExpiryMinutes;
+  settings.qrDelivery.allowRegeneration =
+    payload?.qrDelivery?.allowRegeneration ?? settings.qrDelivery.allowRegeneration;
   settings.qrDelivery.allowedRoles =
     payload?.qrDelivery?.allowedRoles ?? settings.qrDelivery.allowedRoles;
 
@@ -500,8 +532,14 @@ export async function updateSystemLocks(payload, actor) {
     payload?.locks?.anchorLocked ?? settings.locks.anchorLocked;
   settings.locks.qrEmailLocked =
     payload?.locks?.qrEmailLocked ?? settings.locks.qrEmailLocked;
+  settings.locks.qrGenerationLocked =
+    payload?.locks?.qrGenerationLocked ?? settings.locks.qrGenerationLocked;
   settings.locks.contractLocked =
     payload?.locks?.contractLocked ?? settings.locks.contractLocked;
+  settings.locks.issuerKeyRotationLocked =
+    payload?.locks?.issuerKeyRotationLocked ?? settings.locks.issuerKeyRotationLocked;
+  settings.locks.paymentConfirmationLocked =
+    payload?.locks?.paymentConfirmationLocked ?? settings.locks.paymentConfirmationLocked;
   settings.updatedBy = actor._id;
 
   await settings.save();

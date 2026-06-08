@@ -17,6 +17,10 @@ import {
   FaFileSignature,
 } from 'react-icons/fa';
 import { signOut } from '../../features/auth/authSlice';
+import {
+  getTodaysAnchorQueueSummary,
+  processTodaysAnchorQueue,
+} from '../../features/credentials/credentialsAPI';
 import './app-shell.css';
 
 function SidebarLink({ to, icon, children, collapsed }) {
@@ -79,10 +83,45 @@ export default function AppShell({ children }) {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [logoutQueue, setLogoutQueue] = useState(null);
+  const [logoutQueueResult, setLogoutQueueResult] = useState(null);
+  const [logoutError, setLogoutError] = useState('');
+  const [logoutBusy, setLogoutBusy] = useState(false);
 
-  async function handleLogout() {
+  async function performLogout() {
     await dispatch(signOut());
     navigate('/login', { replace: true });
+  }
+
+  async function handleLogout() {
+    if (['admin', 'super_admin', 'developer'].includes(user?.role)) {
+      const summary = await getTodaysAnchorQueueSummary().catch(() => null);
+
+      if (summary?.pendingCount > 0) {
+        setLogoutQueue(summary);
+        return;
+      }
+    }
+
+    await performLogout();
+  }
+
+  async function processQueueBeforeLogout() {
+    try {
+      setLogoutBusy(true);
+      setLogoutError('');
+      const result = await processTodaysAnchorQueue();
+      setLogoutQueue(null);
+      setLogoutQueueResult(result);
+    } catch (error) {
+      setLogoutError(
+        error?.response?.data?.message ||
+          error?.message ||
+          'Failed to process the anchor queue.'
+      );
+    } finally {
+      setLogoutBusy(false);
+    }
   }
 
   const isDeveloper = user?.role === 'developer';
@@ -220,6 +259,113 @@ export default function AppShell({ children }) {
 
         <div className="app-page-content">{children}</div>
       </main>
+
+      {logoutQueue ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <div>
+                    <h2 className="h5 mb-1">Anchor queue pending</h2>
+                    <p className="text-muted mb-0 small">
+                      You have credentials queued for anchoring today.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setLogoutQueue(null)}
+                    disabled={logoutBusy}
+                    aria-label="Close"
+                  />
+                </div>
+                <div className="modal-body">
+                  {logoutError ? (
+                    <div className="alert alert-danger">{logoutError}</div>
+                  ) : null}
+                  <div className="alert alert-light border mb-0">
+                    {logoutQueue.pendingCount} credential(s) are due today or earlier. Do you want
+                    to process them before logging out?
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={() => setLogoutQueue(null)}
+                    disabled={logoutBusy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-outline-danger"
+                    onClick={performLogout}
+                    disabled={logoutBusy}
+                  >
+                    Log out anyway
+                  </button>
+                  <button
+                    className="btn btn-warning"
+                    onClick={processQueueBeforeLogout}
+                    disabled={logoutBusy}
+                  >
+                    {logoutBusy ? 'Processing...' : 'Process Queue'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
+
+      {logoutQueueResult ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <h2 className="h5 mb-0">Anchor queue result</h2>
+                </div>
+                <div className="modal-body">
+                  <div className="row g-3">
+                    <div className="col-4">
+                      <div className="border rounded-3 p-3 text-center">
+                        <div className="small text-muted">Processed</div>
+                        <div className="h4 mb-0">{logoutQueueResult.processedCount || 0}</div>
+                      </div>
+                    </div>
+                    <div className="col-4">
+                      <div className="border rounded-3 p-3 text-center">
+                        <div className="small text-muted">Failed</div>
+                        <div className="h4 mb-0">{logoutQueueResult.failedCount || 0}</div>
+                      </div>
+                    </div>
+                    <div className="col-4">
+                      <div className="border rounded-3 p-3 text-center">
+                        <div className="small text-muted">Skipped</div>
+                        <div className="h4 mb-0">{logoutQueueResult.skippedCount || 0}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={() => setLogoutQueueResult(null)}
+                  >
+                    Stay
+                  </button>
+                  <button className="btn btn-danger" onClick={performLogout}>
+                    Log out
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
     </div>
   );
 }

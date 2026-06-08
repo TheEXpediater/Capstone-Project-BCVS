@@ -9,6 +9,9 @@ const CREDENTIAL_ACTIVITY_TYPES = [
   'credential_ready',
   'credential_shared',
   'payment_received',
+  'credential_claimed',
+  'credential_anchored',
+  'anchor_scheduled',
 ];
 
 function getRoleMode(actor) {

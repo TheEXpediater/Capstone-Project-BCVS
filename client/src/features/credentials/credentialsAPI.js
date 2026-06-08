@@ -40,12 +40,27 @@ export async function signCredentialDraft(id) {
   return response.data.data;
 }
 
-export async function createCredentialClaimToken(id) {
-  const response = await api.post(`/credentials/${id}/claim-token`);
+export async function createCredentialClaimToken(id, payload = {}) {
+  const response = await api.post(`/credentials/${id}/claim-token`, payload);
+  return response.data.data;
+}
+
+export async function createCredentialClaimOverrideToken(id, payload = {}) {
+  const response = await api.post(`/credentials/${id}/claim-token/override`, payload);
   return response.data.data;
 }
 
 export async function scheduleCredentialAnchor(id, payload = {}) {
   const response = await api.put(`/credentials/${id}/schedule-anchor`, payload);
+  return response.data.data;
+}
+
+export async function getTodaysAnchorQueueSummary() {
+  const response = await api.get('/credentials/anchor-queue/today');
+  return response.data.data;
+}
+
+export async function processTodaysAnchorQueue() {
+  const response = await api.post('/credentials/anchor-queue/today/process');
   return response.data.data;
 }

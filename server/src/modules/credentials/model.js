@@ -138,6 +138,16 @@ const credentialDraftSchema = new mongoose.Schema(
       default: null,
     },
 
+    paymentConfirmedAt: {
+      type: Date,
+      default: null,
+    },
+
+    paymentConfirmedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+
     paymentNotes: {
       type: String,
       default: '',
@@ -201,10 +211,36 @@ const credentialDraftSchema = new mongoose.Schema(
       index: true,
     },
 
+    claimToken: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     claimTokenExpiresAt: {
       type: Date,
       default: null,
       index: true,
+    },
+
+    claimTokenCreatedAt: {
+      type: Date,
+      default: null,
+    },
+
+    claimTokenCreatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+
+    claimTokenRegeneratedAt: {
+      type: Date,
+      default: null,
+    },
+
+    claimTokenRegeneratedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
     },
 
     claimReadyAt: {
@@ -251,6 +287,11 @@ const credentialDraftSchema = new mongoose.Schema(
       default: null,
     },
 
+    anchoredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+
     anchorTxHash: {
       type: String,
       default: '',
@@ -278,6 +319,22 @@ const credentialDraftSchema = new mongoose.Schema(
     signedCredential: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
+    },
+
+    claimOverrideHistory: {
+      type: [
+        {
+          reason: { type: String, default: '', trim: true },
+          actorId: { type: mongoose.Schema.Types.ObjectId, default: null },
+          actorName: { type: String, default: '', trim: true },
+          actorRole: { type: String, default: '', trim: true },
+          createdAt: { type: Date, default: Date.now },
+          previousClaimedAt: { type: Date, default: null },
+          previousClaimedBy: { type: mongoose.Schema.Types.ObjectId, default: null },
+          previousDeviceId: { type: String, default: '', trim: true },
+        },
+      ],
+      default: [],
     },
   },
   {

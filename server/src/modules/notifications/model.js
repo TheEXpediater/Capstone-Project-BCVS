@@ -56,7 +56,16 @@ const notificationSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['credential_ready', 'credential_requested', 'verification_request', 'credential_shared', 'payment_received'],
+      enum: [
+        'credential_ready',
+        'credential_requested',
+        'verification_request',
+        'credential_shared',
+        'payment_received',
+        'credential_claimed',
+        'credential_anchored',
+        'anchor_scheduled',
+      ],
       required: true,
       index: true,
     },

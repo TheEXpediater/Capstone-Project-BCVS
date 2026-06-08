@@ -27,6 +27,8 @@ function iconForType(type) {
 
   if (normalized.includes('payment')) return 'receipt-outline';
   if (normalized.includes('credential_request')) return 'document-text-outline';
+  if (normalized.includes('anchor')) return 'link-outline';
+  if (normalized.includes('credential_ready')) return 'qr-code-outline';
   if (normalized.includes('credential_claimed') || normalized.includes('credential_saved')) {
     return 'card-outline';
   }
@@ -52,8 +54,16 @@ function statusForItem(item) {
 function statusStyle(status) {
   const normalized = String(status || '').toLowerCase();
 
-  if (['paid', 'verified', 'signed', 'claimed', 'approved', 'issued'].includes(normalized)) {
+  if (
+    ['paid', 'verified', 'signed', 'claimed', 'approved', 'issued', 'shared', 'anchored'].includes(
+      normalized
+    )
+  ) {
     return styles.badgeGood;
+  }
+
+  if (['claim_ready', 'queued_for_anchor'].includes(normalized)) {
+    return styles.badgeWarning;
   }
 
   if (['rejected', 'failed', 'denied', 'cancelled', 'canceled'].includes(normalized)) {

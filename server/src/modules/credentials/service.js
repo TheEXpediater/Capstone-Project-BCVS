@@ -7,12 +7,46 @@ import { getCredentialDraftModel } from './model.js';
 import { getStudentModel, getStudentGradeModel } from '../students/model.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
+import { getAdminPermissionModel } from '../settings/adminPermission.model.js';
 import { getContractModel } from '../contracts/model.js';
 import { getExplorerBaseUrl } from '../contracts/service.js';
 import { notifyStudentByStudentNo, notifyUser } from '../notifications/service.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
-const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor'];
+const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
+const CLAIMABLE_STATUSES = ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
+const TERMINAL_BLOCKED_STATUSES = ['claimed', 'revoked', 'rejected'];
+
+const DEFAULT_CREDENTIAL_PERMISSIONS = {
+  admin: {
+    canConfirmPayments: true,
+    canManageVC: true,
+    canSignVC: true,
+    canGenerateClaimQr: true,
+    canAnchorVC: true,
+  },
+  super_admin: {
+    canConfirmPayments: true,
+    canManageVC: true,
+    canSignVC: true,
+    canGenerateClaimQr: true,
+    canAnchorVC: true,
+  },
+  developer: {
+    canConfirmPayments: true,
+    canManageVC: true,
+    canSignVC: true,
+    canGenerateClaimQr: true,
+    canAnchorVC: true,
+  },
+  cashier: {
+    canConfirmPayments: true,
+    canManageVC: false,
+    canSignVC: false,
+    canGenerateClaimQr: false,
+    canAnchorVC: false,
+  },
+};
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
@@ -33,6 +67,111 @@ function assertRegistrar(actor) {
   if (!actor || !['admin', 'super_admin', 'developer'].includes(actor.role)) {
     throw new ApiError(403, 'Only admin, super admin, or MIS developer can perform this action');
   }
+}
+
+function getDefaultCredentialPermissions(role) {
+  return {
+    ...(DEFAULT_CREDENTIAL_PERMISSIONS[role] || DEFAULT_CREDENTIAL_PERMISSIONS.admin),
+  };
+}
+
+async function getEffectiveCredentialPermissions(actor) {
+  if (!actor?.role) return {};
+
+  const defaults = getDefaultCredentialPermissions(actor.role);
+
+  if (!actor?._id) return defaults;
+
+  const AdminPermission = getAdminPermissionModel();
+  const override = await AdminPermission.findOne({ user: actor._id }).lean();
+
+  return {
+    ...defaults,
+    ...(override?.permissions || {}),
+  };
+}
+
+async function assertCredentialPermission(actor, permission, message) {
+  if (!actor) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
+  const permissions = await getEffectiveCredentialPermissions(actor);
+
+  if (!permissions?.[permission]) {
+    throw new ApiError(403, message || 'You do not have permission to perform this credential action');
+  }
+}
+
+export function isCredentialPaid(draft) {
+  return cleanString(draft?.paymentStatus, 'unpaid').toLowerCase() === 'paid';
+}
+
+export function isCredentialClaimed(draft) {
+  return draft?.status === 'claimed' || Boolean(draft?.claimedAt);
+}
+
+export function isCredentialRejectedOrRevoked(draft) {
+  return ['rejected', 'revoked'].includes(cleanString(draft?.status).toLowerCase());
+}
+
+export function hasSignedCredential(draft) {
+  return Boolean(draft?.signedCredential) || CLAIMABLE_STATUSES.includes(cleanString(draft?.status));
+}
+
+export function canGenerateClaimToken(draft, { override = false } = {}) {
+  if (!draft) return false;
+  if (!isCredentialPaid(draft)) return false;
+  if (!draft.signedCredential) return false;
+  if (isCredentialRejectedOrRevoked(draft)) return false;
+
+  if (isCredentialClaimed(draft)) {
+    return Boolean(override);
+  }
+
+  return CLAIMABLE_STATUSES.includes(cleanString(draft.status));
+}
+
+export function canClaimCredential(draft) {
+  if (!draft) return false;
+  if (!isCredentialPaid(draft)) return false;
+  if (!draft.signedCredential) return false;
+  if (isCredentialClaimed(draft)) return false;
+  if (isCredentialRejectedOrRevoked(draft)) return false;
+  return CLAIMABLE_STATUSES.includes(cleanString(draft.status));
+}
+
+export function canQueueAnchor(draft) {
+  if (!draft) return false;
+  if (!isCredentialPaid(draft)) return false;
+  if (!draft.signedCredential) return false;
+  if (isCredentialRejectedOrRevoked(draft)) return false;
+  if (draft.anchorStatus === 'anchored') return false;
+  return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(cleanString(draft.status));
+}
+
+export function canProcessAnchor(draft) {
+  if (!draft) return false;
+  if (!isCredentialPaid(draft)) return false;
+  if (!draft.signedCredential) return false;
+  if (isCredentialRejectedOrRevoked(draft)) return false;
+  return draft.anchorStatus === 'queued';
+}
+
+export function canMarkPaid(draft) {
+  return Boolean(draft) && !['revoked', 'rejected'].includes(cleanString(draft.status));
+}
+
+export function canSubmitForSigning(draft) {
+  return Boolean(draft) && draft.status === 'draft';
+}
+
+export function canSignCredential(draft) {
+  return Boolean(draft) && draft.status === 'for_signature' && isCredentialPaid(draft);
+}
+
+export function canOverrideClaimQr(draft) {
+  return Boolean(draft) && isCredentialPaid(draft) && draft.signedCredential && isCredentialClaimed(draft) && !isCredentialRejectedOrRevoked(draft);
 }
 
 function addDays(date, days) {
@@ -283,6 +422,18 @@ async function buildBlockchainMetadata(draft) {
 function serializeDraft(doc) {
   const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
   return clonePlain(raw);
+}
+
+function sanitizeDraftForNotification(doc) {
+  const copy = serializeDraft(doc);
+  delete copy.claimToken;
+  delete copy.claimTokenHash;
+  delete copy.claimTokenExpiresAt;
+  delete copy.claimTokenCreatedAt;
+  delete copy.claimTokenCreatedBy;
+  delete copy.claimTokenRegeneratedAt;
+  delete copy.claimTokenRegeneratedBy;
+  return copy;
 }
 
 async function serializeWalletCredential(doc) {
@@ -613,14 +764,29 @@ export async function requestMobileCredential(payload = {}, actor) {
     status: 'draft',
   });
 
+  const serializedDraft = serializeDraft(draft);
+
   await notifyUser(actor._id, {
     type: 'credential_requested',
     title: 'Credential request submitted',
     body: `Present payment code ${paymentCode} to the cashier.`,
     data: {
+      request: sanitizeDraftForNotification(draft),
       credentialId: draft._id.toString(),
+      credentialType: serializedDraft.credentialType,
+      requestStatus: serializedDraft.status,
+      paymentStatus: serializedDraft.paymentStatus,
       paymentCode,
-      paymentStatus: draft.paymentStatus,
+      receiptNo: serializedDraft.receiptNo,
+      paidAt: serializedDraft.paidAt,
+      amount: serializedDraft.amount,
+      createdAt: serializedDraft.createdAt,
+      processingNote: 'Processing may take up to 3 working days after payment.',
+      credentialStatus: serializedDraft.status,
+      anchorStatus: serializedDraft.anchorStatus,
+      anchorMode: serializedDraft.anchorMode,
+      scheduledAnchorAt: serializedDraft.scheduledAnchorAt,
+      anchoredAt: serializedDraft.anchoredAt,
       anchorPreference,
       remarks,
       presetRemark,
@@ -629,7 +795,7 @@ export async function requestMobileCredential(payload = {}, actor) {
   }).catch(() => null);
 
   return {
-    request: serializeDraft(draft),
+    request: sanitizeDraftForNotification(draft),
     requestId: draft._id,
     paymentCode,
     paymentStatus: draft.paymentStatus,
@@ -653,6 +819,11 @@ export async function listMobileCredentialRequests(actor) {
 }
 
 export async function submitCredentialDraft(id, actor) {
+  await assertCredentialPermission(
+    actor,
+    'canManageVC',
+    'Cashier users cannot submit credentials for signing'
+  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -662,7 +833,7 @@ export async function submitCredentialDraft(id, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (draft.status !== 'draft') {
+  if (!canSubmitForSigning(draft)) {
     throw new ApiError(409, 'Only draft records can be submitted for signature');
   }
 
@@ -676,6 +847,11 @@ export async function submitCredentialDraft(id, actor) {
 
 export async function rejectCredentialDraft(id, payload = {}, actor) {
   assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canManageVC',
+    'Cashier users cannot reject credentials'
+  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -694,6 +870,10 @@ export async function rejectCredentialDraft(id, payload = {}, actor) {
     payload?.rejectionReason,
     'Returned for correction'
   );
+  draft.claimToken = '';
+  draft.claimTokenHash = '';
+  draft.claimTokenExpiresAt = null;
+  draft.claimReadyAt = null;
 
   await draft.save();
   return serializeDraft(draft);
@@ -701,6 +881,11 @@ export async function rejectCredentialDraft(id, payload = {}, actor) {
 
 export async function signCredentialDraft(id, actor) {
   assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canSignVC',
+    'Cashier users cannot sign credentials'
+  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -714,7 +899,7 @@ export async function signCredentialDraft(id, actor) {
     throw new ApiError(409, 'Only drafts pending signature can be signed');
   }
 
-  if (cleanString(draft.paymentStatus, 'unpaid').toLowerCase() !== 'paid') {
+  if (!isCredentialPaid(draft)) {
     throw new ApiError(409, 'Payment is required before signing this credential.');
   }
 
@@ -745,8 +930,25 @@ export async function signCredentialDraft(id, actor) {
   return serializeDraft(draft);
 }
 
-export async function createCredentialClaimToken(id, actor) {
+function hasActiveClaimToken(draft, now = new Date()) {
+  return Boolean(
+    cleanString(draft?.claimTokenHash) &&
+      draft?.claimTokenExpiresAt &&
+      draft.claimTokenExpiresAt.getTime() > now.getTime()
+  );
+}
+
+function actorDisplayName(actor) {
+  return cleanString(actor?.fullName || actor?.username || actor?.email || actor?._id);
+}
+
+export async function createCredentialClaimToken(id, payload = {}, actor) {
   assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canGenerateClaimQr',
+    'Cashier users cannot generate claim QR codes'
+  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -756,38 +958,107 @@ export async function createCredentialClaimToken(id, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (!['signed', 'claim_ready', 'anchored'].includes(draft.status)) {
+  const settings = await ensureMainSettings();
+
+  if (settings.locks?.qrGenerationLocked) {
+    throw new ApiError(423, 'Claim QR generation is currently locked by MIS');
+  }
+
+  const regenerate = normalizeBoolean(payload?.regenerate);
+  const now = new Date();
+  const override = normalizeBoolean(payload?.override);
+
+  if (regenerate && !settings.qrDelivery?.allowRegeneration && !override) {
+    throw new ApiError(409, 'Claim QR regeneration is disabled in System Settings');
+  }
+
+  if (!canGenerateClaimToken(draft, { override })) {
     throw new ApiError(
       409,
-      'Only signed, anchored, or claim-ready credentials can be prepared for claiming'
+      isCredentialClaimed(draft)
+        ? 'Claimed credential cannot use a normal claim QR. Use QR override with a required reason.'
+        : 'Only paid, signed, unclaimed credentials can be prepared for claiming'
     );
   }
 
-  if (!draft.signedCredential) {
-    throw new ApiError(409, 'Signed credential payload is missing');
+  if (override) {
+    if (!canOverrideClaimQr(draft)) {
+      throw new ApiError(409, 'Only claimed, paid, signed credentials can use QR override');
+    }
+
+    const reason = cleanString(payload?.reason);
+    if (reason.length < 8) {
+      throw new ApiError(400, 'Override reason is required and must be specific.');
+    }
+
+    draft.claimOverrideHistory.push({
+      reason,
+      actorId: actor?._id || null,
+      actorName: actorDisplayName(actor),
+      actorRole: actor?.role || '',
+      createdAt: now,
+      previousClaimedAt: draft.claimedAt || null,
+      previousClaimedBy: draft.claimedBy || null,
+      previousDeviceId: draft.claimedDeviceId || '',
+    });
+  } else if (isCredentialClaimed(draft)) {
+    throw new ApiError(409, 'Claimed credential cannot use a normal claim QR');
   }
 
-  const now = new Date();
-  const token = generateClaimToken();
-  const expiresAt = addMinutes(now, CLAIM_TOKEN_TTL_MINUTES);
+  if (hasActiveClaimToken(draft, now) && !regenerate && !override) {
+    throw new ApiError(
+      409,
+      'A valid claim QR already exists. Regenerate a fresh claim QR only if the current one cannot be used.'
+    );
+  }
 
-  draft.status = 'claim_ready';
+  const hadClaimToken = Boolean(cleanString(draft.claimTokenHash));
+  const token = generateClaimToken();
+  const ttlMinutes = Number(settings.qrDelivery?.claimQrExpiryMinutes || CLAIM_TOKEN_TTL_MINUTES);
+  const expiresAt = addMinutes(now, ttlMinutes);
+  const previousStatus = cleanString(draft.status);
+
+  if (previousStatus === 'signed') {
+    draft.status = 'claim_ready';
+  }
+
   draft.claimTokenHash = hashClaimToken(token);
+  draft.claimToken = token;
   draft.claimTokenExpiresAt = expiresAt;
-  draft.claimReadyAt = now;
-  draft.claimedAt = null;
-  draft.claimedBy = null;
-  draft.claimedDeviceId = '';
+  draft.claimTokenCreatedAt = draft.claimTokenCreatedAt || now;
+  draft.claimTokenCreatedBy = draft.claimTokenCreatedBy || actor?._id || null;
+  draft.claimReadyAt = draft.claimReadyAt || now;
+
+  if (regenerate || hadClaimToken) {
+    draft.claimTokenRegeneratedAt = now;
+    draft.claimTokenRegeneratedBy = actor?._id || null;
+  }
 
   await draft.save();
+  const serializedDraft = serializeDraft(draft);
 
   await notifyStudentByStudentNo(draft.studentNo, {
     type: 'credential_ready',
     title: 'Credential ready for claim',
     body: 'Your signed academic credential is ready to claim.',
     data: {
+      request: sanitizeDraftForNotification(draft),
       credentialId: draft._id.toString(),
-      status: 'claim_ready',
+      credentialType: serializedDraft.credentialType,
+      requestStatus: serializedDraft.status,
+      paymentStatus: serializedDraft.paymentStatus,
+      paymentCode: serializedDraft.paymentCode,
+      receiptNo: serializedDraft.receiptNo,
+      paidAt: serializedDraft.paidAt,
+      amount: serializedDraft.amount,
+      createdAt: serializedDraft.createdAt,
+      processingNote: 'Processing may take up to 3 working days after payment.',
+      credentialStatus: serializedDraft.status,
+      anchorStatus: serializedDraft.anchorStatus,
+      anchorMode: serializedDraft.anchorMode,
+      scheduledAnchorAt: serializedDraft.scheduledAnchorAt,
+      anchoredAt: serializedDraft.anchoredAt,
+      override,
     },
   }).catch(() => null);
 
@@ -796,8 +1067,17 @@ export async function createCredentialClaimToken(id, actor) {
     token,
     claimUri: `bcvs://claim?token=${encodeURIComponent(token)}`,
     expiresAt,
-    ttlMinutes: CLAIM_TOKEN_TTL_MINUTES,
+    ttlMinutes,
+    override,
   };
+}
+
+export async function createCredentialClaimOverrideToken(id, payload = {}, actor) {
+  return createCredentialClaimToken(id, {
+    ...payload,
+    override: true,
+    regenerate: true,
+  }, actor);
 }
 
 export async function listCredentialPayments(query = {}, actor) {
@@ -866,17 +1146,31 @@ export async function listCredentialPayments(query = {}, actor) {
 
 export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   assertCashierActor(actor);
+  await assertCredentialPermission(
+    actor,
+    'canConfirmPayments',
+    'You do not have permission to confirm payments'
+  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
   const draft = await CredentialDraft.findById(id);
+  const settings = await ensureMainSettings();
 
   if (!draft) {
     throw new ApiError(404, 'Credential request not found');
   }
 
+  if (settings.locks?.paymentConfirmationLocked) {
+    throw new ApiError(423, 'Payment confirmation is currently locked by MIS');
+  }
+
   if (!cleanString(draft.paymentCode)) {
     draft.paymentCode = await generateUniquePaymentCode(CredentialDraft);
+  }
+
+  if (!canMarkPaid(draft)) {
+    throw new ApiError(409, 'Rejected or revoked credentials cannot be marked paid');
   }
 
   if (draft.paymentStatus === 'paid') {
@@ -889,20 +1183,34 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   draft.amount = normalizeAmount(payload?.amount, draft.amount || 0);
   draft.paidAt = now;
   draft.paidBy = actor?._id || null;
+  draft.paymentConfirmedAt = now;
+  draft.paymentConfirmedBy = actor?._id || null;
   draft.paymentNotes = cleanString(payload?.paymentNotes || payload?.notes);
 
   await draft.save();
+  const serializedDraft = serializeDraft(draft);
 
   await notifyStudentByStudentNo(draft.studentNo, {
     type: 'payment_received',
     title: 'Payment received',
     body: `Your payment has been recorded. Receipt No: ${draft.receiptNo}`,
     data: {
+      request: sanitizeDraftForNotification(draft),
       credentialId: draft._id.toString(),
-      paymentCode: draft.paymentCode,
-      receiptNo: draft.receiptNo,
-      paidAt: draft.paidAt,
-      paymentStatus: draft.paymentStatus,
+      credentialType: serializedDraft.credentialType,
+      requestStatus: serializedDraft.status,
+      paymentStatus: serializedDraft.paymentStatus,
+      paymentCode: serializedDraft.paymentCode,
+      receiptNo: serializedDraft.receiptNo,
+      paidAt: serializedDraft.paidAt,
+      amount: serializedDraft.amount,
+      createdAt: serializedDraft.createdAt,
+      processingNote: serializedDraft.paymentNotes || 'Processing may take up to 3 working days after payment.',
+      credentialStatus: serializedDraft.status,
+      anchorStatus: serializedDraft.anchorStatus,
+      anchorMode: serializedDraft.anchorMode,
+      scheduledAnchorAt: serializedDraft.scheduledAnchorAt,
+      anchoredAt: serializedDraft.anchoredAt,
     },
   }).catch(() => null);
 
@@ -959,38 +1267,46 @@ export async function claimMobileCredential(payload = {}, actor) {
     throw new ApiError(403, 'This credential belongs to another student');
   }
 
-  if (candidate.status === 'claimed') {
+  const overrideClaim = Boolean(
+    candidate.status === 'claimed' &&
+      candidate.claimedAt &&
+      Array.isArray(candidate.claimOverrideHistory) &&
+      candidate.claimOverrideHistory.length > 0
+  );
+
+  if (!overrideClaim && isCredentialClaimed(candidate)) {
     throw new ApiError(409, 'Credential has already been claimed');
   }
 
-  if (candidate.claimedAt) {
-    throw new ApiError(409, 'Credential has already been claimed');
+  if (overrideClaim && !canOverrideClaimQr(candidate)) {
+    throw new ApiError(409, 'Credential override token is no longer valid for claiming');
   }
 
-  if (!['signed', 'claim_ready'].includes(candidate.status)) {
+  if (!overrideClaim && !canClaimCredential(candidate)) {
     throw new ApiError(409, 'Credential is not available for claiming');
-  }
-
-  if (candidate.status !== 'claim_ready') {
-    throw new ApiError(409, 'Credential QR has not been prepared for claiming');
-  }
-
-  if (!candidate.signedCredential) {
-    throw new ApiError(409, 'Signed credential payload is missing');
   }
 
   if (!candidate.claimTokenExpiresAt || candidate.claimTokenExpiresAt.getTime() <= now.getTime()) {
     throw new ApiError(410, 'Claim token has expired');
   }
 
+  const normalFilter = {
+    _id: candidate._id,
+    status: { $in: CLAIMABLE_STATUSES },
+    claimedAt: null,
+    claimTokenHash: tokenHash,
+    claimTokenExpiresAt: { $gt: now },
+  };
+  const overrideFilter = {
+    _id: candidate._id,
+    status: 'claimed',
+    claimedAt: { $ne: null },
+    claimTokenHash: tokenHash,
+    claimTokenExpiresAt: { $gt: now },
+  };
+
   const claimed = await CredentialDraft.findOneAndUpdate(
-    {
-      _id: candidate._id,
-      status: 'claim_ready',
-      claimedAt: null,
-      claimTokenHash: tokenHash,
-      claimTokenExpiresAt: { $gt: now },
-    },
+    overrideClaim ? overrideFilter : normalFilter,
     {
       $set: {
         status: 'claimed',
@@ -998,6 +1314,7 @@ export async function claimMobileCredential(payload = {}, actor) {
         claimedBy: actor._id,
         claimedDeviceId: deviceId,
         claimTokenHash: '',
+        claimToken: '',
         claimTokenExpiresAt: null,
       },
     },
@@ -1008,11 +1325,42 @@ export async function claimMobileCredential(payload = {}, actor) {
     throw new ApiError(409, 'Credential claim could not be completed. Please refresh and try again.');
   }
 
+  await notifyStudentByStudentNo(claimed.studentNo, {
+    type: 'credential_claimed',
+    title: 'Credential claimed',
+    body: overrideClaim
+      ? 'Your credential was re-claimed on this device.'
+      : 'Your credential was saved to your mobile wallet.',
+    data: {
+      request: sanitizeDraftForNotification(claimed),
+      credentialId: claimed._id.toString(),
+      credentialType: claimed.credentialType,
+      requestStatus: claimed.status,
+      paymentStatus: claimed.paymentStatus,
+      paymentCode: claimed.paymentCode,
+      receiptNo: claimed.receiptNo,
+      paidAt: claimed.paidAt,
+      amount: claimed.amount,
+      createdAt: claimed.createdAt,
+      processingNote: claimed.paymentNotes || 'Processing may take up to 3 working days after payment.',
+      credentialStatus: claimed.status,
+      claimedAt: claimed.claimedAt,
+      anchorStatus: claimed.anchorStatus,
+      anchoredAt: claimed.anchoredAt,
+      override: overrideClaim,
+    },
+  }).catch(() => null);
+
   return buildClaimResponse(claimed);
 }
 
 export async function scheduleCredentialAnchor(id, payload = {}, actor) {
   assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canAnchorVC',
+    'Cashier users cannot queue credentials for anchoring'
+  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1022,10 +1370,14 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (!['signed', 'queued_for_anchor'].includes(draft.status)) {
+  if (draft.anchorStatus === 'queued') {
+    return serializeDraft(draft);
+  }
+
+  if (!canQueueAnchor(draft)) {
     throw new ApiError(
       409,
-      'Only signed drafts can be queued for anchoring'
+      'Only paid and signed credentials can be queued for anchoring'
     );
   }
 
@@ -1040,7 +1392,7 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
   }
 
   const requestedMode =
-    cleanString(payload?.anchorMode) === 'same_day' ? 'same_day' : 'scheduled';
+    ['same_day', 'today'].includes(cleanString(payload?.anchorMode)) ? 'same_day' : 'scheduled';
 
   let scheduledAnchorAt = null;
 
@@ -1068,9 +1420,179 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
   draft.anchorMode = requestedMode;
   draft.scheduledAnchorAt = scheduledAnchorAt;
   draft.anchorStatus = 'queued';
-  draft.status = 'queued_for_anchor';
+  if (!isCredentialClaimed(draft) && draft.status !== 'anchored') {
+    draft.status = 'queued_for_anchor';
+  }
   draft.contractAddress = await resolveActiveContractAddress(settings);
 
   await draft.save();
+  const serializedDraft = serializeDraft(draft);
+
+  await notifyStudentByStudentNo(draft.studentNo, {
+    type: 'anchor_scheduled',
+    title: requestedMode === 'same_day' ? 'Anchor scheduled today' : 'Anchor scheduled',
+    body:
+      requestedMode === 'same_day'
+        ? 'Your credential is queued for same-day blockchain anchoring.'
+        : `Your credential is scheduled for anchoring on ${scheduledAnchorAt.toISOString().slice(0, 10)}.`,
+    data: {
+      request: sanitizeDraftForNotification(draft),
+      credentialId: draft._id.toString(),
+      credentialType: serializedDraft.credentialType,
+      requestStatus: serializedDraft.status,
+      paymentStatus: serializedDraft.paymentStatus,
+      paymentCode: serializedDraft.paymentCode,
+      receiptNo: serializedDraft.receiptNo,
+      paidAt: serializedDraft.paidAt,
+      amount: serializedDraft.amount,
+      createdAt: serializedDraft.createdAt,
+      processingNote: serializedDraft.paymentNotes || 'Processing may take up to 3 working days after payment.',
+      credentialStatus: serializedDraft.status,
+      anchorStatus: serializedDraft.anchorStatus,
+      anchorMode: serializedDraft.anchorMode,
+      scheduledAnchorAt: serializedDraft.scheduledAnchorAt,
+      anchoredAt: serializedDraft.anchoredAt,
+    },
+  }).catch(() => null);
+
   return serializeDraft(draft);
+}
+
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfToday() {
+  const date = new Date();
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+export async function getTodaysAnchorQueueSummary(actor) {
+  assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canAnchorVC',
+    'You do not have permission to view the anchor queue'
+  );
+
+  const CredentialDraft = getCredentialDraftModel();
+  const dueAt = endOfToday();
+  const pendingCount = await CredentialDraft.countDocuments({
+    anchorStatus: 'queued',
+    scheduledAnchorAt: { $lte: dueAt },
+    paymentStatus: 'paid',
+    signedCredential: { $ne: null },
+    status: { $nin: ['revoked', 'rejected'] },
+  });
+
+  return {
+    pendingCount,
+    dueAt,
+  };
+}
+
+export async function processTodaysAnchorQueue(actor) {
+  assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canAnchorVC',
+    'Cashier users cannot process the anchor queue'
+  );
+
+  const settings = await ensureMainSettings();
+
+  if (!settings.anchoring?.enabled) {
+    throw new ApiError(409, 'Anchoring is disabled in System Settings');
+  }
+
+  if (settings.locks?.anchorLocked) {
+    throw new ApiError(423, 'Anchoring is currently locked by MIS');
+  }
+
+  const CredentialDraft = getCredentialDraftModel();
+  const dueAt = endOfToday();
+  const rows = await CredentialDraft.find({
+    anchorStatus: 'queued',
+    scheduledAnchorAt: { $lte: dueAt },
+    paymentStatus: 'paid',
+    signedCredential: { $ne: null },
+    status: { $nin: ['revoked', 'rejected'] },
+  }).sort({ scheduledAnchorAt: 1, createdAt: 1 });
+
+  const summary = {
+    processedCount: 0,
+    failedCount: 0,
+    skippedCount: 0,
+    failed: [],
+    skipped: [],
+    processed: [],
+  };
+
+  for (const draft of rows) {
+    const id = draft._id.toString();
+
+    try {
+      if (!canProcessAnchor(draft)) {
+        summary.skippedCount += 1;
+        summary.skipped.push({ id, reason: 'Credential is not eligible for anchoring.' });
+        continue;
+      }
+
+      draft.anchorStatus = 'anchored';
+      draft.anchoredAt = new Date();
+      draft.anchoredBy = actor?._id || null;
+      if (!draft.contractAddress) {
+        draft.contractAddress = await resolveActiveContractAddress(settings);
+      }
+
+      if (!isCredentialClaimed(draft)) {
+        draft.status = 'anchored';
+      }
+
+      await draft.save();
+
+      summary.processedCount += 1;
+      summary.processed.push({ id, status: draft.status, anchorStatus: draft.anchorStatus });
+
+      await notifyStudentByStudentNo(draft.studentNo, {
+        type: 'credential_anchored',
+        title: 'Credential anchored',
+        body: 'Your credential has been recorded as anchored.',
+        data: {
+          request: sanitizeDraftForNotification(draft),
+          credentialId: id,
+          credentialType: draft.credentialType,
+          requestStatus: draft.status,
+          paymentStatus: draft.paymentStatus,
+          paymentCode: draft.paymentCode,
+          receiptNo: draft.receiptNo,
+          paidAt: draft.paidAt,
+          amount: draft.amount,
+          createdAt: draft.createdAt,
+          processingNote: draft.paymentNotes || 'Processing may take up to 3 working days after payment.',
+          credentialStatus: draft.status,
+          anchorStatus: draft.anchorStatus,
+          anchoredAt: draft.anchoredAt,
+          anchorTxHash: draft.anchorTxHash || '',
+          contractAddress: draft.contractAddress || '',
+        },
+      }).catch(() => null);
+    } catch (error) {
+      summary.failedCount += 1;
+      summary.failed.push({
+        id,
+        reason: error.message || 'Failed to process anchor.',
+      });
+    }
+  }
+
+  return {
+    ...summary,
+    dueAt,
+    startedAt: startOfToday(),
+    completedAt: new Date(),
+  };
 }

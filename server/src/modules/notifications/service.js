@@ -27,7 +27,16 @@ function serializeNotification(doc) {
 function normalizeEvent(event = {}) {
   const type = cleanString(event.type);
 
-  if (!['credential_ready', 'credential_requested', 'verification_request', 'credential_shared', 'payment_received'].includes(type)) {
+  if (![
+    'credential_ready',
+    'credential_requested',
+    'verification_request',
+    'credential_shared',
+    'payment_received',
+    'credential_claimed',
+    'credential_anchored',
+    'anchor_scheduled',
+  ].includes(type)) {
     throw new ApiError(400, 'Unsupported notification type');
   }
 

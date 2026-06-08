@@ -1,16 +1,34 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FaChevronDown, FaChevronUp, FaCog } from 'react-icons/fa';
 import {
+  activateIssuerKey,
+  createIssuerKey,
+  deleteIssuerKey,
   getSettingsDashboard,
   rotateIssuerKey,
   updateActiveContract,
   updateAdminPermissions,
   updateBusinessSettings,
+  updateIssuerKey,
   updateSystemLocks,
-  createIssuerKey,
 } from '../settingsAPI';
 
-const ROLE_OPTIONS = ['admin', 'super_admin', 'developer', 'cashier'];
+const TABS = [
+  'Permissions',
+  'Issuer Key Vault',
+  'Business Rules',
+  'MIS Technical Locks',
+  'Blockchain / Contract',
+];
+
+const PERMISSION_COLUMNS = [
+  ['canConfirmPayments', 'Confirm Payments'],
+  ['canManageVC', 'Manage VC'],
+  ['canSignVC', 'Sign VC'],
+  ['canGenerateClaimQr', 'Generate Claim QR'],
+  ['canAnchorVC', 'Anchor VC'],
+  ['canManageUsers', 'Manage Users'],
+  ['canManageSettings', 'Manage Settings'],
+];
 
 const EMPTY_SETTINGS = {
   anchoring: {
@@ -20,6 +38,8 @@ const EMPTY_SETTINGS = {
   },
   qrDelivery: {
     allowEmail: true,
+    claimQrExpiryMinutes: 15,
+    allowRegeneration: true,
     allowedRoles: ['admin', 'super_admin'],
   },
   blockchain: {
@@ -32,7 +52,10 @@ const EMPTY_SETTINGS = {
   locks: {
     anchorLocked: false,
     qrEmailLocked: false,
+    qrGenerationLocked: false,
     contractLocked: false,
+    issuerKeyRotationLocked: false,
+    paymentConfirmationLocked: false,
   },
 };
 
@@ -43,8 +66,6 @@ const EMPTY_WALLET = {
   walletBalance: '0.0000',
   gasToken: 'POL',
   chainId: null,
-  selectedContractId: '',
-  selectedContractName: '',
   error: '',
 };
 
@@ -59,135 +80,165 @@ const EMPTY_ACCESS = {
 };
 
 function formatDate(value) {
-  if (!value) return '—';
-  return new Date(value).toLocaleString();
+  if (!value) return 'Not available';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Not available';
+  return parsed.toLocaleString();
 }
 
-function ToggleCard({
-  checked,
-  disabled,
-  onChange,
-  title,
-  description = '',
-}) {
-  return (
-    <div className="border rounded-3 p-3 h-100 bg-white">
-      <div className="d-flex align-items-start gap-3">
-        <div className="form-check form-switch m-0 pt-1 flex-shrink-0">
-          <input
-            className="form-check-input m-0"
-            type="checkbox"
-            checked={checked}
-            disabled={disabled}
-            onChange={onChange}
-          />
-        </div>
+function shortText(value, start = 18, end = 8) {
+  const text = String(value || '').trim();
+  if (!text) return 'Not available';
+  if (text.length <= start + end + 3) return text;
+  return `${text.slice(0, start)}...${text.slice(-end)}`;
+}
 
-        <div className="flex-grow-1">
-          <div className="fw-semibold">{title}</div>
-          {description ? (
-            <div className="text-muted small mt-1">{description}</div>
-          ) : null}
+function ModalShell({ title, body, children, footer, onClose }) {
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">{title}</h2>
+                {body ? <p className="text-muted mb-0 small">{body}</p> : null}
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+            </div>
+            <div className="modal-body">{children}</div>
+            <div className="modal-footer">{footer}</div>
+          </div>
         </div>
       </div>
-    </div>
+      <div className="modal-backdrop show" onClick={onClose} />
+    </>
   );
 }
 
-function ActiveIssuerKeyRow({
-  activeIssuerKey,
-  canManage,
-  isOpen,
-  onToggle,
-}) {
+function ConfirmModal({ action, busy, onCancel, onConfirm }) {
+  if (!action) return null;
+
   return (
-    <div className="border rounded-3 p-3 bg-light">
-      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
-        <div className="flex-grow-1">
-          <div className="small text-muted mb-1">Current Active Key</div>
+    <ModalShell
+      title={action.title}
+      body={action.body}
+      onClose={busy ? () => {} : onCancel}
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className={`btn btn-${action.variant || 'primary'}`}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? 'Working...' : action.confirmLabel || 'Confirm'}
+          </button>
+        </>
+      }
+    >
+      {action.details ? <div className="alert alert-light border mb-0">{action.details}</div> : null}
+    </ModalShell>
+  );
+}
 
-          {activeIssuerKey ? (
-            <>
-              <div className="fw-semibold fs-5">{activeIssuerKey.name}</div>
-              <div className="small text-muted text-break mt-1">
-                {activeIssuerKey.kid}
-              </div>
-              <div className="small mt-2">
-                Activated: <strong>{formatDate(activeIssuerKey.activatedAt)}</strong>
-              </div>
-            </>
-          ) : (
-            <div className="text-muted">No active issuer key yet.</div>
-          )}
-        </div>
+function TextModal({ action, busy, onCancel, onConfirm }) {
+  const [value, setValue] = useState(action?.initialValue || '');
 
-        {canManage ? (
-          <div className="d-flex align-items-start">
-            <button
-              type="button"
-              className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-2"
-              onClick={onToggle}
-            >
-              <FaCog />
-              <span>More Settings</span>
-              {isOpen ? <FaChevronUp /> : <FaChevronDown />}
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </div>
+  if (!action) return null;
+
+  const valid = !action.required || value.trim().length > 0;
+
+  return (
+    <ModalShell
+      title={action.title}
+      body={action.body}
+      onClose={busy ? () => {} : onCancel}
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className={`btn btn-${action.variant || 'primary'}`}
+            onClick={() => onConfirm(value.trim())}
+            disabled={busy || !valid}
+          >
+            {busy ? 'Working...' : action.confirmLabel || 'Save'}
+          </button>
+        </>
+      }
+    >
+      <label className="form-label fw-semibold">{action.label || 'Value'}</label>
+      <input
+        className="form-control"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={action.placeholder || ''}
+        disabled={busy}
+      />
+    </ModalShell>
+  );
+}
+
+function Toggle({ checked, disabled, onChange }) {
+  return (
+    <input
+      className="form-check-input"
+      type="checkbox"
+      checked={Boolean(checked)}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.checked)}
+    />
   );
 }
 
 export default function SystemSettingsPage() {
+  const [activeTab, setActiveTab] = useState('Permissions');
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
   const [admins, setAdmins] = useState([]);
+  const [issuerKeys, setIssuerKeys] = useState([]);
+  const [activeIssuerKey, setActiveIssuerKey] = useState(null);
   const [wallet, setWallet] = useState(EMPTY_WALLET);
   const [availableContracts, setAvailableContracts] = useState([]);
-  const [activeIssuerKey, setActiveIssuerKey] = useState(null);
-  const [access, setAccess] = useState(EMPTY_ACCESS);
-
-  const [loading, setLoading] = useState(true);
-  const [savingBusiness, setSavingBusiness] = useState(false);
-  const [savingLocks, setSavingLocks] = useState(false);
-  const [savingUserId, setSavingUserId] = useState('');
-  const [savingContract, setSavingContract] = useState(false);
-  const [creatingKey, setCreatingKey] = useState(false);
-  const [rotatingKey, setRotatingKey] = useState(false);
-
   const [selectedContractId, setSelectedContractId] = useState('');
+  const [access, setAccess] = useState(EMPTY_ACCESS);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [savingUserId, setSavingUserId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
-  const [showIssuerKeySettings, setShowIssuerKeySettings] = useState(false);
-
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [textAction, setTextAction] = useState(null);
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
     activate: true,
     rotationReason: '',
   });
-
   const [rotateForm, setRotateForm] = useState({
     name: '',
     rotationReason: '',
   });
 
-  const selectedContractOption = useMemo(() => {
-    return availableContracts.find(
-      (item) =>
-        item._id === selectedContractId ||
-        item.address === selectedContractId
-    );
-  }, [availableContracts, selectedContractId]);
+  const selectedContractOption = useMemo(
+    () =>
+      availableContracts.find(
+        (item) => item._id === selectedContractId || item.address === selectedContractId
+      ),
+    [availableContracts, selectedContractId]
+  );
 
   async function loadDashboard() {
     try {
       setLoading(true);
       const data = await getSettingsDashboard();
-
-      setSettings(data.settings || EMPTY_SETTINGS);
+      setSettings({ ...EMPTY_SETTINGS, ...(data.settings || {}) });
       setAdmins(data.admins || []);
+      setIssuerKeys(data.issuerKeys || []);
+      setActiveIssuerKey(data.activeIssuerKey || null);
       setWallet(data.wallet || EMPTY_WALLET);
       setAvailableContracts(data.availableContracts || []);
-      setActiveIssuerKey(data.activeIssuerKey || null);
       setAccess(data.access || EMPTY_ACCESS);
       setSelectedContractId(data.settings?.blockchain?.selectedContractId || '');
       setFeedback({ type: '', text: '' });
@@ -208,30 +259,51 @@ export default function SystemSettingsPage() {
     loadDashboard();
   }, []);
 
+  function closeActionModals() {
+    setConfirmAction(null);
+    setTextAction(null);
+  }
+
+  function actionError(error, fallback) {
+    return error?.response?.data?.message || error?.message || fallback;
+  }
+
+  async function runConfirmedAction() {
+    if (!confirmAction?.run) return;
+
+    try {
+      setBusy(true);
+      await confirmAction.run();
+      closeActionModals();
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Action failed.') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runTextAction(value) {
+    if (!textAction?.run) return;
+
+    try {
+      setBusy(true);
+      await textAction.run(value);
+      closeActionModals();
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Action failed.') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function updateNested(section, field, value) {
     setSettings((prev) => ({
       ...prev,
       [section]: {
-        ...prev[section],
+        ...(prev[section] || {}),
         [field]: value,
       },
     }));
-  }
-
-  function toggleAllowedRole(role) {
-    setSettings((prev) => {
-      const exists = prev.qrDelivery.allowedRoles.includes(role);
-
-      return {
-        ...prev,
-        qrDelivery: {
-          ...prev.qrDelivery,
-          allowedRoles: exists
-            ? prev.qrDelivery.allowedRoles.filter((item) => item !== role)
-            : [...prev.qrDelivery.allowedRoles, role],
-        },
-      };
-    });
   }
 
   function togglePermission(userId, key) {
@@ -241,8 +313,8 @@ export default function SystemSettingsPage() {
           ? {
               ...admin,
               permissions: {
-                ...admin.permissions,
-                [key]: !admin.permissions[key],
+                ...(admin.permissions || {}),
+                [key]: !admin.permissions?.[key],
               },
             }
           : admin
@@ -250,461 +322,552 @@ export default function SystemSettingsPage() {
     );
   }
 
-  async function handleSaveBusiness() {
-    try {
-      setSavingBusiness(true);
-      const updated = await updateBusinessSettings({
-        anchoring: settings.anchoring,
-        qrDelivery: settings.qrDelivery,
-      });
-
-      setSettings((prev) => ({ ...prev, ...updated }));
-      setFeedback({ type: 'success', text: 'Business settings saved.' });
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to save business settings.',
-      });
-    } finally {
-      setSavingBusiness(false);
-    }
-  }
-
-  async function handleSaveLocks() {
-    try {
-      setSavingLocks(true);
-      const updated = await updateSystemLocks({ locks: settings.locks });
-      setSettings((prev) => ({ ...prev, locks: updated.locks }));
-      setFeedback({ type: 'success', text: 'System locks saved.' });
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to save system locks.',
-      });
-    } finally {
-      setSavingLocks(false);
-    }
-  }
-
-  async function handleSaveAdmin(admin) {
+  async function saveAdmin(admin) {
     try {
       setSavingUserId(admin._id);
       const updated = await updateAdminPermissions(admin._id, admin.permissions);
       setAdmins((prev) =>
         prev.map((item) => (item._id === admin._id ? { ...item, ...updated } : item))
       );
-      setFeedback({
-        type: 'success',
-        text: `Permissions updated for ${admin.fullName}.`,
-      });
+      setFeedback({ type: 'success', text: `Permissions updated for ${admin.fullName}.` });
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to save admin permissions.',
+        text: actionError(error, 'Failed to save permissions.'),
       });
     } finally {
       setSavingUserId('');
     }
   }
 
-  async function handleCreateKey() {
-    try {
-      setCreatingKey(true);
-      await createIssuerKey(newKeyForm);
-      setNewKeyForm({
-        name: '',
-        activate: true,
-        rotationReason: '',
-      });
-      setFeedback({ type: 'success', text: 'Issuer key created.' });
-      await loadDashboard();
-      setShowIssuerKeySettings(false);
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to create issuer key.',
-      });
-    } finally {
-      setCreatingKey(false);
-    }
+  function confirmSaveBusiness() {
+    setConfirmAction({
+      title: 'Save business rules?',
+      body: 'These settings affect credential QR expiry, regeneration, and anchoring behavior.',
+      confirmLabel: 'Save Rules',
+      run: async () => {
+        const updated = await updateBusinessSettings({
+          anchoring: settings.anchoring,
+          qrDelivery: settings.qrDelivery,
+        });
+        setSettings((prev) => ({ ...prev, ...updated }));
+        setFeedback({ type: 'success', text: 'Business rules saved.' });
+      },
+    });
   }
 
-  async function handleRotateKey() {
-    try {
-      setRotatingKey(true);
-      await rotateIssuerKey(rotateForm);
-      setRotateForm({
-        name: '',
-        rotationReason: '',
-      });
-      setFeedback({ type: 'success', text: 'Issuer key rotated and activated.' });
-      await loadDashboard();
-      setShowIssuerKeySettings(false);
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to rotate issuer key.',
-      });
-    } finally {
-      setRotatingKey(false);
-    }
+  function confirmSaveLocks() {
+    setConfirmAction({
+      title: 'Save MIS technical locks?',
+      body: 'These locks can block production credential operations.',
+      confirmLabel: 'Save Locks',
+      variant: 'dark',
+      run: async () => {
+        const updated = await updateSystemLocks({ locks: settings.locks });
+        setSettings((prev) => ({ ...prev, locks: updated.locks }));
+        setFeedback({ type: 'success', text: 'Technical locks saved.' });
+      },
+    });
   }
 
-  async function handleSaveActiveContract() {
-    try {
-      setSavingContract(true);
-      await updateActiveContract({ contractId: selectedContractId });
-      setFeedback({ type: 'success', text: 'Active contract updated.' });
-      await loadDashboard();
-    } catch (error) {
-      setFeedback({
-        type: 'danger',
-        text:
-          error.response?.data?.message ||
-          error.message ||
-          'Failed to update active contract.',
-      });
-    } finally {
-      setSavingContract(false);
-    }
+  function confirmSaveContract() {
+    setConfirmAction({
+      title: 'Change active contract?',
+      body: 'New anchoring operations will use the selected deployed contract.',
+      details: selectedContractOption
+        ? `${selectedContractOption.contractName || 'AdminContract'} - ${selectedContractOption.address}`
+        : selectedContractId,
+      confirmLabel: 'Save Contract',
+      run: async () => {
+        await updateActiveContract({ contractId: selectedContractId });
+        setFeedback({ type: 'success', text: 'Active contract updated.' });
+        await loadDashboard();
+      },
+    });
   }
 
-  if (loading) {
+  function confirmCreateKey() {
+    setConfirmAction({
+      title: 'Create issuer key?',
+      body: 'A new encrypted issuer signing key will be created on the server.',
+      details: newKeyForm.name || 'New issuer key',
+      confirmLabel: 'Create Key',
+      run: async () => {
+        await createIssuerKey(newKeyForm);
+        setNewKeyForm({ name: '', activate: true, rotationReason: '' });
+        setFeedback({ type: 'success', text: 'Issuer key created.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function confirmRotateKey() {
+    setConfirmAction({
+      title: 'Rotate issuer key?',
+      body: 'This creates and activates a new encrypted issuer key. Existing signed credentials keep their proof.',
+      details: rotateForm.rotationReason || 'Key rotation',
+      confirmLabel: 'Rotate Key',
+      variant: 'warning',
+      run: async () => {
+        await rotateIssuerKey(rotateForm);
+        setRotateForm({ name: '', rotationReason: '' });
+        setFeedback({ type: 'success', text: 'Issuer key rotated.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function editIssuerKey(key) {
+    setTextAction({
+      title: 'Edit issuer key label',
+      body: 'Private key material is never exposed or changed here.',
+      label: 'Label',
+      initialValue: key.name || '',
+      required: true,
+      confirmLabel: 'Save Label',
+      run: async (name) => {
+        await updateIssuerKey(key._id, { name });
+        setFeedback({ type: 'success', text: 'Issuer key label updated.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function confirmActivateKey(key) {
+    setConfirmAction({
+      title: 'Activate issuer key?',
+      body: 'Future VC signing will use this issuer key.',
+      details: key.name,
+      confirmLabel: 'Activate',
+      run: async () => {
+        await activateIssuerKey(key._id);
+        setFeedback({ type: 'success', text: 'Issuer key activated.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function confirmRetireKey(key) {
+    setConfirmAction({
+      title: 'Retire issuer key?',
+      body: 'This deactivates the key. Keys used by issued credentials should be retained for verification.',
+      details: key.name,
+      confirmLabel: 'Retire',
+      variant: 'danger',
+      run: async () => {
+        await deleteIssuerKey(key._id);
+        setFeedback({ type: 'success', text: 'Issuer key retired.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function renderPermissions() {
     return (
-      <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">Loading settings...</div>
-      </div>
-    );
-  }
-
-  const limitedSettingsView =
-    access.canViewIssuerKeys &&
-    !access.canEditBusinessSettings &&
-    !access.canEditSystemLocks &&
-    !access.canViewBlockchain &&
-    !access.canEditPermissions;
-
-  if (limitedSettingsView) {
-    return (
-      <div className="d-flex flex-column gap-4">
-        <div>
-          <h1 className="h3 mb-1">System Settings</h1>
-          <p className="text-muted mb-0">
-            Read-only registrar view of the active issuer key.
-          </p>
-        </div>
-
-        {feedback.text ? (
-          <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
-        ) : null}
-
-        <div className="card border-0 shadow-sm">
-          <div className="card-body p-4">
-            <h2 className="h5 mb-3">Active Issuer Key</h2>
-            <ActiveIssuerKeyRow
-              activeIssuerKey={activeIssuerKey}
-              canManage={false}
-              isOpen={false}
-              onToggle={() => {}}
-            />
-            <div className="alert alert-light border mt-3 mb-0">
-              This view is read-only. Private keys and developer controls are hidden.
-            </div>
-          </div>
-        </div>
-
-        <div className="card border-0 shadow-sm">
-          <div className="card-body p-4">
-            <h2 className="h5 mb-3">Active Contract</h2>
-            <div className="border rounded-3 p-3 bg-light">
-              <div className="row g-3">
-                <div className="col-md-5">
-                  <div className="small text-muted">Contract Name</div>
-                  <div className="fw-semibold">
-                    {settings.blockchain?.selectedContractName || 'Not selected'}
-                  </div>
-                </div>
-                <div className="col-md-7">
-                  <div className="small text-muted">Contract Address / ID</div>
-                  <div className="fw-semibold text-break">
-                    {settings.blockchain?.selectedContractId || 'Not selected'}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="alert alert-light border mt-3 mb-0">
-              Network and deployment controls are hidden in the registrar view.
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="d-flex flex-column gap-4">
-      <div>
-        <h1 className="h3 mb-1">System Settings</h1>
-        <p className="text-muted mb-0">
-          Super admin manages business defaults. MIS manages key rotation, active
-          contract switching, technical locks, and permission overrides.
-        </p>
-      </div>
-
-      {feedback.text ? (
-        <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
-      ) : null}
-
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
+          <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
             <div>
-              <h2 className="h5 mb-1">Business Defaults</h2>
-              <p className="text-muted mb-0 small">
-                Registrar-facing issuance defaults and delivery controls.
+              <h2 className="h5 mb-1">Permissions</h2>
+              <p className="text-muted mb-0">
+                One account per row. Backend permissions still enforce restricted operations.
               </p>
             </div>
           </div>
 
+          {!access.canEditPermissions ? (
+            <div className="alert alert-light border">
+              Permission overrides are read only for your role.
+            </div>
+          ) : null}
+
+          <div className="table-responsive">
+            <table className="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Role</th>
+                  <th>Active</th>
+                  {PERMISSION_COLUMNS.map(([, label]) => (
+                    <th key={label}>{label}</th>
+                  ))}
+                  <th>Save</th>
+                </tr>
+              </thead>
+              <tbody>
+                {admins.map((admin) => (
+                  <tr key={admin._id}>
+                    <td style={{ minWidth: 220 }}>
+                      <div className="fw-semibold">{admin.fullName || admin.username}</div>
+                      <div className="small text-muted">{admin.email}</div>
+                    </td>
+                    <td>
+                      <span className="badge text-bg-secondary text-uppercase">{admin.role}</span>
+                    </td>
+                    <td>
+                      <span className={`badge ${admin.isActive ? 'text-bg-success' : 'text-bg-danger'}`}>
+                        {admin.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    {PERMISSION_COLUMNS.map(([key]) => (
+                      <td key={key} className="text-center">
+                        <Toggle
+                          checked={admin.permissions?.[key]}
+                          disabled={!access.canEditPermissions}
+                          onChange={() => togglePermission(admin._id, key)}
+                        />
+                      </td>
+                    ))}
+                    <td>
+                      <button
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={() => saveAdmin(admin)}
+                        disabled={!access.canEditPermissions || savingUserId === admin._id}
+                      >
+                        {savingUserId === admin._id ? 'Saving...' : 'Save'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderIssuerKeys() {
+    return (
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+            <div>
+              <h2 className="h5 mb-1">Issuer Key Vault</h2>
+              <p className="text-muted mb-0">Private key material is encrypted on the server and never shown here.</p>
+            </div>
+          </div>
+
+          <div className="border rounded-3 p-3 bg-light mb-4">
+            <div className="small text-muted">Active issuer key</div>
+            {activeIssuerKey ? (
+              <>
+                <div className="fw-semibold fs-5">{activeIssuerKey.name}</div>
+                <div className="small text-break">{activeIssuerKey.kid}</div>
+                <div className="small mt-2">Activated: {formatDate(activeIssuerKey.activatedAt)}</div>
+              </>
+            ) : (
+              <div className="text-muted">No active issuer key yet.</div>
+            )}
+          </div>
+
+          {access.canManageIssuerKeys ? (
+            <div className="row g-3 mb-4">
+              <div className="col-lg-6">
+                <div className="border rounded-3 p-3 h-100">
+                  <h3 className="h6">Create Key</h3>
+                  <input
+                    className="form-control mb-2"
+                    value={newKeyForm.name}
+                    onChange={(event) => setNewKeyForm((prev) => ({ ...prev, name: event.target.value }))}
+                    placeholder="Registrar Issuer Key v1"
+                  />
+                  <input
+                    className="form-control mb-2"
+                    value={newKeyForm.rotationReason}
+                    onChange={(event) =>
+                      setNewKeyForm((prev) => ({ ...prev, rotationReason: event.target.value }))
+                    }
+                    placeholder="Provisioning reason"
+                  />
+                  <label className="d-flex align-items-center gap-2 mb-3 small">
+                    <input
+                      type="checkbox"
+                      checked={newKeyForm.activate}
+                      onChange={(event) => setNewKeyForm((prev) => ({ ...prev, activate: event.target.checked }))}
+                    />
+                    Make active immediately
+                  </label>
+                  <button className="btn btn-primary" onClick={confirmCreateKey}>
+                    Create Issuer Key
+                  </button>
+                </div>
+              </div>
+
+              <div className="col-lg-6">
+                <div className="border rounded-3 p-3 h-100">
+                  <h3 className="h6">Rotate New Key</h3>
+                  <input
+                    className="form-control mb-2"
+                    value={rotateForm.name}
+                    onChange={(event) => setRotateForm((prev) => ({ ...prev, name: event.target.value }))}
+                    placeholder="Registrar Issuer Key v2"
+                  />
+                  <input
+                    className="form-control mb-3"
+                    value={rotateForm.rotationReason}
+                    onChange={(event) =>
+                      setRotateForm((prev) => ({ ...prev, rotationReason: event.target.value }))
+                    }
+                    placeholder="Rotation reason"
+                  />
+                  <button className="btn btn-warning" onClick={confirmRotateKey}>
+                    Rotate New Key
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="table-responsive">
+            <table className="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Key ID</th>
+                  <th>Label</th>
+                  <th>Public Key</th>
+                  <th>Status</th>
+                  <th>Created At</th>
+                  <th>Rotated At</th>
+                  <th>Retired At</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {issuerKeys.map((key) => (
+                  <tr key={key._id}>
+                    <td className="small text-break">{shortText(key.kid || key._id)}</td>
+                    <td className="fw-semibold">{key.name}</td>
+                    <td className="small text-break">{shortText(key.publicKeyPem, 26, 10)}</td>
+                    <td>
+                      <span className={`badge ${key.isActive ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                        {key.isActive ? 'Active' : key.status}
+                      </span>
+                    </td>
+                    <td>{formatDate(key.createdAt)}</td>
+                    <td>{formatDate(key.activatedAt)}</td>
+                    <td>{formatDate(key.retiredAt)}</td>
+                    <td>
+                      <div className="d-flex flex-wrap gap-2">
+                        <button
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => editIssuerKey(key)}
+                          disabled={!access.canManageIssuerKeys}
+                        >
+                          Edit
+                        </button>
+                        {!key.isActive && key.status !== 'retired' ? (
+                          <button
+                            className="btn btn-outline-primary btn-sm"
+                            onClick={() => confirmActivateKey(key)}
+                            disabled={!access.canManageIssuerKeys}
+                          >
+                            Activate
+                          </button>
+                        ) : null}
+                        {!key.isActive && key.status !== 'retired' ? (
+                          <button
+                            className="btn btn-outline-danger btn-sm"
+                            onClick={() => confirmRetireKey(key)}
+                            disabled={!access.canManageIssuerKeys}
+                          >
+                            Retire
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderBusinessRules() {
+    return (
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <h2 className="h5 mb-1">Business Rules</h2>
+          <p className="text-muted">Business-level credential lifecycle defaults.</p>
+
           <div className="row g-3">
             <div className="col-md-6">
-              <ToggleCard
-                checked={settings.anchoring.enabled}
-                disabled={!access.canEditBusinessSettings}
-                onChange={(event) =>
-                  updateNested('anchoring', 'enabled', event.target.checked)
-                }
-                title="Enable VC Anchoring"
-                description="Allow issued credentials to be prepared for blockchain anchoring."
-              />
+              <label className="form-label fw-semibold">Anchoring enabled</label>
+              <div className="form-check form-switch">
+                <Toggle
+                  checked={settings.anchoring?.enabled}
+                  disabled={!access.canEditBusinessSettings}
+                  onChange={(value) => updateNested('anchoring', 'enabled', value)}
+                />
+              </div>
             </div>
-
             <div className="col-md-6">
-              <ToggleCard
-                checked={settings.anchoring.autoAnchor}
-                disabled={!access.canEditBusinessSettings}
-                onChange={(event) =>
-                  updateNested('anchoring', 'autoAnchor', event.target.checked)
-                }
-                title="Auto Anchor"
-                description="Automatically anchor once the configured interval is reached."
-              />
+              <label className="form-label fw-semibold">Auto anchor enabled</label>
+              <div className="form-check form-switch">
+                <Toggle
+                  checked={settings.anchoring?.autoAnchor}
+                  disabled={!access.canEditBusinessSettings}
+                  onChange={(value) => updateNested('anchoring', 'autoAnchor', value)}
+                />
+              </div>
             </div>
-
-            <div className="col-md-6">
-              <label className="form-label small fw-semibold">Anchor Interval (days)</label>
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">Anchor interval days</label>
               <input
                 type="number"
                 min="1"
                 max="365"
                 className="form-control"
-                value={settings.anchoring.intervalDays}
+                value={settings.anchoring?.intervalDays || 7}
+                disabled={!access.canEditBusinessSettings}
+                onChange={(event) => updateNested('anchoring', 'intervalDays', Number(event.target.value || 7))}
+              />
+            </div>
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">Claim QR expiry minutes</label>
+              <input
+                type="number"
+                min="1"
+                max="1440"
+                className="form-control"
+                value={settings.qrDelivery?.claimQrExpiryMinutes || 15}
                 disabled={!access.canEditBusinessSettings}
                 onChange={(event) =>
-                  updateNested(
-                    'anchoring',
-                    'intervalDays',
-                    Number(event.target.value || 1)
-                  )
+                  updateNested('qrDelivery', 'claimQrExpiryMinutes', Number(event.target.value || 15))
                 }
               />
             </div>
-
-            <div className="col-md-6">
-              <ToggleCard
-                checked={settings.qrDelivery.allowEmail}
-                disabled={!access.canEditBusinessSettings}
-                onChange={(event) =>
-                  updateNested('qrDelivery', 'allowEmail', event.target.checked)
-                }
-                title="Allow QR Delivery by Email"
-                description="Permit credential QR delivery through email workflows."
-              />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <label className="form-label fw-semibold mb-2">Allowed Roles for QR Delivery</label>
-            <div className="row g-2">
-              {ROLE_OPTIONS.map((role) => (
-                <div className="col-md-6 col-xl-3" key={role}>
-                  <label className="border rounded-3 px-3 py-2 w-100 d-flex align-items-center gap-2 bg-white">
-                    <input
-                      type="checkbox"
-                      checked={settings.qrDelivery.allowedRoles.includes(role)}
-                      disabled={!access.canEditBusinessSettings}
-                      onChange={() => toggleAllowedRole(role)}
-                    />
-                    <span className="small text-capitalize">
-                      {role.replace('_', ' ')}
-                    </span>
-                  </label>
-                </div>
-              ))}
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">QR regeneration allowed</label>
+              <div className="form-check form-switch">
+                <Toggle
+                  checked={settings.qrDelivery?.allowRegeneration}
+                  disabled={!access.canEditBusinessSettings}
+                  onChange={(value) => updateNested('qrDelivery', 'allowRegeneration', value)}
+                />
+              </div>
             </div>
           </div>
 
           {access.canEditBusinessSettings ? (
             <div className="mt-4 d-flex justify-content-end">
-              <button
-                className="btn btn-primary"
-                onClick={handleSaveBusiness}
-                disabled={savingBusiness}
-              >
-                {savingBusiness ? 'Saving...' : 'Save Business Settings'}
+              <button className="btn btn-primary" onClick={confirmSaveBusiness}>
+                Save Business Rules
               </button>
             </div>
           ) : (
             <div className="alert alert-light border mt-4 mb-0">
-              Business defaults are read only for your role.
+              Business rules are read only for your role.
             </div>
           )}
         </div>
       </div>
+    );
+  }
 
+  function renderLocks() {
+    const lockRows = [
+      ['anchorLocked', 'Anchor locked'],
+      ['qrGenerationLocked', 'QR generation locked'],
+      ['contractLocked', 'Contract locked'],
+      ['issuerKeyRotationLocked', 'Issuer key rotation locked'],
+      ['paymentConfirmationLocked', 'Payment confirmation locked'],
+    ];
+
+    return (
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
-            <div>
-              <h2 className="h5 mb-1">MIS Technical Locks</h2>
-              <p className="text-muted mb-0 small">
-                Emergency controls for platform-wide operational restrictions.
-              </p>
-            </div>
-          </div>
+          <h2 className="h5 mb-1">MIS Technical Locks</h2>
+          <p className="text-muted">
+            Only MIS/developer can change technical locks. Other roles see a read-only display.
+          </p>
 
           <div className="row g-3">
-            <div className="col-md-4">
-              <ToggleCard
-                checked={settings.locks.anchorLocked}
-                disabled={!access.canEditSystemLocks}
-                onChange={(event) =>
-                  updateNested('locks', 'anchorLocked', event.target.checked)
-                }
-                title="Lock Anchoring"
-                description="Prevent anchoring actions system-wide."
-              />
-            </div>
-
-            <div className="col-md-4">
-              <ToggleCard
-                checked={settings.locks.qrEmailLocked}
-                disabled={!access.canEditSystemLocks}
-                onChange={(event) =>
-                  updateNested('locks', 'qrEmailLocked', event.target.checked)
-                }
-                title="Lock QR Email"
-                description="Disable QR delivery by email across the system."
-              />
-            </div>
-
-            <div className="col-md-4">
-              <ToggleCard
-                checked={settings.locks.contractLocked}
-                disabled={!access.canEditSystemLocks}
-                onChange={(event) =>
-                  updateNested('locks', 'contractLocked', event.target.checked)
-                }
-                title="Lock Contracts"
-                description="Block contract-related actions until MIS re-enables them."
-              />
-            </div>
+            {lockRows.map(([key, label]) => (
+              <div className="col-md-6 col-xl-4" key={key}>
+                <div className="border rounded-3 p-3 h-100">
+                  <div className="d-flex align-items-center justify-content-between gap-3">
+                    <div className="fw-semibold">{label}</div>
+                    <div className="form-check form-switch mb-0">
+                      <Toggle
+                        checked={settings.locks?.[key]}
+                        disabled={!access.canEditSystemLocks}
+                        onChange={(value) => updateNested('locks', key, value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
 
           {access.canEditSystemLocks ? (
             <div className="mt-4 d-flex justify-content-end">
-              <button
-                className="btn btn-dark"
-                onClick={handleSaveLocks}
-                disabled={savingLocks}
-              >
-                {savingLocks ? 'Saving...' : 'Save Technical Locks'}
+              <button className="btn btn-dark" onClick={confirmSaveLocks}>
+                Save Technical Locks
               </button>
             </div>
           ) : null}
         </div>
       </div>
+    );
+  }
 
+  function renderBlockchain() {
+    return (
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
-            <div>
-              <h2 className="h5 mb-1">Blockchain Runtime</h2>
-              <p className="text-muted mb-0 small">
-                Read-only chain account state plus active contract switching.
-              </p>
-            </div>
-          </div>
+          <h2 className="h5 mb-1">Blockchain / Contract</h2>
+          <p className="text-muted">Contract deployment controls remain protected by backend roles.</p>
 
-          {!wallet.ok ? (
+          {!wallet?.ok ? (
             <div className="alert alert-warning">
-              Blockchain runtime is currently unavailable.
-              {wallet.error ? <div className="small mt-2">{wallet.error}</div> : null}
+              Contract health is unavailable.
+              {wallet?.error ? <div className="small mt-2">{wallet.error}</div> : null}
             </div>
           ) : null}
 
           <div className="row g-3 mb-4">
             <div className="col-md-6 col-xl-3">
               <div className="border rounded-3 p-3 h-100">
-                <div className="small text-muted mb-1">Wallet Address</div>
-                <div className="fw-semibold small text-break">
-                  {wallet.walletAddress || 'Not configured'}
-                </div>
+                <div className="small text-muted">Wallet</div>
+                <div className="fw-semibold small text-break">{wallet?.walletAddress || 'Not configured'}</div>
               </div>
             </div>
-
             <div className="col-md-6 col-xl-3">
               <div className="border rounded-3 p-3 h-100">
-                <div className="small text-muted mb-1">Network</div>
-                <div className="fw-semibold">{wallet.networkLabel || 'Unavailable'}</div>
+                <div className="small text-muted">Network</div>
+                <div className="fw-semibold">{wallet?.networkLabel || 'Unavailable'}</div>
               </div>
             </div>
-
             <div className="col-md-6 col-xl-3">
               <div className="border rounded-3 p-3 h-100">
-                <div className="small text-muted mb-1">Chain ID</div>
-                <div className="fw-semibold">{wallet.chainId ?? '—'}</div>
+                <div className="small text-muted">Chain ID</div>
+                <div className="fw-semibold">{wallet?.chainId ?? 'Not available'}</div>
               </div>
             </div>
-
             <div className="col-md-6 col-xl-3">
               <div className="border rounded-3 p-3 h-100">
-                <div className="small text-muted mb-1">Balance</div>
+                <div className="small text-muted">Balance</div>
                 <div className="fw-semibold">
-                  {wallet.walletBalance || '0.0000'} {wallet.gasToken || 'POL'}
+                  {wallet?.walletBalance || '0.0000'} {wallet?.gasToken || 'POL'}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="border rounded-3 p-3 bg-light mb-4">
-            <div className="small text-muted mb-1">Current Active Contract</div>
-            <div className="fw-semibold">
-              {settings.blockchain.selectedContractName || 'Not selected yet'}
-            </div>
-            <div className="small text-muted text-break">
-              {settings.blockchain.selectedContractId || 'No active contract id'}
-            </div>
+            <div className="small text-muted">Active contract</div>
+            <div className="fw-semibold">{settings.blockchain?.selectedContractName || 'Not selected'}</div>
+            <div className="small text-break">{settings.blockchain?.selectedContractId || 'No active contract'}</div>
           </div>
 
           <div className="row g-3 align-items-end">
             <div className="col-md-9">
-              <label className="form-label fw-semibold">Choose Active Deployed Contract</label>
+              <label className="form-label fw-semibold">Selected contract</label>
               <select
                 className="form-select"
                 value={selectedContractId}
@@ -715,273 +878,88 @@ export default function SystemSettingsPage() {
                 {availableContracts
                   .filter((item) => item.address)
                   .map((item) => (
-                    <option
-                      key={item._id || item.address}
-                      value={item.address || item._id}
-                    >
-                      {(item.contractName || 'AdminContract')} — {item.address}
+                    <option key={item._id || item.address} value={item.address || item._id}>
+                      {(item.contractName || 'AdminContract')} - {item.address}
                     </option>
                   ))}
               </select>
-              <div className="form-text">
-                MIS developer can switch which deployed contract is marked as active.
-              </div>
             </div>
-
             <div className="col-md-3 d-grid">
               <button
                 className="btn btn-primary"
-                onClick={handleSaveActiveContract}
-                disabled={!selectedContractId || savingContract}
+                onClick={confirmSaveContract}
+                disabled={!selectedContractId || !access.canManageActiveContract}
               >
-                {savingContract ? 'Saving...' : 'Save Active Contract'}
+                Save Active Contract
               </button>
             </div>
           </div>
-
-          {selectedContractOption ? (
-            <div className="border rounded-3 p-3 mt-3 bg-light">
-              <div className="fw-semibold mb-1">
-                {selectedContractOption.contractName || 'AdminContract'}
-              </div>
-              <div className="small text-break mb-2">
-                {selectedContractOption.address || 'Pending'}
-              </div>
-              <div className="small">
-                Status: <strong>{selectedContractOption.status || 'unknown'}</strong>
-              </div>
-              <div className="small">
-                Network:{' '}
-                <strong>
-                  {selectedContractOption.network || selectedContractOption.chainId || '—'}
-                </strong>
-              </div>
-              {selectedContractOption.explorerUrl ? (
-                <div className="small mt-2">
-                  <a
-                    href={selectedContractOption.explorerUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open transaction
-                  </a>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
+    );
+  }
 
-      {access.canViewIssuerKeys ? (
-        <div className="card border-0 shadow-sm">
-          <div className="card-body p-4">
-            <div className="d-flex justify-content-between align-items-start mb-3">
-              <div>
-                <h2 className="h5 mb-1">Issuer Key Vault</h2>
-                <p className="text-muted mb-0 small">
-                  Encrypted issuer signing keys with activation and rotation history.
-                </p>
-              </div>
-            </div>
+  function renderActiveTab() {
+    if (activeTab === 'Issuer Key Vault') return renderIssuerKeys();
+    if (activeTab === 'Business Rules') return renderBusinessRules();
+    if (activeTab === 'MIS Technical Locks') return renderLocks();
+    if (activeTab === 'Blockchain / Contract') return renderBlockchain();
+    return renderPermissions();
+  }
 
-            <ActiveIssuerKeyRow
-              activeIssuerKey={activeIssuerKey}
-              canManage={access.canManageIssuerKeys}
-              isOpen={showIssuerKeySettings}
-              onToggle={() => setShowIssuerKeySettings((prev) => !prev)}
-            />
-
-            {access.canManageIssuerKeys && showIssuerKeySettings ? (
-              <div className="border rounded-3 p-3 mt-3">
-                <div className="d-flex justify-content-between align-items-start mb-3">
-                  <div>
-                    <h3 className="h6 mb-1">Issuer Key Settings</h3>
-                    <p className="text-muted small mb-0">
-                      Create a new key or rotate the current active key from this dropdown panel.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="row g-3">
-                  <div className="col-lg-6">
-                    <div className="border rounded-3 p-3 h-100 bg-light">
-                      <h4 className="h6 mb-3">Create Key</h4>
-
-                      <div className="mb-3">
-                        <label className="form-label small fw-semibold">Key Name</label>
-                        <input
-                          className="form-control"
-                          value={newKeyForm.name}
-                          onChange={(event) =>
-                            setNewKeyForm((prev) => ({
-                              ...prev,
-                              name: event.target.value,
-                            }))
-                          }
-                          placeholder="Registrar Issuer Key v1"
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <label className="form-label small fw-semibold">Reason</label>
-                        <input
-                          className="form-control"
-                          value={newKeyForm.rotationReason}
-                          onChange={(event) =>
-                            setNewKeyForm((prev) => ({
-                              ...prev,
-                              rotationReason: event.target.value,
-                            }))
-                          }
-                          placeholder="initial key provisioning"
-                        />
-                      </div>
-
-                      <label className="border rounded-3 px-3 py-2 w-100 d-flex align-items-center gap-2 bg-white mb-3">
-                        <input
-                          type="checkbox"
-                          checked={newKeyForm.activate}
-                          onChange={(event) =>
-                            setNewKeyForm((prev) => ({
-                              ...prev,
-                              activate: event.target.checked,
-                            }))
-                          }
-                        />
-                        <span className="small">Make this key active immediately</span>
-                      </label>
-
-                      <button
-                        className="btn btn-primary w-100"
-                        onClick={handleCreateKey}
-                        disabled={creatingKey}
-                      >
-                        {creatingKey ? 'Creating...' : 'Create Issuer Key'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="col-lg-6">
-                    <div className="border rounded-3 p-3 h-100 bg-light">
-                      <h4 className="h6 mb-3">Rotate Active Key</h4>
-
-                      <div className="mb-3">
-                        <label className="form-label small fw-semibold">New Key Name</label>
-                        <input
-                          className="form-control"
-                          value={rotateForm.name}
-                          onChange={(event) =>
-                            setRotateForm((prev) => ({
-                              ...prev,
-                              name: event.target.value,
-                            }))
-                          }
-                          placeholder="Registrar Issuer Key v2"
-                        />
-                      </div>
-
-                      <div className="mb-3">
-                        <label className="form-label small fw-semibold">Rotation Reason</label>
-                        <input
-                          className="form-control"
-                          value={rotateForm.rotationReason}
-                          onChange={(event) =>
-                            setRotateForm((prev) => ({
-                              ...prev,
-                              rotationReason: event.target.value,
-                            }))
-                          }
-                          placeholder="scheduled quarterly rotation"
-                        />
-                      </div>
-
-                      <div className="alert alert-light border small">
-                        Rotation creates a new encrypted key pair and makes it the active signing key.
-                      </div>
-
-                      <button
-                        className="btn btn-outline-dark w-100"
-                        onClick={handleRotateKey}
-                        disabled={rotatingKey}
-                      >
-                        {rotatingKey ? 'Rotating...' : 'Rotate Active Key'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
+  if (loading) {
+    return (
       <div className="card border-0 shadow-sm">
-        <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
-            <div>
-              <h2 className="h5 mb-1">Permission Overrides</h2>
-              <p className="text-muted mb-0 small">
-                MIS can override permission flags on top of role defaults.
-              </p>
-            </div>
-          </div>
-
-          {!access.canEditPermissions ? (
-            <div className="alert alert-light border">
-              Only the MIS developer can edit permission overrides.
-            </div>
-          ) : null}
-
-          <div className="row g-3">
-            {admins.map((admin) => (
-              <div className="col-xl-6" key={admin._id}>
-                <div className="border rounded-3 p-3 h-100">
-                  <div className="d-flex justify-content-between align-items-start mb-3">
-                    <div>
-                      <div className="fw-semibold">{admin.fullName}</div>
-                      <div className="text-muted small">{admin.email}</div>
-                    </div>
-                    <span className="badge text-bg-secondary text-uppercase">
-                      {admin.role}
-                    </span>
-                  </div>
-
-                  <div className="row g-2">
-                    {Object.entries(admin.permissions).map(([key, value]) => (
-                      <div className="col-md-6" key={key}>
-                        <div className="border rounded-3 px-3 py-2 h-100 bg-white">
-                          <div className="d-flex align-items-start gap-2">
-                            <input
-                              className="mt-1 flex-shrink-0"
-                              type="checkbox"
-                              checked={Boolean(value)}
-                              disabled={!access.canEditPermissions}
-                              onChange={() => togglePermission(admin._id, key)}
-                            />
-                            <span className="small">{key}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {access.canEditPermissions ? (
-                    <div className="mt-3 d-flex justify-content-end">
-                      <button
-                        className="btn btn-outline-primary btn-sm"
-                        disabled={savingUserId === admin._id}
-                        onClick={() => handleSaveAdmin(admin)}
-                      >
-                        {savingUserId === admin._id ? 'Saving...' : 'Save Permissions'}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <div className="card-body p-4">Loading settings...</div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="d-flex flex-column gap-4">
+        <div>
+          <h1 className="h3 mb-1">System Settings</h1>
+          <p className="text-muted mb-0">
+            Production controls for permissions, issuer keys, business rules, locks, and contract selection.
+          </p>
+        </div>
+
+        {feedback.text ? (
+          <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
+        ) : null}
+
+        <div className="d-flex flex-wrap gap-2">
+          {TABS.filter((tab) => {
+            if (tab === 'Issuer Key Vault') return access.canViewIssuerKeys;
+            if (tab === 'Blockchain / Contract') return access.canViewBlockchain;
+            return true;
+          }).map((tab) => (
+            <button
+              key={tab}
+              className={`btn ${activeTab === tab ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {renderActiveTab()}
+      </div>
+
+      <ConfirmModal
+        action={confirmAction}
+        busy={busy}
+        onCancel={closeActionModals}
+        onConfirm={runConfirmedAction}
+      />
+      <TextModal
+        action={textAction}
+        busy={busy}
+        onCancel={closeActionModals}
+        onConfirm={runTextAction}
+      />
+    </>
   );
 }

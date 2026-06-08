@@ -21,6 +21,13 @@ const adminPermissionSchema = new mongoose.Schema(
       canManageSystemSettings: { type: Boolean, default: false },
       canManageContracts: { type: Boolean, default: false },
       canViewWallet: { type: Boolean, default: false },
+      canConfirmPayments: { type: Boolean, default: false },
+      canManageVC: { type: Boolean, default: true },
+      canSignVC: { type: Boolean, default: true },
+      canGenerateClaimQr: { type: Boolean, default: true },
+      canAnchorVC: { type: Boolean, default: false },
+      canManageUsers: { type: Boolean, default: false },
+      canManageSettings: { type: Boolean, default: false },
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,

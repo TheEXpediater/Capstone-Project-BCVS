@@ -202,7 +202,7 @@ async function getCredentialForHolder(credentialId, actor) {
     throw new ApiError(409, 'Signed credential payload is missing');
   }
 
-  if (!['claimed', 'shared', 'anchored'].includes(draft.status)) {
+  if (!['claimed', 'shared'].includes(draft.status) || !draft.claimedAt) {
     throw new ApiError(409, 'Only claimed credentials can be shared in a verification session');
   }
 

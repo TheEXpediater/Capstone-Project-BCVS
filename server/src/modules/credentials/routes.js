@@ -2,11 +2,14 @@ import express from 'express';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import {
   createCredentialClaimToken,
+  createCredentialClaimOverrideToken,
   createCredentialDraftFromStudent,
   getCredentialDraftById,
+  getTodaysAnchorQueueSummary,
   listCredentialPayments,
   listCredentialDrafts,
   markCredentialPaymentPaid,
+  processTodaysAnchorQueue,
   rejectCredentialDraft,
   scheduleCredentialAnchor,
   signCredentialDraft,
@@ -65,10 +68,31 @@ router.put(
 );
 
 router.post(
+  '/anchor-queue/today/process',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  processTodaysAnchorQueue
+);
+
+router.get(
+  '/anchor-queue/today',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  getTodaysAnchorQueueSummary
+);
+
+router.post(
   '/:id/claim-token',
   protect({ kind: 'web' }),
   allowRoles('admin', 'super_admin', 'developer'),
   createCredentialClaimToken
+);
+
+router.post(
+  '/:id/claim-token/override',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  createCredentialClaimOverrideToken
 );
 
 router.put(

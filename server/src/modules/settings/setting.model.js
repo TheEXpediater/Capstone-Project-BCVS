@@ -18,6 +18,8 @@ const settingSchema = new mongoose.Schema(
     },
     qrDelivery: {
       allowEmail: { type: Boolean, default: true },
+      claimQrExpiryMinutes: { type: Number, default: 15, min: 1, max: 1440 },
+      allowRegeneration: { type: Boolean, default: true },
       allowedRoles: {
         type: [{ type: String, enum: ROLE_VALUES }],
         default: ['admin', 'super_admin'],
@@ -33,7 +35,10 @@ const settingSchema = new mongoose.Schema(
     locks: {
       anchorLocked: { type: Boolean, default: false },
       qrEmailLocked: { type: Boolean, default: false },
+      qrGenerationLocked: { type: Boolean, default: false },
       contractLocked: { type: Boolean, default: false },
+      issuerKeyRotationLocked: { type: Boolean, default: false },
+      paymentConfirmationLocked: { type: Boolean, default: false },
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,

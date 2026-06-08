@@ -81,6 +81,7 @@ export const signCredentialDraft = asyncHandler(async (req, res) => {
 export const createCredentialClaimToken = asyncHandler(async (req, res) => {
   const data = await credentialService.createCredentialClaimToken(
     req.params.id,
+    req.body || {},
     req.user
   );
 
@@ -88,6 +89,20 @@ export const createCredentialClaimToken = asyncHandler(async (req, res) => {
     success: true,
     data,
     message: 'Credential claim QR generated successfully.',
+  });
+});
+
+export const createCredentialClaimOverrideToken = asyncHandler(async (req, res) => {
+  const data = await credentialService.createCredentialClaimOverrideToken(
+    req.params.id,
+    req.body || {},
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Credential claim override QR generated successfully.',
   });
 });
 
@@ -161,5 +176,24 @@ export const scheduleCredentialAnchor = asyncHandler(async (req, res) => {
     success: true,
     data,
     message: 'Credential draft queued for anchoring successfully.',
+  });
+});
+
+export const getTodaysAnchorQueueSummary = asyncHandler(async (req, res) => {
+  const data = await credentialService.getTodaysAnchorQueueSummary(req.user);
+
+  res.status(200).json({
+    success: true,
+    data,
+  });
+});
+
+export const processTodaysAnchorQueue = asyncHandler(async (req, res) => {
+  const data = await credentialService.processTodaysAnchorQueue(req.user);
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: "Today's anchor queue processed.",
   });
 });
