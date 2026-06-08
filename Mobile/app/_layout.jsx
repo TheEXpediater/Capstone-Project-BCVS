@@ -27,6 +27,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="help" />
         <Stack.Screen name="vc/[id]" />
         <Stack.Screen name="vc/share" />
         <Stack.Screen name="verification/account" />

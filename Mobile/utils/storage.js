@@ -6,8 +6,11 @@ export const STORAGE_KEYS = {
   TOKEN: '@bvcs.token',
   CREDENTIALS: '@bvcs.credentials',
   NOTIFICATIONS: '@bvcs.notifications',
+  DELETED_NOTIFICATION_IDS: '@bvcs.deletedNotificationIds',
   LAST_SEEN_AT: '@bvcs.lastSeenAt',
-  DEVICE_ID: '@bvcs.deviceId'
+  DEVICE_ID: '@bvcs.deviceId',
+  BIOMETRICS_ENABLED: '@bvcs.biometricsEnabled',
+  BIOMETRICS_PROMPTED: '@bvcs.biometricsPrompted'
 };
 
 async function storageSet(key, value) {
@@ -63,6 +66,27 @@ export async function clearSession() {
 
 export async function getSessionToken() {
   return storageGet(STORAGE_KEYS.TOKEN);
+}
+
+export async function hasSavedSession() {
+  const { token, user } = await loadSession();
+  return Boolean(token && user);
+}
+
+export async function getBiometricsEnabled() {
+  return readJson(STORAGE_KEYS.BIOMETRICS_ENABLED, false);
+}
+
+export async function setBiometricsEnabled(value) {
+  await writeJson(STORAGE_KEYS.BIOMETRICS_ENABLED, Boolean(value));
+}
+
+export async function getBiometricsPrompted() {
+  return readJson(STORAGE_KEYS.BIOMETRICS_PROMPTED, false);
+}
+
+export async function setBiometricsPrompted(value) {
+  await writeJson(STORAGE_KEYS.BIOMETRICS_PROMPTED, Boolean(value));
 }
 
 export async function readJson(key, fallback) {

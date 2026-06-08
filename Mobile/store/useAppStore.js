@@ -27,6 +27,24 @@ function isVerifiedAndLinked(user) {
   return hasVerifiedStatus(user) && Boolean(String(user?.studentId || '').trim());
 }
 
+function sortNotifications(items) {
+  return [...items].sort(
+    (a, b) => new Date(b.createdAt || b.ts || 0) - new Date(a.createdAt || a.ts || 0)
+  );
+}
+
+async function mergeActivityItems(history = [], credentialRequests = []) {
+  const requestEvents = notificationService.credentialRequestsToEvents(credentialRequests);
+  const visibleRequestEvents = await notificationService.filterDeletedNotifications(requestEvents);
+  const byId = new Map();
+
+  [...history, ...visibleRequestEvents].forEach((item) => {
+    if (item?.id) byId.set(String(item.id), item);
+  });
+
+  return sortNotifications(Array.from(byId.values()));
+}
+
 export const useAppStore = create((set, get) => ({
   bootstrapped: false,
   user: null,
@@ -52,6 +70,7 @@ export const useAppStore = create((set, get) => ({
     const { token, sessionId, user } = await loadSession();
     const localCredentials = await vcService.listCredentials();
     let credentials = localCredentials;
+    let credentialRequests = [];
 
     if (token) {
       try {
@@ -59,16 +78,23 @@ export const useAppStore = create((set, get) => ({
       } catch {
         credentials = localCredentials;
       }
+
+      try {
+        credentialRequests = await vcService.listCredentialRequests();
+      } catch {
+        credentialRequests = [];
+      }
     }
 
-    const notifications = await notificationService.fetchHistory();
+    const history = await notificationService.fetchHistory();
+    const notifications = await mergeActivityItems(history, credentialRequests);
 
     set({
       bootstrapped: true,
       user: token ? user : null,
       sessionId: sessionId || '',
       credentials,
-      credentialRequests: [],
+      credentialRequests,
       notifications
     });
   },
@@ -113,6 +139,25 @@ export const useAppStore = create((set, get) => ({
       activeRequest: null,
       error: ''
     });
+  },
+
+  async restoreSavedSession() {
+    const { token, sessionId, user } = await loadSession();
+
+    if (!token || !user) {
+      throw new Error('No saved session is available on this device.');
+    }
+
+    set({
+      user,
+      sessionId: sessionId || '',
+      error: ''
+    });
+
+    get().loadCredentials({ sync: true }).catch(() => {});
+    get().loadNotifications().catch(() => {});
+
+    return { token, sessionId, user };
   },
 
   async refreshAccount() {
@@ -170,7 +215,8 @@ export const useAppStore = create((set, get) => ({
     get().setLoading('requests', true);
     try {
       const requests = await vcService.listCredentialRequests();
-      set({ credentialRequests: requests });
+      const notifications = await mergeActivityItems(get().notifications, requests);
+      set({ credentialRequests: requests, notifications });
       return requests;
     } finally {
       get().setLoading('requests', false);
@@ -190,15 +236,30 @@ export const useAppStore = create((set, get) => ({
 
     const result = await vcService.requestCredential(payload);
     await get().loadCredentialRequests().catch(() => {});
-    await get().addActivity({
-      type: 'credential_requested',
-      title: 'Credential request submitted',
-      body: result?.processingNote || 'Processing may take up to 3 working days after payment.',
-      data: {
-        credentialRequestId: result?.request?._id,
-        paymentCode: result?.paymentCode || result?.request?.paymentCode || ''
+    await get().addActivity(
+      notificationService.credentialRequestToEvent(result?.request || result) || {
+        type: 'credential_requested',
+        title: 'Credential request submitted',
+        body: result?.processingNote || 'Processing may take up to 3 working days after payment.',
+        data: {
+          request: result?.request || result,
+          credentialRequestId: result?.request?._id,
+          credentialType: result?.request?.credentialType || payload?.credentialType,
+          requestStatus: result?.request?.status || result?.status || 'pending',
+          paymentStatus: result?.request?.paymentStatus || result?.paymentStatus || 'unpaid',
+          paymentCode: result?.paymentCode || result?.request?.paymentCode || '',
+          receiptNo: result?.request?.receiptNo || result?.receiptNo || '',
+          paidAt: result?.request?.paidAt || result?.paidAt || '',
+          amount: result?.request?.amount || result?.amount || '',
+          createdAt: result?.request?.createdAt || result?.createdAt || '',
+          processingNote:
+            result?.processingNote ||
+            result?.request?.processingNote ||
+            'Processing may take up to 3 working days after payment.',
+          credentialStatus: result?.request?.credentialStatus || result?.request?.status || ''
+        }
       }
-    });
+    );
     return result;
   },
 
@@ -293,8 +354,17 @@ export const useAppStore = create((set, get) => ({
   async loadNotifications() {
     get().setLoading('notifications', true);
     try {
-      const notifications = await notificationService.fetchHistory();
-      set({ notifications });
+      const history = await notificationService.fetchHistory();
+      let credentialRequests = get().credentialRequests;
+
+      try {
+        credentialRequests = await vcService.listCredentialRequests();
+      } catch {
+        credentialRequests = get().credentialRequests;
+      }
+
+      const notifications = await mergeActivityItems(history, credentialRequests);
+      set({ notifications, credentialRequests });
       return notifications;
     } finally {
       get().setLoading('notifications', false);
@@ -306,6 +376,23 @@ export const useAppStore = create((set, get) => ({
     const notifications = [saved, ...get().notifications.filter((item) => item.id !== saved.id)];
     set({ notifications });
     return saved;
+  },
+
+  async hideRemoteNotifications(ids = []) {
+    const stringIds = ids.map((id) => String(id));
+    await notificationService.saveDeletedNotificationIds(stringIds);
+    set((state) => ({
+      notifications: state.notifications.filter((item) => !stringIds.includes(String(item.id)))
+    }));
+  },
+
+  async deleteNotifications(ids = []) {
+    const stringIds = ids.map((id) => String(id));
+    await notificationService.deleteLocalEvents(stringIds);
+    await notificationService.saveDeletedNotificationIds(stringIds);
+    set((state) => ({
+      notifications: state.notifications.filter((item) => !stringIds.includes(String(item.id)))
+    }));
   },
 
   async registerPushToken(token) {
