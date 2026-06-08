@@ -375,6 +375,7 @@ function DraftDetailsModal({ draft, onClose }) {
   const profile = draft.profileSnapshot || {};
   const grades = draft.gradesSnapshot || [];
   const signedProof = draft.signedCredential?.proof || null;
+  const lastVerification = draft.lastVerificationResult || null;
 
   return (
     <ModalShell
@@ -515,15 +516,100 @@ function DraftDetailsModal({ draft, onClose }) {
 
         {signedProof ? (
           <div className="border rounded-3 p-3 bg-light">
-            <h3 className="h6 mb-3">Signature Proof</h3>
-            <div className="small mb-2">
-              <strong>Type:</strong> {signedProof.type}
+            <h3 className="h6 mb-3">Proof Metadata</h3>
+            <div className="row g-3">
+              <div className="col-md-4">
+                <div className="small text-muted">Proof Type</div>
+                <div className="fw-semibold">{signedProof.type || 'Not available'}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Signature Algorithm</div>
+                <div className="fw-semibold">{draft.signatureAlgorithm || signedProof.signatureAlgorithm || 'Not available'}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Canonicalization</div>
+                <div className="fw-semibold">{draft.canonicalizationAlgorithm || signedProof.canonicalizationAlgorithm || 'Not available'}</div>
+              </div>
+              <div className="col-md-6">
+                <div className="small text-muted">Verification Method</div>
+                <div className="fw-semibold text-break">{draft.verificationMethod || signedProof.verificationMethod || 'Not available'}</div>
+              </div>
+              <div className="col-md-6">
+                <div className="small text-muted">Issuer Key ID</div>
+                <div className="fw-semibold text-break">{draft.issuerKeyId || signedProof.issuerKeyId || 'Not available'}</div>
+              </div>
+              <div className="col-12">
+                <div className="small text-muted">VC Hash</div>
+                <div className="fw-semibold text-break">{draft.vcHash || signedProof.vcHash || draft.credentialHash || 'Not available'}</div>
+              </div>
+              <div className="col-md-6">
+                <div className="small text-muted">Merkle Leaf</div>
+                <div className="fw-semibold text-break">{draft.merkleLeaf || 'Not available'}</div>
+              </div>
+              <div className="col-md-6">
+                <div className="small text-muted">Merkle Root</div>
+                <div className="fw-semibold text-break">{draft.merkleRoot || 'Not available'}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Merkle Index</div>
+                <div className="fw-semibold">{draft.merkleLeafIndex ?? 'Not available'}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Tree Size</div>
+                <div className="fw-semibold">{draft.merkleTreeSize || 0}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Merkle Algorithm</div>
+                <div className="fw-semibold">{draft.merkleAlgorithm || 'Not available'}</div>
+              </div>
+              <div className="col-12">
+                <div className="small text-muted">Merkle Proof</div>
+                <div className="fw-semibold text-break">
+                  {draft.merkleProof?.length ? draft.merkleProof.join(' | ') : 'Not available'}
+                </div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Anchor Chain</div>
+                <div className="fw-semibold">{draft.anchorChainId || 'Not available'}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Anchor Block</div>
+                <div className="fw-semibold">{draft.anchorBlockNumber || 'Not available'}</div>
+              </div>
+              <div className="col-md-4">
+                <div className="small text-muted">Anchor Event</div>
+                <div className="fw-semibold">{draft.anchorEventName || 'Not available'}</div>
+              </div>
+              <div className="col-12">
+                <div className="small text-muted">Anchor Availability</div>
+                <div className="fw-semibold text-break">{draft.anchoringUnavailableReason || 'Not available'}</div>
+              </div>
             </div>
-            <div className="small mb-2">
-              <strong>Created:</strong> {formatDate(signedProof.created)}
-            </div>
-            <div className="small text-break">
-              <strong>Credential Hash:</strong> {draft.credentialHash || 'Not available'}
+          </div>
+        ) : null}
+
+        {lastVerification ? (
+          <div className="border rounded-3 p-3 bg-light">
+            <h3 className="h6 mb-3">Last Verification Result</h3>
+            <div className="row g-3">
+              <div className="col-md-3">
+                <div className="small text-muted">Status</div>
+                <span className={`badge ${lastVerification.verified ? 'bg-success' : 'bg-warning text-dark'}`}>
+                  {titleCase(lastVerification.status || 'unknown')}
+                </span>
+              </div>
+              <div className="col-md-3">
+                <div className="small text-muted">Payload Verified</div>
+                <div className="fw-semibold">{lastVerification.payloadVerified ? 'Yes' : 'No'}</div>
+              </div>
+              <div className="col-md-6">
+                <div className="small text-muted">Blockchain</div>
+                <div className="fw-semibold text-break">
+                  {lastVerification.checks?.blockchain?.verified
+                    ? 'Verified'
+                    : lastVerification.checks?.blockchain?.reason || 'Unavailable'}
+                </div>
+              </div>
             </div>
           </div>
         ) : null}

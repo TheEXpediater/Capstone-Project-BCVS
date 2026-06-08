@@ -1,14 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Button from '@/components/ui/Button';
 import CredentialCard from '@/components/vc/CredentialCard';
 import Screen from '@/components/ui/Screen';
 import { colors, radius, spacing } from '@/constants/theme';
+import { getCredentialRecordId } from '@/utils/credentialUtils';
 import { useAppStore } from '@/store/useAppStore';
 
 function textOrFallback(value, fallback = 'Not provided') {
   return value ? String(value) : fallback;
+}
+
+function normalizeType(value) {
+  const normalized = String(value || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (['tor', 'transcript', 'transcript_of_records', 'student_record'].includes(normalized)) {
+    return 'tor';
+  }
+  if (normalized.includes('diploma')) return 'diploma';
+  return normalized;
+}
+
+function typeLabel(value) {
+  return normalizeType(value) === 'diploma' ? 'Diploma' : 'Transcript of Records';
 }
 
 export default function ConsentScreen() {
@@ -21,12 +35,19 @@ export default function ConsentScreen() {
   const request = useAppStore((state) => state.activeRequest);
   const loading = useAppStore((state) => state.loading.verification);
   const [selectedId, setSelectedId] = useState('');
+  const [allowPdfDownload, setAllowPdfDownload] = useState(false);
   const requestCredentialId = String(
     request?.credentialId || request?.credential_id || ''
   );
+  const requestCredentialType = normalizeType(
+    request?.credentialType || request?.request?.credentialType
+  );
+  const requestedPdf = Boolean(request?.requestedPdf || request?.request?.requestedPdf);
 
   useEffect(() => {
     loadCredentials().catch(() => {});
+    setAllowPdfDownload(false);
+    setSelectedId('');
     if (sessionId) {
       loadRequest(String(sessionId), String(nonce || '')).catch((error) => {
         Alert.alert('Request unavailable', error.message);
@@ -40,12 +61,27 @@ export default function ConsentScreen() {
     }
   }, [requestCredentialId, selectedId]);
 
+  const credentialOptions = useMemo(() => {
+    const rows = requestCredentialId
+      ? credentials.filter((item) => String(getCredentialRecordId(item)) === requestCredentialId)
+      : credentials;
+
+    if (!requestCredentialType) return rows;
+
+    const filtered = rows.filter((item) => {
+      const type = normalizeType(item?.credentialType || item?.meta?.credentialType || item?.vcPayload?.credentialType);
+      return !type || type === requestCredentialType;
+    });
+
+    return filtered.length ? filtered : rows;
+  }, [credentials, requestCredentialId, requestCredentialType]);
+
   const selectedCredential = useMemo(
     () =>
-      credentials.find((item) => String(item.id) === String(selectedId)) ||
-      credentials.find((item) => String(item.id) === requestCredentialId) ||
-      credentials[0],
-    [credentials, selectedId, requestCredentialId]
+      credentialOptions.find((item) => String(getCredentialRecordId(item)) === String(selectedId)) ||
+      credentialOptions.find((item) => String(getCredentialRecordId(item)) === requestCredentialId) ||
+      credentialOptions[0],
+    [credentialOptions, selectedId, requestCredentialId]
   );
 
   const org = request?.employer?.org || request?.organization || request?.orgName;
@@ -57,7 +93,8 @@ export default function ConsentScreen() {
       await approve({
         sessionId: String(sessionId),
         nonce: String(nonce || ''),
-        credential: selectedCredential
+        credential: selectedCredential,
+        allowPdfDownload
       });
       Alert.alert('Credential shared', 'Your credential was sent to the verifier.');
       router.replace('/(tabs)/activity');
@@ -87,25 +124,45 @@ export default function ConsentScreen() {
           <Text style={styles.value}>{textOrFallback(contact)}</Text>
           <Text style={styles.label}>Purpose</Text>
           <Text style={styles.value}>{textOrFallback(purpose, 'Credential verification')}</Text>
+          <Text style={styles.label}>Requested document</Text>
+          <Text style={styles.value}>{typeLabel(requestCredentialType)}</Text>
+          <Text style={styles.label}>PDF download</Text>
+          <Text style={styles.value}>{requestedPdf ? 'Requested by verifier' : 'Not requested'}</Text>
         </View>
 
+        <Pressable
+          style={[styles.toggle, allowPdfDownload && styles.toggleActive]}
+          onPress={() => setAllowPdfDownload((value) => !value)}
+        >
+          <View style={[styles.check, allowPdfDownload && styles.checkActive]}>
+            {allowPdfDownload && <View style={styles.checkDot} />}
+          </View>
+          <View style={styles.toggleCopy}>
+            <Text style={styles.toggleTitle}>Allow PDF download</Text>
+            <Text style={styles.toggleHelp}>The verifier can download JSON proof either way.</Text>
+          </View>
+        </Pressable>
+
         <Text style={styles.sectionTitle}>Choose Credential</Text>
-        {credentials.map((credential) => (
+        {credentialOptions.map((credential) => {
+          const recordId = getCredentialRecordId(credential) || credential.id;
+          return (
           <View
-            key={credential.id}
+            key={recordId}
             style={[
               styles.choice,
-              String(selectedCredential?.id) === String(credential.id) && styles.choiceActive
+              String(getCredentialRecordId(selectedCredential)) === String(recordId) && styles.choiceActive
             ]}
           >
             <CredentialCard
               credential={credential}
-              onPress={() => setSelectedId(String(credential.id))}
+              onPress={() => setSelectedId(String(recordId))}
             />
           </View>
-        ))}
+          );
+        })}
 
-        {!credentials.length && (
+        {!credentialOptions.length && (
           <Text style={styles.empty}>No credentials are stored on this device.</Text>
         )}
 
@@ -165,6 +222,49 @@ const styles = StyleSheet.create({
   },
   choiceActive: {
     borderColor: colors.primary
+  },
+  toggle: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.md
+  },
+  toggleActive: {
+    borderColor: colors.primary
+  },
+  check: {
+    alignItems: 'center',
+    borderColor: colors.line,
+    borderRadius: 6,
+    borderWidth: 2,
+    height: 24,
+    justifyContent: 'center',
+    width: 24
+  },
+  checkActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  checkDot: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 5,
+    height: 10,
+    width: 10
+  },
+  toggleCopy: {
+    flex: 1
+  },
+  toggleTitle: {
+    color: colors.text,
+    fontWeight: '900'
+  },
+  toggleHelp: {
+    color: colors.muted,
+    marginTop: 2
   },
   empty: {
     color: colors.muted,

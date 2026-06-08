@@ -18,9 +18,8 @@ import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 
 const CREDENTIAL_TYPES = [
-  { label: 'Student Record', value: 'student_record' },
-  { label: 'Transcript of Records', value: 'transcript_of_records' },
-  { label: 'Certification Request', value: 'certification_request' },
+  { label: 'Transcript of Records', value: 'tor' },
+  { label: 'Diploma', value: 'diploma' },
 ];
 
 const REMARK_PRESETS = [
@@ -213,7 +212,7 @@ export default function HomeScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [lastRequest, setLastRequest] = useState(null);
   const [form, setForm] = useState({
-    credentialType: 'student_record',
+    credentialType: 'tor',
     anchorPreference: 'after_signing',
     presetRemark: 'employment',
     customRemark: '',

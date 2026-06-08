@@ -37,6 +37,17 @@ export function getCredentialId(credential) {
   );
 }
 
+export function getCredentialRecordId(credential) {
+  return String(
+    credential?.credentialId ||
+      credential?._id ||
+      credential?.meta?.credentialId ||
+      credential?.vcPayload?.credentialId ||
+      credential?.signedCredential?.credentialId ||
+      ''
+  );
+}
+
 export function getBlockchainAnchorInfo(credential) {
   const blockchain = credential?.blockchain || {};
   const meta = credential?.meta || {};

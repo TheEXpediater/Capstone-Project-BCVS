@@ -5,7 +5,7 @@ import QRCode from 'react-native-qrcode-svg';
 import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
 import { colors, radius, spacing } from '@/constants/theme';
-import { createShareSession } from '@/services/verificationService';
+import { buildVerifierShareUrl } from '@/services/verificationService';
 import { getCredentialTitle, getHolderName } from '@/utils/credentialUtils';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -25,11 +25,11 @@ export default function ShareCredentialScreen() {
       if (!credential) return;
       setCreating(true);
       try {
-        const session = await createShareSession({ credential });
-        if (mounted) setShareValue(session.verifyUrl || '');
+        const url = buildVerifierShareUrl(credential);
+        if (mounted) setShareValue(url);
       } catch (error) {
         if (mounted) {
-          Alert.alert('Share setup failed', error.message);
+          Alert.alert('Share link unavailable', error.message);
           setShareValue('');
         }
       } finally {

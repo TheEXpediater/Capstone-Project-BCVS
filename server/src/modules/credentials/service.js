@@ -1,8 +1,17 @@
 import { Types } from 'mongoose';
-import { createHash, createSign, randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { decryptPrivateKey } from '../../shared/utils/keyVault.js';
+import {
+  buildMerkleLeaf,
+  buildMerkleProof,
+  buildMerkleTree,
+  CANONICALIZATION_ALGORITHM,
+  HASH_ALGORITHM,
+  MERKLE_ALGORITHM,
+  signVcPayload,
+} from '../../shared/utils/vcProof.js';
 import { getCredentialDraftModel } from './model.js';
 import { getStudentModel, getStudentGradeModel } from '../students/model.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
@@ -16,6 +25,7 @@ const CLAIM_TOKEN_TTL_MINUTES = 15;
 const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
 const CLAIMABLE_STATUSES = ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
 const TERMINAL_BLOCKED_STATUSES = ['claimed', 'revoked', 'rejected'];
+export const SUPPORTED_CREDENTIAL_TYPES = ['tor', 'diploma'];
 
 const DEFAULT_CREDENTIAL_PERMISSIONS = {
   admin: {
@@ -51,6 +61,36 @@ const DEFAULT_CREDENTIAL_PERMISSIONS = {
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
   return String(value).trim();
+}
+
+export function normalizeCredentialType(value, fallback = 'tor') {
+  const normalized = cleanString(value || fallback, fallback)
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (['tor', 'transcript', 'transcript_of_records', 'student_record', 'student_academic_record'].includes(normalized)) {
+    return 'tor';
+  }
+
+  if (['diploma', 'degree', 'graduation_diploma'].includes(normalized)) {
+    return 'diploma';
+  }
+
+  return '';
+}
+
+export function isSupportedCredentialType(value) {
+  return SUPPORTED_CREDENTIAL_TYPES.includes(normalizeCredentialType(value));
+}
+
+function credentialTypeLabel(value) {
+  return normalizeCredentialType(value) === 'diploma' ? 'Diploma' : 'Transcript of Records';
+}
+
+function credentialVcType(value) {
+  return normalizeCredentialType(value) === 'diploma'
+    ? 'DiplomaCredential'
+    : 'TranscriptOfRecordsCredential';
 }
 
 function clonePlain(value) {
@@ -146,7 +186,7 @@ export function canQueueAnchor(draft) {
   if (!isCredentialPaid(draft)) return false;
   if (!draft.signedCredential) return false;
   if (isCredentialRejectedOrRevoked(draft)) return false;
-  if (draft.anchorStatus === 'anchored') return false;
+  if (['anchored', 'merkle_ready'].includes(draft.anchorStatus)) return false;
   return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(cleanString(draft.status));
 }
 
@@ -393,8 +433,9 @@ async function buildBlockchainMetadata(draft) {
   const contract = contractAddress
     ? await findContractForAddress(contractAddress)
     : null;
-  const chainId = contract?.chainId ?? env.blockchain.chainId ?? null;
+  const chainId = draft?.anchorChainId ?? contract?.chainId ?? env.blockchain.chainId ?? null;
   const explorerBaseUrl =
+    cleanString(draft?.anchorExplorerUrl) ||
     getUrlOrigin(contract?.explorerUrl) ||
     getExplorerBaseUrl(chainId) ||
     getExplorerBaseUrl(env.blockchain.chainId) ||
@@ -413,7 +454,16 @@ async function buildBlockchainMetadata(draft) {
     scheduledAnchorAt: draft?.scheduledAnchorAt || null,
     anchoredAt: draft?.anchoredAt || null,
     chainId,
-    network: contract?.network || '',
+    network: draft?.anchorNetwork || contract?.network || '',
+    blockNumber: draft?.anchorBlockNumber ?? null,
+    eventName: draft?.anchorEventName || '',
+    eventArgs: draft?.anchorEventArgs || null,
+    merkleRoot: draft?.merkleRoot || '',
+    merkleLeaf: draft?.merkleLeaf || '',
+    merkleProof: draft?.merkleProof || [],
+    merkleTreeSize: draft?.merkleTreeSize || 0,
+    merkleLeafIndex: draft?.merkleLeafIndex ?? -1,
+    anchoringUnavailableReason: draft?.anchoringUnavailableReason || '',
     explorerBaseUrl,
     anchorUrl,
   };
@@ -451,6 +501,24 @@ async function serializeWalletCredential(doc) {
     _id: draft._id,
     credentialId: draft._id,
     credentialHash: draft.credentialHash,
+    vcPayload: clonePlain(credential),
+    vcHash: draft.vcHash || draft.credentialHash || credential.proof?.vcHash || '',
+    canonicalVcHash: draft.canonicalVcHash || credential.proof?.canonicalVcHash || '',
+    canonicalizationAlgorithm:
+      draft.canonicalizationAlgorithm ||
+      credential.proof?.canonicalizationAlgorithm ||
+      CANONICALIZATION_ALGORITHM,
+    hashAlgorithm: draft.hashAlgorithm || credential.proof?.hashAlgorithm || HASH_ALGORITHM,
+    signatureAlgorithm: draft.signatureAlgorithm || credential.proof?.signatureAlgorithm || '',
+    verificationMethod: draft.verificationMethod || credential.proof?.verificationMethod || '',
+    issuerKeyId: draft.issuerKeyId || credential.proof?.issuerKeyId || '',
+    issuedAt: draft.issuedAt || draft.signedAt || credential.issuanceDate || null,
+    merkleLeaf: draft.merkleLeaf || '',
+    merkleRoot: draft.merkleRoot || '',
+    merkleProof: draft.merkleProof || [],
+    merkleTreeSize: draft.merkleTreeSize || 0,
+    merkleLeafIndex: draft.merkleLeafIndex ?? -1,
+    merkleAlgorithm: draft.merkleAlgorithm || MERKLE_ALGORITHM,
     status: draft.status,
     ...(blockchain
       ? {
@@ -465,13 +533,15 @@ async function serializeWalletCredential(doc) {
       : {}),
     meta: {
       ...(credential.meta || {}),
-      title: 'Student Academic Record Credential',
       fullName: draft.studentName,
       studentNo: draft.studentNo,
+      credentialType: normalizeCredentialType(draft.credentialType),
+      title: credentialTypeLabel(draft.credentialType),
       issuedAt: draft.signedAt,
       signedAt: draft.signedAt,
       claimedAt: draft.claimedAt,
       credentialHash: draft.credentialHash,
+      vcHash: draft.vcHash || draft.credentialHash || '',
       status: draft.status,
       ...(blockchain
         ? {
@@ -559,51 +629,47 @@ async function getStudentBundleByStudentNo(studentNo) {
 }
 
 function buildVcPayload(draft, issuerKey) {
+  const credentialType = normalizeCredentialType(draft.credentialType);
+  if (!credentialType) {
+    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
+  }
+
+  const title = credentialTypeLabel(credentialType);
+  const profile = clonePlain(draft.profileSnapshot);
+  const curriculum = clonePlain(draft.curriculumSnapshot);
+  const grades = credentialType === 'tor' ? clonePlain(draft.gradesSnapshot || []) : [];
+
   return {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
     id: `urn:bcvs:credential-draft:${draft._id}`,
-    type: ['VerifiableCredential', 'StudentAcademicRecordCredential'],
+    type: ['VerifiableCredential', credentialVcType(credentialType)],
     issuer: {
       id: issuerKey.kid,
       name: 'BCVS Registrar',
     },
     issuanceDate: new Date().toISOString(),
+    name: title,
+    credentialType,
     credentialSubject: {
       id: `urn:bcvs:student:${draft.studentNo}`,
       studentNo: draft.studentNo,
       studentName: draft.studentName,
-      profile: clonePlain(draft.profileSnapshot),
-      curriculum: clonePlain(draft.curriculumSnapshot),
-      grades: clonePlain(draft.gradesSnapshot || []),
+      documentType: title,
+      profile,
+      curriculum,
+      grades,
     },
   };
 }
 
 function signCredentialPayload(vcPayload, issuerKey, privateKeyPem) {
-  const payloadString = JSON.stringify(vcPayload);
-  const signer = createSign('SHA256');
-  signer.update(payloadString);
-  signer.end();
-
-  const proofValue = signer.sign(privateKeyPem, 'base64');
-  const credentialHash = createHash('sha256')
-    .update(payloadString)
-    .digest('hex');
-
-  const signedCredential = {
-    ...vcPayload,
-    proof: {
-      type: 'EcdsaSecp256r1Signature2019',
-      created: new Date().toISOString(),
-      proofPurpose: 'assertionMethod',
-      verificationMethod: issuerKey.kid,
-      proofValue,
-    },
-  };
-
+  const proof = signVcPayload(vcPayload, issuerKey, privateKeyPem);
+  const merkleLeaf = buildMerkleLeaf(proof.vcHash);
   return {
-    credentialHash,
-    signedCredential,
+    credentialHash: proof.vcHash,
+    ...proof,
+    merkleLeaf,
+    merkleAlgorithm: MERKLE_ALGORITHM,
   };
 }
 
@@ -619,7 +685,8 @@ export async function listCredentialDrafts(query = {}) {
   }
 
   if (credentialType) {
-    filter.credentialType = credentialType;
+    const normalizedType = normalizeCredentialType(credentialType);
+    filter.credentialType = normalizedType || credentialType;
   }
 
   const drafts = await CredentialDraft.find(filter)
@@ -644,7 +711,10 @@ export async function getCredentialDraftById(id) {
 
 export async function createCredentialDraftFromStudent(studentId, payload = {}, actor) {
   const CredentialDraft = getCredentialDraftModel();
-  const credentialType = cleanString(payload?.credentialType, 'student_record');
+  const credentialType = normalizeCredentialType(payload?.credentialType);
+  if (!credentialType) {
+    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
+  }
   const notes = cleanString(payload?.notes);
   const paymentCode = await generateUniquePaymentCode(CredentialDraft);
   const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
@@ -702,7 +772,10 @@ export async function requestMobileCredential(payload = {}, actor) {
   assertMobileStudent(actor, 'requesting');
 
   const CredentialDraft = getCredentialDraftModel();
-  const credentialType = cleanString(payload?.credentialType, 'student_record');
+  const credentialType = normalizeCredentialType(payload?.credentialType);
+  if (!credentialType) {
+    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
+  }
   const remarks = cleanString(payload?.remarks || payload?.notes);
   const presetRemark = cleanString(payload?.presetRemark);
   const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
@@ -912,15 +985,27 @@ export async function signCredentialDraft(id, actor) {
   });
 
   const vcPayload = buildVcPayload(draft, issuerKey);
-  const { credentialHash, signedCredential } = signCredentialPayload(
+  const proof = signCredentialPayload(
     vcPayload,
     issuerKey,
     privateKeyPem
   );
 
+  draft.credentialType = normalizeCredentialType(draft.credentialType);
   draft.vcPayload = vcPayload;
-  draft.signedCredential = signedCredential;
-  draft.credentialHash = credentialHash;
+  draft.signedCredential = proof.signedCredential;
+  draft.credentialHash = proof.vcHash;
+  draft.vcHash = proof.vcHash;
+  draft.canonicalVcHash = proof.canonicalVcHash;
+  draft.canonicalizationAlgorithm = proof.canonicalizationAlgorithm;
+  draft.hashAlgorithm = proof.hashAlgorithm;
+  draft.signatureAlgorithm = proof.signatureAlgorithm;
+  draft.verificationMethod = proof.verificationMethod;
+  draft.issuerKeyId = proof.issuerKeyId;
+  draft.issuerPublicKey = proof.issuerPublicKey;
+  draft.issuedAt = proof.issuedAt;
+  draft.merkleLeaf = proof.merkleLeaf;
+  draft.merkleAlgorithm = proof.merkleAlgorithm;
   draft.signedBy = actor._id;
   draft.signedAt = new Date();
   draft.status = 'signed';
@@ -1531,6 +1616,39 @@ export async function processTodaysAnchorQueue(actor) {
     processed: [],
   };
 
+  const leafRows = rows
+    .map((draft) => {
+      const vcHash =
+        draft.vcHash ||
+        draft.canonicalVcHash ||
+        draft.credentialHash ||
+        draft.signedCredential?.proof?.vcHash ||
+        '';
+      const leaf = draft.merkleLeaf || buildMerkleLeaf(vcHash);
+      return {
+        id: draft._id.toString(),
+        leaf,
+      };
+    })
+    .filter((row) => row.leaf);
+  const tree = buildMerkleTree(leafRows.map((row) => row.leaf));
+  const proofById = new Map(
+    leafRows.map((row, index) => [
+      row.id,
+      {
+        leaf: row.leaf,
+        index,
+        proof: buildMerkleProof(tree.leaves, index),
+      },
+    ])
+  );
+  const activeContractAddress = await resolveActiveContractAddress(settings);
+  const anchorChainId = env.blockchain.chainId || null;
+  const anchorExplorerUrl = getExplorerBaseUrl(anchorChainId) || '';
+  const unavailableReason = activeContractAddress
+    ? 'active_contract_missing_merkle_anchor_interface'
+    : 'active_anchor_contract_missing';
+
   for (const draft of rows) {
     const id = draft._id.toString();
 
@@ -1541,26 +1659,41 @@ export async function processTodaysAnchorQueue(actor) {
         continue;
       }
 
-      draft.anchorStatus = 'anchored';
-      draft.anchoredAt = new Date();
-      draft.anchoredBy = actor?._id || null;
-      if (!draft.contractAddress) {
-        draft.contractAddress = await resolveActiveContractAddress(settings);
+      const proof = proofById.get(id);
+      if (!proof || !tree.root) {
+        summary.skippedCount += 1;
+        summary.skipped.push({ id, reason: 'Credential hash is missing; Merkle proof was not created.' });
+        continue;
       }
 
-      if (!isCredentialClaimed(draft)) {
-        draft.status = 'anchored';
-      }
+      draft.anchorStatus = 'merkle_ready';
+      draft.anchoredBy = actor?._id || null;
+      draft.contractAddress = activeContractAddress || draft.contractAddress || '';
+      draft.anchorChainId = anchorChainId;
+      draft.anchorExplorerUrl = anchorExplorerUrl;
+      draft.merkleLeaf = proof.leaf;
+      draft.merkleRoot = tree.root;
+      draft.merkleProof = proof.proof;
+      draft.merkleTreeSize = tree.size;
+      draft.merkleLeafIndex = proof.index;
+      draft.merkleAlgorithm = MERKLE_ALGORITHM;
+      draft.anchoringUnavailableReason = unavailableReason;
 
       await draft.save();
 
       summary.processedCount += 1;
-      summary.processed.push({ id, status: draft.status, anchorStatus: draft.anchorStatus });
+      summary.processed.push({
+        id,
+        status: draft.status,
+        anchorStatus: draft.anchorStatus,
+        merkleRoot: draft.merkleRoot,
+        reason: unavailableReason,
+      });
 
       await notifyStudentByStudentNo(draft.studentNo, {
-        type: 'credential_anchored',
-        title: 'Credential anchored',
-        body: 'Your credential has been recorded as anchored.',
+        type: 'anchor_scheduled',
+        title: 'Merkle proof prepared',
+        body: 'Your credential proof is ready; on-chain anchoring is not yet available for the active contract.',
         data: {
           request: sanitizeDraftForNotification(draft),
           credentialId: id,
@@ -1578,6 +1711,9 @@ export async function processTodaysAnchorQueue(actor) {
           anchoredAt: draft.anchoredAt,
           anchorTxHash: draft.anchorTxHash || '',
           contractAddress: draft.contractAddress || '',
+          merkleRoot: draft.merkleRoot || '',
+          merkleLeaf: draft.merkleLeaf || '',
+          anchoringUnavailableReason: unavailableReason,
         },
       }).catch(() => null);
     } catch (error) {

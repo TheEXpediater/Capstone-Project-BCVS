@@ -97,6 +97,43 @@ export const createVerificationSession = asyncHandler(async (req, res) => {
   });
 });
 
+export const requestVerificationSession = asyncHandler(async (req, res) => {
+  const data = await verificationService.requestVerificationSession(
+    req.params.sessionId,
+    req.body || {}
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Verification request sent to the credential holder.',
+  });
+});
+
+export const getPublicVerificationSession = asyncHandler(async (req, res) => {
+  const data = await verificationService.getPublicVerificationSession(
+    req.params.sessionId,
+    req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+  });
+});
+
+export const getVerificationResult = asyncHandler(async (req, res) => {
+  const data = await verificationService.getVerificationResult(
+    req.params.sessionId,
+    req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+  });
+});
+
 export const getVerificationSession = asyncHandler(async (req, res) => {
   const data = await verificationService.getVerificationSession(
     req.params.sessionId,
@@ -122,4 +159,68 @@ export const presentVerificationSession = asyncHandler(async (req, res) => {
     data,
     message: 'Verification session updated successfully.',
   });
+});
+
+export const approveVerificationSession = asyncHandler(async (req, res) => {
+  const data = await verificationService.presentVerificationSession(
+    req.params.sessionId,
+    {
+      ...(req.body || {}),
+      decision: 'approve',
+    },
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Verification session approved.',
+  });
+});
+
+export const denyVerificationSession = asyncHandler(async (req, res) => {
+  const data = await verificationService.denyVerificationSession(
+    req.params.sessionId,
+    req.body || {},
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Verification session denied.',
+  });
+});
+
+function sendDownload(res, file) {
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+  res.status(200).send(file.body);
+}
+
+export const downloadPresentedCredential = asyncHandler(async (req, res) => {
+  const file = await verificationService.downloadPresentedCredential(
+    req.params.sessionId,
+    req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+
+  sendDownload(res, file);
+});
+
+export const downloadVerificationReport = asyncHandler(async (req, res) => {
+  const file = await verificationService.downloadVerificationReport(
+    req.params.sessionId,
+    req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+
+  sendDownload(res, file);
+});
+
+export const downloadPresentedCredentialPdf = asyncHandler(async (req, res) => {
+  const file = await verificationService.downloadPresentedCredentialPdf(
+    req.params.sessionId,
+    req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+
+  sendDownload(res, file);
 });

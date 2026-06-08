@@ -8,6 +8,7 @@ import ContractManagerPage from '../features/contracts/pages/ContractManagerPage
 import CurriculumManagerPage from '../features/curriculum/pages/CurriculumManagerPage';
 import LinkAccountsPage from '../features/students/pages/LinkAccountsPage';
 import StudentImportManagerPage from '../features/students/pages/StudentImportManagerPage';
+import VerifierPortalPage from '../features/verification/pages/VerifierPortalPage';
 import Dashboard from '../pages/Dashboard';
 import NotFound from '../pages/NotFound';
 import Unauthorized from '../pages/Unauthorized';
@@ -27,6 +28,8 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
+      <Route path="/verify" element={<VerifierPortalPage />} />
+      <Route path="/verify/:sessionId" element={<VerifierPortalPage />} />
 
       <Route path="/" element={<ShellPage><Dashboard /></ShellPage>} />
 

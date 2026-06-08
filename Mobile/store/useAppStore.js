@@ -313,13 +313,14 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  async approveVerificationRequest({ sessionId, nonce = '', credential }) {
+  async approveVerificationRequest({ sessionId, nonce = '', credential, allowPdfDownload = false }) {
     get().setLoading('verification', true);
     try {
       const result = await verificationService.approveVerificationRequest({
         sessionId,
         nonce,
-        credential
+        credential,
+        allowPdfDownload
       });
       await get().addActivity({
         type: 'verification_approved',

@@ -9,9 +9,15 @@ const verificationSessionSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    credentialType: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
     studentNo: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
       index: true,
     },
@@ -38,8 +44,8 @@ const verificationSessionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'presented', 'denied', 'expired'],
-      default: 'pending',
+      enum: ['draft', 'pending', 'pending_consent', 'presented', 'denied', 'expired'],
+      default: 'draft',
       index: true,
     },
     decision: {
@@ -62,6 +68,57 @@ const verificationSessionSchema = new mongoose.Schema(
       trim: true,
     },
     presentedCredential: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    requestedAt: {
+      type: Date,
+      default: null,
+    },
+    holderUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    allowPdfDownload: {
+      type: Boolean,
+      default: false,
+    },
+    requestedPdf: {
+      type: Boolean,
+      default: false,
+    },
+    vcHash: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    merkleLeaf: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    merkleRoot: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    merkleProof: {
+      type: [String],
+      default: [],
+    },
+    anchorTxHash: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    contractAddress: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    verificationResult: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },

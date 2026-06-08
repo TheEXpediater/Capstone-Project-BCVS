@@ -6,13 +6,21 @@ import multer from 'multer';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import {
+  approveVerificationSession,
   approveVerificationSubmission,
   createVerificationSession,
+  denyVerificationSession,
+  downloadPresentedCredential,
+  downloadPresentedCredentialPdf,
+  downloadVerificationReport,
   getMyVerification,
+  getPublicVerificationSession,
+  getVerificationResult,
   getVerificationSubmission,
   getVerificationSession,
   listVerificationSubmissions,
   presentVerificationSession,
+  requestVerificationSession,
   rejectVerificationSubmission,
   submitAccountVerification,
 } from './controller.js';
@@ -109,9 +117,37 @@ router.post(
 
 router.post(
   '/session',
-  protect({ kind: 'mobile' }),
-  allowRoles('student'),
   createVerificationSession
+);
+
+router.post(
+  '/session/:sessionId/request',
+  requestVerificationSession
+);
+
+router.get(
+  '/session/:sessionId/public',
+  getPublicVerificationSession
+);
+
+router.get(
+  '/session/:sessionId/result',
+  getVerificationResult
+);
+
+router.get(
+  '/session/:sessionId/download/vc',
+  downloadPresentedCredential
+);
+
+router.get(
+  '/session/:sessionId/download/report',
+  downloadVerificationReport
+);
+
+router.get(
+  '/session/:sessionId/download/pdf',
+  downloadPresentedCredentialPdf
 );
 
 router.get(
@@ -126,6 +162,20 @@ router.post(
   protect({ kind: 'mobile' }),
   allowRoles('student'),
   presentVerificationSession
+);
+
+router.post(
+  '/session/:sessionId/approve',
+  protect({ kind: 'mobile' }),
+  allowRoles('student'),
+  approveVerificationSession
+);
+
+router.post(
+  '/session/:sessionId/deny',
+  protect({ kind: 'mobile' }),
+  allowRoles('student'),
+  denyVerificationSession
 );
 
 export default router;

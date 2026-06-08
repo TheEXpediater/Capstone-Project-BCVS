@@ -1,6 +1,6 @@
-import { ENDPOINTS, WEB_BASE_URL } from '@/constants/config';
+import { API_ORIGIN, ENDPOINTS, WEB_BASE_URL } from '@/constants/config';
 import { api, apiErrorMessage } from '@/services/apiClient';
-import { getCredentialId } from '@/utils/credentialUtils';
+import { getCredentialRecordId } from '@/utils/credentialUtils';
 
 function appendImage(formData, name, asset, fallbackName) {
   if (!asset?.uri) return;
@@ -10,6 +10,17 @@ function appendImage(formData, name, asset, fallbackName) {
     name: asset.fileName || fallbackName,
     type: asset.mimeType || 'image/jpeg'
   });
+}
+
+function resolveWebBase() {
+  if (WEB_BASE_URL) return WEB_BASE_URL;
+
+  try {
+    const url = new URL(API_ORIGIN);
+    return `${url.protocol}//${url.hostname}:5173`;
+  } catch {
+    return 'http://localhost:5173';
+  }
 }
 
 export async function getAccountVerification() {
@@ -55,19 +66,22 @@ export async function submitAccountVerification({
 }
 
 export async function createShareSession({ credential, ttlHours = 168 }) {
-  const credentialId = getCredentialId(credential);
+  const credentialId = getCredentialRecordId(credential);
   if (!credentialId) throw new Error('Credential is missing an id');
 
   try {
-    const { data } = await api.post(ENDPOINTS.verification.createSession, {
+    const response = await api.post(ENDPOINTS.verification.createSession, {
       ttlHours,
-      credential_id: credentialId
+      credential_id: credentialId,
+      verifyBaseUrl: `${resolveWebBase()}/verify`
     });
+    const data = response.data?.data || response.data;
     const sessionId = data?.session_id || data?.sessionId || data?.id || data?._id;
-    const nonce = data?.nonce || data?.data?.nonce || '';
+    const nonce = data?.nonce || '';
+    const base = resolveWebBase();
     const fallbackVerifyUrl =
-      WEB_BASE_URL && sessionId
-        ? `${WEB_BASE_URL}/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
+      base && sessionId
+        ? `${base}/verify/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
         : sessionId
           ? `bcvs://verification/session/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
           : '';
@@ -87,33 +101,66 @@ export async function createShareSession({ credential, ttlHours = 168 }) {
   }
 }
 
+export function buildVerifierShareUrl(credential) {
+  const credentialId = getCredentialRecordId(credential);
+  if (!credentialId) throw new Error('Credential is missing an id');
+
+  const credentialType =
+    credential?.credentialType ||
+    credential?.meta?.credentialType ||
+    credential?.vcPayload?.credentialType ||
+    '';
+  const base = `${resolveWebBase()}/verify`;
+  if (!base) {
+    throw new Error('Verifier web portal URL is not configured');
+  }
+
+  const params = new URLSearchParams({
+    credentialId,
+    credentialType
+  });
+
+  return `${base}?${params.toString()}`;
+}
+
 export async function getVerificationRequest(sessionId, nonce = '') {
   try {
     const { data } = await api.get(ENDPOINTS.verification.session(sessionId), {
       headers: { 'Cache-Control': 'no-store' },
       params: nonce ? { nonce } : undefined
     });
-    return data;
+    return data?.data || data;
   } catch (error) {
     throw new Error(apiErrorMessage(error, 'Failed to load verification request'));
   }
 }
 
-export async function approveVerificationRequest({ sessionId, nonce = '', credential }) {
+export async function approveVerificationRequest({
+  sessionId,
+  nonce = '',
+  credential,
+  allowPdfDownload = false
+}) {
   if (!sessionId) throw new Error('Missing verification session');
   if (!credential) throw new Error('Choose a credential to share');
 
-  const credentialId = getCredentialId(credential);
+  const credentialId = getCredentialRecordId(credential);
+  const presentedCredential =
+    credential?.vcPayload ||
+    credential?.signedCredential ||
+    credential?.verifiableCredential ||
+    credential;
   const body = {
     decision: 'approve',
     credential_id: credentialId,
-    credential,
-    nonce
+    credential: presentedCredential,
+    nonce,
+    allowPdfDownload: Boolean(allowPdfDownload)
   };
 
   try {
     const { data } = await api.post(ENDPOINTS.verification.present(sessionId), body);
-    return data;
+    return data?.data || data;
   } catch (error) {
     throw new Error(apiErrorMessage(error, 'Failed to share credential'));
   }
@@ -127,7 +174,7 @@ export async function denyVerificationRequest(sessionId, nonce = '') {
       decision: 'deny',
       nonce
     });
-    return data;
+    return data?.data || data;
   } catch (error) {
     throw new Error(apiErrorMessage(error, 'Failed to deny request'));
   }

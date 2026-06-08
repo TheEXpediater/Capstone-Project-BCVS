@@ -5,7 +5,7 @@ const credentialDraftSchema = new mongoose.Schema(
   {
     credentialType: {
       type: String,
-      default: 'student_record',
+      default: 'tor',
       trim: true,
       index: true,
     },
@@ -278,7 +278,7 @@ const credentialDraftSchema = new mongoose.Schema(
 
     anchorStatus: {
       type: String,
-      enum: ['not_requested', 'queued', 'anchored'],
+      enum: ['not_requested', 'queued', 'merkle_ready', 'anchored'],
       default: 'not_requested',
     },
 
@@ -311,6 +311,137 @@ const credentialDraftSchema = new mongoose.Schema(
       index: true,
     },
 
+    vcHash: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    canonicalVcHash: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    canonicalizationAlgorithm: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    hashAlgorithm: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    signatureAlgorithm: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    verificationMethod: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    issuerKeyId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    issuerPublicKey: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    issuedAt: {
+      type: Date,
+      default: null,
+    },
+
+    merkleLeaf: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    merkleRoot: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    merkleProof: {
+      type: [String],
+      default: [],
+    },
+
+    merkleTreeSize: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    merkleLeafIndex: {
+      type: Number,
+      default: -1,
+    },
+
+    merkleAlgorithm: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorChainId: {
+      type: Number,
+      default: null,
+    },
+
+    anchorNetwork: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorBlockNumber: {
+      type: Number,
+      default: null,
+    },
+
+    anchorExplorerUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorEventName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorEventArgs: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    anchoringUnavailableReason: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
     vcPayload: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
@@ -318,6 +449,16 @@ const credentialDraftSchema = new mongoose.Schema(
 
     signedCredential: {
       type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    lastVerificationResult: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+
+    lastVerifiedAt: {
+      type: Date,
       default: null,
     },
 
