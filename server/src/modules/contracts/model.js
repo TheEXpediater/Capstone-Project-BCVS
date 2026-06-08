@@ -3,6 +3,12 @@ import { getPlatformConnection } from '../../config/db.js';
 
 const contractSchema = new mongoose.Schema(
   {
+    contractType: {
+      type: String,
+      enum: ['admin', 'merkle_anchor'],
+      default: 'admin',
+      index: true,
+    },
     contractName: {
       type: String,
       required: true,
@@ -50,6 +56,23 @@ const contractSchema = new mongoose.Schema(
     explorerUrl: {
       type: String,
       default: null,
+    },
+    abiVersion: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    capabilities: {
+      canAnchorMerkleRoot: { type: Boolean, default: false },
+      canVerifyMerkleRoot: { type: Boolean, default: false },
+      anchorFunctionName: { type: String, default: '', trim: true },
+      verifyFunctionName: { type: String, default: '', trim: true },
+      rootAnchoredEventName: { type: String, default: '', trim: true },
+    },
+    isActive: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
     errorMessage: {
       type: String,

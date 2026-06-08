@@ -49,3 +49,8 @@ export async function updateActiveContract(payload) {
   const response = await api.put('/settings/blockchain/active-contract', payload);
   return response.data.data;
 }
+
+export async function getContractCapabilities(address) {
+  const response = await api.get(`/contracts/capabilities/${encodeURIComponent(address)}`);
+  return response.data.data;
+}

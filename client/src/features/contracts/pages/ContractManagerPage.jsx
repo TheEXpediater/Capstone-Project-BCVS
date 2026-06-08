@@ -6,6 +6,36 @@ import {
   getContractsDashboard,
 } from '../contractsAPI';
 
+const CONTRACT_TYPES = [
+  { value: 'admin', label: 'Admin Contract' },
+  { value: 'merkle_anchor', label: 'Merkle Anchor Contract' },
+];
+
+function contractTypeLabel(value) {
+  return CONTRACT_TYPES.find((item) => item.value === value)?.label || 'Admin Contract';
+}
+
+function capabilityClass(capabilities) {
+  return capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot
+    ? 'text-bg-success'
+    : 'text-bg-warning';
+}
+
+function capabilityLabel(capabilities) {
+  return capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot
+    ? 'Merkle Anchoring Supported'
+    : 'Merkle Anchoring Not Supported';
+}
+
+function explorerBase(url) {
+  return String(url || '').replace(/\/tx\/[^/]+$/i, '');
+}
+
+function addressLink(item) {
+  const base = explorerBase(item.explorerUrl);
+  return base && item.address ? `${base}/address/${encodeURIComponent(item.address)}` : '';
+}
+
 export default function ContractManagerPage() {
   const reduxUser = useSelector((state) => state.auth?.user);
   const fallbackUser = useMemo(() => {
@@ -29,6 +59,7 @@ export default function ContractManagerPage() {
     contracts: [],
   });
   const [estimate, setEstimate] = useState(null);
+  const [selectedContractType, setSelectedContractType] = useState('merkle_anchor');
 
   const canDeploy = currentUser?.role === 'developer';
 
@@ -57,7 +88,7 @@ export default function ContractManagerPage() {
   async function handleEstimate() {
     try {
       setEstimating(true);
-      const data = await estimateDeployment();
+      const data = await estimateDeployment({ contractType: selectedContractType });
       setEstimate(data);
       setFeedback({ type: 'success', text: 'Deployment estimate loaded.' });
     } catch (error) {
@@ -70,7 +101,7 @@ export default function ContractManagerPage() {
   async function handleDeploy() {
     try {
       setDeploying(true);
-      const data = await deployContract();
+      const data = await deployContract({ contractType: selectedContractType });
       setFeedback({
         type: 'success',
         text: `Contract deployed${data?.address ? ` at ${data.address}` : ''}.`,
@@ -131,11 +162,27 @@ export default function ContractManagerPage() {
               <h2 className="h5 mb-3">Deployment</h2>
               {canDeploy ? (
                 <>
+                  <div className="btn-group w-100 mb-3" role="group" aria-label="Contract type">
+                    {CONTRACT_TYPES.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        className={`btn ${selectedContractType === item.value ? 'btn-primary' : 'btn-outline-primary'}`}
+                        onClick={() => {
+                          setSelectedContractType(item.value);
+                          setEstimate(null);
+                        }}
+                        disabled={estimating || deploying}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
                   <button className="btn btn-outline-primary w-100 mb-2" onClick={handleEstimate} disabled={estimating || deploying}>
-                    {estimating ? 'Estimating...' : 'Estimate Deploy Cost'}
+                    {estimating ? 'Estimating...' : `Estimate ${contractTypeLabel(selectedContractType)} Cost`}
                   </button>
                   <button className="btn btn-primary w-100" onClick={handleDeploy} disabled={!estimate || deploying}>
-                    {deploying ? 'Deploying...' : 'Deploy Contract'}
+                    {deploying ? 'Deploying...' : `Deploy ${contractTypeLabel(selectedContractType)}`}
                   </button>
                 </>
               ) : (
@@ -154,7 +201,12 @@ export default function ContractManagerPage() {
                 <h2 className="h5 mb-1">Estimated Deployment Cost</h2>
                 <p className="text-muted mb-0">Review the cost before deploying the contract.</p>
               </div>
-              <span className="badge text-bg-dark">{estimate.contractName}</span>
+              <div className="d-flex flex-wrap gap-2 justify-content-end">
+                <span className="badge text-bg-dark">{estimate.contractName}</span>
+                <span className={`badge ${capabilityClass(estimate.capabilities)}`}>
+                  {capabilityLabel(estimate.capabilities)}
+                </span>
+              </div>
             </div>
 
             <div className="row g-3">
@@ -185,7 +237,9 @@ export default function ContractManagerPage() {
                 <thead>
                   <tr>
                     <th>Contract</th>
+                    <th>Type</th>
                     <th>Address</th>
+                    <th>Capability</th>
                     <th>Status</th>
                     <th>Network</th>
                     <th>Tx</th>
@@ -198,7 +252,21 @@ export default function ContractManagerPage() {
                         <div className="fw-semibold">{item.contractName || 'AdminContract'}</div>
                         <div className="text-muted small">{item.gasToken || 'POL'}</div>
                       </td>
-                      <td className="text-break">{item.address || 'Pending'}</td>
+                      <td>{contractTypeLabel(item.contractType)}</td>
+                      <td className="text-break">
+                        {addressLink(item) ? (
+                          <a href={addressLink(item)} target="_blank" rel="noreferrer">
+                            {item.address}
+                          </a>
+                        ) : (
+                          item.address || 'Pending'
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge ${capabilityClass(item.capabilities)}`}>
+                          {capabilityLabel(item.capabilities)}
+                        </span>
+                      </td>
                       <td>
                         <span className={`badge ${item.status === 'success' ? 'text-bg-success' : item.status === 'pending' ? 'text-bg-warning' : 'text-bg-danger'}`}>
                           {item.status || 'unknown'}

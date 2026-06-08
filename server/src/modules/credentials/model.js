@@ -278,7 +278,15 @@ const credentialDraftSchema = new mongoose.Schema(
 
     anchorStatus: {
       type: String,
-      enum: ['not_requested', 'queued', 'merkle_ready', 'anchored'],
+      enum: [
+        'not_requested',
+        'queued',
+        'merkle_ready',
+        'contract_missing',
+        'contract_unsupported',
+        'anchor_failed',
+        'anchored',
+      ],
       default: 'not_requested',
     },
 
@@ -299,6 +307,18 @@ const credentialDraftSchema = new mongoose.Schema(
     },
 
     contractAddress: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorContractAddress: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorFailureReason: {
       type: String,
       default: '',
       trim: true,

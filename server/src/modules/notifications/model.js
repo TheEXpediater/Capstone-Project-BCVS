@@ -65,6 +65,7 @@ const notificationSchema = new mongoose.Schema(
         'credential_claimed',
         'credential_anchored',
         'anchor_scheduled',
+        'proof_prepared',
       ],
       required: true,
       index: true,

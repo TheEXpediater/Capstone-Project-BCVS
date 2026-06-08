@@ -4,12 +4,156 @@ import { fileURLToPath } from 'node:url';
 import { ethers } from 'ethers';
 import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
+import { normalizeHex } from '../../shared/utils/vcProof.js';
 import { getContractModel } from './model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const artifactPath = path.resolve(__dirname, './artifacts/AdminContract.json');
+export const CONTRACT_TYPES = {
+  admin: {
+    contractType: 'admin',
+    contractName: 'AdminContract',
+    artifactFile: 'AdminContract.json',
+  },
+  merkle_anchor: {
+    contractType: 'merkle_anchor',
+    contractName: 'MerkleAnchor',
+    artifactFile: 'MerkleAnchor.json',
+  },
+};
+
+const ANCHOR_FUNCTION_NAMES = ['anchorRoot', 'storeRoot', 'addRoot'];
+const VERIFY_FUNCTION_NAMES = ['isRootAnchored', 'rootExists', 'verifyRoot'];
+const ROOT_EVENT_NAMES = ['RootAnchored', 'MerkleRootAnchored', 'CredentialRootAnchored'];
+
+export const EMPTY_MERKLE_CAPABILITIES = {
+  canAnchorMerkleRoot: false,
+  canVerifyMerkleRoot: false,
+  anchorFunctionName: '',
+  verifyFunctionName: '',
+  rootAnchoredEventName: '',
+};
+
+function cleanString(value, fallback = '') {
+  if (value === null || value === undefined) return fallback;
+  return String(value).trim();
+}
+
+export function normalizeContractType(value = 'admin') {
+  const normalized = cleanString(value, 'admin').toLowerCase();
+
+  if (normalized === 'admin' || normalized === 'admin_contract' || normalized === 'admincontract') {
+    return 'admin';
+  }
+
+  if (
+    normalized === 'merkle_anchor' ||
+    normalized === 'merkleanchor' ||
+    normalized === 'merkle' ||
+    normalized === 'anchor'
+  ) {
+    return 'merkle_anchor';
+  }
+
+  throw new ApiError(400, 'Unsupported contract type.');
+}
+
+function inferContractType(contract = {}) {
+  if (contract?.contractType) return normalizeContractType(contract.contractType);
+  if (cleanString(contract?.contractName).toLowerCase() === 'merkleanchor') return 'merkle_anchor';
+  return 'admin';
+}
+
+function getContractConfig(contractType = 'admin') {
+  return CONTRACT_TYPES[normalizeContractType(contractType)];
+}
+
+function artifactPathFor(contractType = 'admin') {
+  return path.resolve(__dirname, 'artifacts', getContractConfig(contractType).artifactFile);
+}
+
+export function loadArtifact(contractType = 'admin') {
+  const config = getContractConfig(contractType);
+  const artifactPath = artifactPathFor(config.contractType);
+
+  if (!fs.existsSync(artifactPath)) {
+    throw new ApiError(
+      500,
+      `${config.contractName} artifact not found. Run npm run compile:contracts or copy ${config.artifactFile} into server/src/modules/contracts/artifacts/`
+    );
+  }
+
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+
+  if (!artifact.abi || !artifact.bytecode || artifact.bytecode === '0x') {
+    throw new ApiError(500, `${config.contractName} artifact is invalid or bytecode is missing.`);
+  }
+
+  return artifact;
+}
+
+function hasSingleBytes32Input(item) {
+  return item?.inputs?.length === 1 && item.inputs[0]?.type === 'bytes32';
+}
+
+function hasBoolOutput(item) {
+  return item?.outputs?.length >= 1 && item.outputs[0]?.type === 'bool';
+}
+
+function findFunction(abi = [], names = [], { requireBoolOutput = false } = {}) {
+  return (
+    names.find((name) =>
+      abi.some(
+        (item) =>
+          item?.type === 'function' &&
+          item?.name === name &&
+          hasSingleBytes32Input(item) &&
+          (!requireBoolOutput || hasBoolOutput(item))
+      )
+    ) || ''
+  );
+}
+
+function findEvent(abi = [], names = []) {
+  return names.find((name) => abi.some((item) => item?.type === 'event' && item?.name === name)) || '';
+}
+
+export function detectContractCapabilities(abi = []) {
+  const anchorFunctionName = findFunction(abi, ANCHOR_FUNCTION_NAMES);
+  const verifyFunctionName = findFunction(abi, VERIFY_FUNCTION_NAMES, {
+    requireBoolOutput: true,
+  });
+  const rootAnchoredEventName = findEvent(abi, ROOT_EVENT_NAMES);
+
+  return {
+    canAnchorMerkleRoot: Boolean(anchorFunctionName),
+    canVerifyMerkleRoot: Boolean(verifyFunctionName),
+    anchorFunctionName,
+    verifyFunctionName,
+    rootAnchoredEventName,
+  };
+}
+
+function normalizeCapabilities(value = {}) {
+  return {
+    ...EMPTY_MERKLE_CAPABILITIES,
+    ...(value && typeof value === 'object' ? value : {}),
+  };
+}
+
+export function getCapabilitiesForContract(contract = {}) {
+  try {
+    const artifact = loadArtifact(inferContractType(contract));
+    return detectContractCapabilities(artifact.abi);
+  } catch {
+    return normalizeCapabilities(contract?.capabilities);
+  }
+}
+
+export function getAbiForContract(contract = {}) {
+  return loadArtifact(inferContractType(contract)).abi;
+}
 
 function requireBlockchainEnv() {
   if (!env.blockchain.rpcUrl) {
@@ -31,29 +175,18 @@ function getWallet() {
   return new ethers.Wallet(env.blockchain.contractOperatorPrivateKey, provider);
 }
 
-function loadArtifact() {
-  if (!fs.existsSync(artifactPath)) {
-    throw new ApiError(
-      500,
-      'AdminContract artifact not found. Copy AdminContract.json into server/src/modules/contracts/artifacts/'
-    );
-  }
-
-  const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
-
-  if (!artifact.abi || !artifact.bytecode || artifact.bytecode === '0x') {
-    throw new ApiError(500, 'AdminContract artifact is invalid or bytecode is missing.');
-  }
-
-  return artifact;
-}
-
 export function getExplorerBaseUrl(chainId) {
   if (Number(chainId) === 80002) {
     return 'https://amoy.polygonscan.com';
   }
 
   return null;
+}
+
+export function buildExplorerTxUrl(chainId, txHash) {
+  const explorerBaseUrl = getExplorerBaseUrl(chainId);
+  const hash = cleanString(txHash);
+  return explorerBaseUrl && hash ? `${explorerBaseUrl}/tx/${encodeURIComponent(hash)}` : '';
 }
 
 async function getAccountInfo(provider, wallet) {
@@ -81,10 +214,25 @@ async function getFeePerGas(provider) {
   return feePerGas;
 }
 
-async function buildEstimateInternal() {
+function serializeContract(contract = {}) {
+  const raw = typeof contract?.toObject === 'function' ? contract.toObject() : contract;
+  const contractType = inferContractType(raw);
+  const config = getContractConfig(contractType);
+  const capabilities = getCapabilitiesForContract({ ...raw, contractType });
+
+  return {
+    ...raw,
+    contractType,
+    contractName: raw?.contractName || config.contractName,
+    capabilities,
+  };
+}
+
+async function buildEstimateInternal(contractType = 'admin') {
+  const config = getContractConfig(contractType);
   const provider = getProvider();
   const wallet = getWallet();
-  const artifact = loadArtifact();
+  const artifact = loadArtifact(config.contractType);
 
   const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
   const deployTx = await factory.getDeployTransaction();
@@ -98,9 +246,11 @@ async function buildEstimateInternal() {
   const totalCostWei = gasLimit * feePerGas;
   const network = await provider.getNetwork();
   const account = await getAccountInfo(provider, wallet);
+  const capabilities = detectContractCapabilities(artifact.abi);
 
   return {
-    contractName: 'AdminContract',
+    contractType: config.contractType,
+    contractName: config.contractName,
     chainId: Number(network.chainId || env.blockchain.chainId),
     network: network.name,
     gasToken: 'POL',
@@ -110,6 +260,7 @@ async function buildEstimateInternal() {
     feePerGasGwei: ethers.formatUnits(feePerGas, 'gwei'),
     totalCostWei: totalCostWei.toString(),
     totalCostNative: ethers.formatEther(totalCostWei),
+    capabilities,
     account,
   };
 }
@@ -141,27 +292,30 @@ export async function getContractsDashboard() {
 
   return {
     ...overview,
-    contracts,
+    contracts: contracts.map(serializeContract),
   };
 }
 
-export async function estimateDeployment() {
-  return buildEstimateInternal();
+export async function estimateDeployment({ contractType = 'admin' } = {}) {
+  return buildEstimateInternal(contractType);
 }
 
-export async function deployContract() {
+export async function deployContract({ contractType = 'admin' } = {}) {
+  const config = getContractConfig(contractType);
   const provider = getProvider();
   const wallet = getWallet();
-  const artifact = loadArtifact();
+  const artifact = loadArtifact(config.contractType);
   const Contract = getContractModel();
+  const capabilities = detectContractCapabilities(artifact.abi);
 
   let deploymentRecord = null;
 
   try {
-    const estimate = await buildEstimateInternal();
+    const estimate = await buildEstimateInternal(config.contractType);
     const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
 
     deploymentRecord = await Contract.create({
+      contractType: config.contractType,
       contractName: estimate.contractName,
       deployerAddress: wallet.address,
       chainId: estimate.chainId,
@@ -169,6 +323,7 @@ export async function deployContract() {
       gasToken: estimate.gasToken,
       estimatedCostNative: estimate.totalCostNative,
       estimatedCostWei: estimate.totalCostWei,
+      capabilities,
       status: 'pending',
     });
 
@@ -178,17 +333,14 @@ export async function deployContract() {
     await contract.waitForDeployment();
 
     const address = await contract.getAddress();
-    const explorerBaseUrl = getExplorerBaseUrl(estimate.chainId);
-    const explorerUrl =
-      explorerBaseUrl && deployTx?.hash
-        ? `${explorerBaseUrl}/tx/${deployTx.hash}`
-        : null;
+    const explorerUrl = buildExplorerTxUrl(estimate.chainId, deployTx?.hash);
 
     deploymentRecord.address = address;
     deploymentRecord.txHash = deployTx?.hash ?? null;
-    deploymentRecord.explorerUrl = explorerUrl;
+    deploymentRecord.explorerUrl = explorerUrl || null;
     deploymentRecord.status = 'success';
     deploymentRecord.errorMessage = null;
+    deploymentRecord.capabilities = capabilities;
     await deploymentRecord.save();
 
     const account = await getAccountInfo(provider, wallet);
@@ -196,6 +348,7 @@ export async function deployContract() {
     return {
       success: true,
       id: deploymentRecord._id,
+      contractType: config.contractType,
       contractName: estimate.contractName,
       address,
       owner: wallet.address,
@@ -203,6 +356,7 @@ export async function deployContract() {
       chainId: estimate.chainId,
       network: estimate.network,
       explorerUrl,
+      capabilities,
       account,
     };
   } catch (error) {
@@ -214,4 +368,238 @@ export async function deployContract() {
 
     throw new ApiError(500, error.message || 'Deploy error');
   }
+}
+
+export async function findContractByIdOrAddress(value) {
+  const normalized = cleanString(value);
+  if (!normalized) return null;
+
+  const Contract = getContractModel();
+  const clauses = [{ address: normalized }];
+
+  if (ethers.isAddress(normalized)) {
+    clauses.push({ address: ethers.getAddress(normalized) });
+  }
+
+  if (/^[0-9a-fA-F]{24}$/.test(normalized)) {
+    clauses.push({ _id: normalized });
+  }
+
+  const contract = await Contract.findOne({
+    status: 'success',
+    $or: clauses,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return contract ? serializeContract(contract) : null;
+}
+
+export async function getActiveContractRecord(settings) {
+  const configured = cleanString(settings?.blockchain?.selectedContractId);
+  if (!configured) return null;
+  return findContractByIdOrAddress(configured);
+}
+
+export async function getContractCapabilitiesByAddress(address) {
+  const contract = await findContractByIdOrAddress(address);
+  if (!contract) {
+    throw new ApiError(404, 'Contract was not found.');
+  }
+
+  return {
+    contract,
+    capabilities: getCapabilitiesForContract(contract),
+  };
+}
+
+function requireBytes32Root(root) {
+  const normalized = normalizeHex(root);
+  if (!ethers.isHexString(normalized, 32)) {
+    throw new ApiError(400, 'Merkle root must be a non-zero bytes32 value.');
+  }
+
+  if (/^0x0{64}$/i.test(normalized)) {
+    throw new ApiError(400, 'Merkle root cannot be zero.');
+  }
+
+  return normalized;
+}
+
+function serializeEventValue(value) {
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) return value.map(serializeEventValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => Number.isNaN(Number(key)))
+        .map(([key, next]) => [key, serializeEventValue(next)])
+    );
+  }
+  return value;
+}
+
+function serializeParsedEvent(parsed) {
+  if (!parsed) return null;
+
+  const args = {};
+  parsed.fragment.inputs.forEach((input, index) => {
+    args[input.name || String(index)] = serializeEventValue(parsed.args[index]);
+  });
+
+  return {
+    name: parsed.name,
+    args,
+  };
+}
+
+function findRootAnchoredEvent(contract, receipt, eventName) {
+  const expectedName = cleanString(eventName);
+  if (!expectedName) return null;
+
+  for (const log of receipt?.logs || []) {
+    try {
+      const parsed = contract.interface.parseLog(log);
+      if (parsed?.name === expectedName) return serializeParsedEvent(parsed);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+async function callVerifyFunction(contract, functionName, root) {
+  const result = await contract[functionName](root);
+  return Boolean(result);
+}
+
+export async function verifyMerkleRootOnChain({
+  merkleRoot,
+  contractAddress,
+  contractRecord = null,
+} = {}) {
+  let root = '';
+  try {
+    root = requireBytes32Root(merkleRoot);
+  } catch (error) {
+    return {
+      verified: false,
+      reason: error.message || 'invalid_merkle_root',
+    };
+  }
+
+  const record = contractRecord || (await findContractByIdOrAddress(contractAddress));
+  const address = cleanString(record?.address || contractAddress);
+
+  if (!record || !address) {
+    return {
+      verified: false,
+      reason: 'anchor_contract_missing',
+      contractAddress: address,
+    };
+  }
+
+  const capabilities = getCapabilitiesForContract(record);
+  if (!capabilities.canVerifyMerkleRoot || !capabilities.verifyFunctionName) {
+    return {
+      verified: false,
+      reason: 'contract_unsupported',
+      contractAddress: address,
+      contractType: record.contractType,
+      capabilities,
+    };
+  }
+
+  try {
+    const provider = getProvider();
+    const abi = getAbiForContract(record);
+    const contract = new ethers.Contract(address, abi, provider);
+    const verified = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
+
+    return {
+      verified,
+      reason: verified ? '' : 'merkle_root_not_anchored_on_chain',
+      contractAddress: address,
+      contractType: record.contractType,
+      capabilities,
+    };
+  } catch (error) {
+    return {
+      verified: false,
+      reason: error.message || 'chain_root_verification_failed',
+      contractAddress: address,
+      contractType: record.contractType,
+      capabilities,
+    };
+  }
+}
+
+export async function anchorMerkleRoot({
+  merkleRoot,
+  contractRecord,
+  actor = null,
+} = {}) {
+  const root = requireBytes32Root(merkleRoot);
+  const record = contractRecord;
+  const address = cleanString(record?.address);
+
+  if (!record || !address) {
+    throw new ApiError(409, 'No active contract selected.');
+  }
+
+  const capabilities = getCapabilitiesForContract(record);
+  if (!capabilities.canAnchorMerkleRoot || !capabilities.anchorFunctionName) {
+    throw new ApiError(409, 'Active contract does not support Merkle root anchoring.');
+  }
+
+  if (!capabilities.canVerifyMerkleRoot || !capabilities.verifyFunctionName) {
+    throw new ApiError(409, 'Active contract cannot verify anchored Merkle roots.');
+  }
+
+  const provider = getProvider();
+  const wallet = getWallet();
+  const abi = getAbiForContract(record);
+  const contract = new ethers.Contract(address, abi, wallet);
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId || record.chainId || env.blockchain.chainId);
+
+  const tx = await contract[capabilities.anchorFunctionName](root);
+  const receipt = await tx.wait();
+
+  if (Number(receipt?.status) !== 1) {
+    throw new ApiError(500, 'Anchor transaction failed.');
+  }
+
+  const anchored = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
+  if (!anchored) {
+    throw new ApiError(500, 'Anchor transaction succeeded, but the contract did not confirm the root.');
+  }
+
+  const parsedEvent = findRootAnchoredEvent(
+    contract,
+    receipt,
+    capabilities.rootAnchoredEventName
+  );
+  const timestamp = Number(parsedEvent?.args?.timestamp || 0);
+  const anchoredAt =
+    Number.isFinite(timestamp) && timestamp > 0
+      ? new Date(timestamp * 1000)
+      : new Date();
+
+  return {
+    anchorStatus: 'anchored',
+    anchoredAt,
+    anchoredBy: actor?._id || null,
+    anchorTxHash: receipt.hash || tx.hash || '',
+    anchorBlockNumber: Number(receipt.blockNumber || 0) || null,
+    anchorContractAddress: address,
+    contractAddress: address,
+    anchorNetwork: record.network || network.name || '',
+    anchorChainId: chainId,
+    anchorExplorerUrl: buildExplorerTxUrl(chainId, receipt.hash || tx.hash),
+    anchorEventName: parsedEvent?.name || capabilities.rootAnchoredEventName || '',
+    anchorEventArgs: parsedEvent?.args || null,
+    capabilities,
+  };
 }

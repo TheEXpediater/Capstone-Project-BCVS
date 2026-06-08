@@ -3,18 +3,19 @@ import { Types } from 'mongoose';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import {
   buildMerkleLeaf,
+  CANONICALIZATION_ALGORITHM,
   computeVcHash,
+  HASH_ALGORITHM,
   MERKLE_ALGORITHM,
   normalizeHex,
   safeCompareHex,
   verifyMerkleProof,
   verifyVcSignature,
-  computeLegacyVcHash,
 } from '../../shared/utils/vcProof.js';
 import { getUserModel } from '../auth/user.model.js';
 import { normalizeCredentialType, isSupportedCredentialType } from '../credentials/service.js';
 import { getCredentialDraftModel } from '../credentials/model.js';
-import { getExplorerBaseUrl } from '../contracts/service.js';
+import { getExplorerBaseUrl, verifyMerkleRootOnChain } from '../contracts/service.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
 import { getStudentModel } from '../students/model.js';
 import { notifyStudentByStudentNo } from '../notifications/service.js';
@@ -765,32 +766,67 @@ async function resolveIssuerPublicKey(vc = {}, credential = null) {
   };
 }
 
-function buildAnchorCheck(credential = {}, merkleValid = false) {
+function buildAnchorExplorerUrl({ storedExplorerUrl, chainId, txHash }) {
+  const stored = cleanString(storedExplorerUrl);
+  if (/^https?:\/\//i.test(stored) && /\/tx\//i.test(stored)) return stored;
+
+  const explorerBaseUrl = stored || getExplorerBaseUrl(chainId) || '';
+  return txHash && explorerBaseUrl
+    ? `${explorerBaseUrl}/tx/${encodeURIComponent(txHash)}`
+    : '';
+}
+
+async function buildAnchorCheck(credential = {}, merkleValid = false) {
   const merkleRoot = normalizeHex(credential?.merkleRoot);
   const txHash = cleanString(credential?.anchorTxHash);
-  const contractAddress = cleanString(credential?.contractAddress);
+  const contractAddress = cleanString(credential?.anchorContractAddress || credential?.contractAddress);
   const chainId = credential?.anchorChainId || null;
-  const explorerBaseUrl =
-    cleanString(credential?.anchorExplorerUrl) ||
-    getExplorerBaseUrl(chainId) ||
-    '';
+  const explorerUrl = buildAnchorExplorerUrl({
+    storedExplorerUrl: credential?.anchorExplorerUrl,
+    chainId,
+    txHash,
+  });
 
   let reason = '';
   if (!merkleValid) reason = 'merkle_proof_not_valid';
   else if (!merkleRoot) reason = 'merkle_root_missing';
-  else if (!txHash) reason = 'on_chain_anchor_tx_missing';
   else if (!contractAddress) reason = 'anchor_contract_missing';
-  else reason = 'active_contract_does_not_expose_merkle_root_verification';
+  else {
+    const chainCheck = await verifyMerkleRootOnChain({
+      merkleRoot,
+      contractAddress,
+    });
+
+    if (chainCheck.verified) {
+      return {
+        verified: true,
+        anchoredOnChain: true,
+        reason: '',
+        chainId,
+        network: cleanString(credential?.anchorNetwork),
+        contractAddress,
+        txHash,
+        blockNumber: credential?.anchorBlockNumber ?? null,
+        explorerUrl,
+        eventName: cleanString(credential?.anchorEventName),
+        eventArgs: credential?.anchorEventArgs || null,
+        capabilities: chainCheck.capabilities || null,
+      };
+    }
+
+    reason = chainCheck.reason || (txHash ? 'merkle_root_not_anchored_on_chain' : 'on_chain_anchor_tx_missing');
+  }
 
   return {
     verified: false,
+    anchoredOnChain: false,
     reason,
     chainId,
     network: cleanString(credential?.anchorNetwork),
     contractAddress,
     txHash,
     blockNumber: credential?.anchorBlockNumber ?? null,
-    explorerUrl: txHash && explorerBaseUrl ? `${explorerBaseUrl}/tx/${encodeURIComponent(txHash)}` : '',
+    explorerUrl,
     eventName: cleanString(credential?.anchorEventName),
     eventArgs: credential?.anchorEventArgs || null,
   };
@@ -809,15 +845,13 @@ async function verifyPresentedCredentialPayload({
 
   const proof = vc.proof || {};
   const vcHash = computeVcHash(vc);
-  const legacyVcHash = computeLegacyVcHash(vc);
   const proofHash = normalizeHex(proof.vcHash || proof.canonicalVcHash);
   const storedHash = normalizeHex(
     credential?.vcHash ||
       credential?.canonicalVcHash ||
-      credential?.credentialHash ||
-      credential?.signedCredential?.proof?.vcHash
+      credential?.signedCredential?.proof?.vcHash ||
+      credential?.signedCredential?.proof?.canonicalVcHash
   );
-  const storedLegacyHash = normalizeHex(credential?.credentialHash || '');
   const merkleLeaf = buildMerkleLeaf(vcHash);
   const storedMerkleLeaf = normalizeHex(credential?.merkleLeaf);
   const merkleRoot = normalizeHex(credential?.merkleRoot);
@@ -840,32 +874,58 @@ async function verifyPresentedCredentialPayload({
     normalizeStudentNo(subjectStudentNo) === normalizeStudentNo(credential?.studentNo || actor?.studentId);
   const credentialTypeSupported = isSupportedCredentialType(credentialType);
   const credentialTypeMatches = !requestedType || credentialType === requestedType;
-  const hashMatchesProof = proofHash ? safeCompareHex(vcHash, proofHash) : true;
-  const hashMatchesRecord =
-    (Boolean(storedHash) && safeCompareHex(vcHash, storedHash)) ||
-    (Boolean(storedLegacyHash) && safeCompareHex(legacyVcHash, storedLegacyHash));
-  const blockchain = buildAnchorCheck(credential, merkleValid);
+  const canonicalProofComplete =
+    Boolean(proof.proofValue) &&
+    proof.canonicalizationAlgorithm === CANONICALIZATION_ALGORITHM &&
+    proof.hashAlgorithm === HASH_ALGORITHM &&
+    Boolean(proofHash);
+  const hashMatchesProof = Boolean(proofHash) && safeCompareHex(vcHash, proofHash);
+  const hashMatchesRecord = Boolean(storedHash) && safeCompareHex(vcHash, storedHash);
+  const vcHashMatches = canonicalProofComplete && hashMatchesProof && hashMatchesRecord;
+  const blockchain = await buildAnchorCheck(credential, merkleValid);
   const payloadVerified =
     signature.valid &&
-    hashMatchesProof &&
-    hashMatchesRecord &&
+    vcHashMatches &&
     subjectMatches &&
     credentialTypeSupported &&
     credentialTypeMatches;
   const fullyVerified = payloadVerified && merkleValid && blockchain.verified;
   const failed =
     !signature.valid ||
-    !hashMatchesProof ||
-    !hashMatchesRecord ||
+    !vcHashMatches ||
     !subjectMatches ||
     !credentialTypeSupported ||
     !credentialTypeMatches;
+  const failureReasons = [];
+
+  if (!signature.valid) failureReasons.push(signature.reason || 'Issuer signature is invalid.');
+  if (!canonicalProofComplete) failureReasons.push('Canonical VC proof fields are incomplete.');
+  if (!hashMatchesProof) failureReasons.push('VC hash does not match the signed proof.');
+  if (!hashMatchesRecord) failureReasons.push('VC hash does not match the credential record.');
+  if (!subjectMatches) failureReasons.push('Credential subject does not match the holder.');
+  if (!credentialTypeSupported) failureReasons.push('Credential type is not supported.');
+  if (!credentialTypeMatches) failureReasons.push('Credential type does not match the verifier request.');
+  if (!merkleValid) failureReasons.push('Merkle proof is invalid or incomplete.');
+  if (!blockchain.verified) {
+    failureReasons.push('The credential proof is prepared, but the Merkle root is not anchored on-chain.');
+  }
+
+  const partiallyVerified = !fullyVerified && payloadVerified && merkleValid;
+  const verifiedAt = new Date().toISOString();
 
   return {
+    valid: fullyVerified,
+    partiallyVerified,
+    signatureValid: Boolean(signature.valid),
+    vcHashMatches,
+    merkleProofValid: merkleValid,
+    anchoredOnChain: blockchain.verified,
+    failureReasons,
     verified: fullyVerified,
     payloadVerified,
-    status: fullyVerified ? 'verified' : failed ? 'failed' : 'partial',
-    generatedAt: new Date().toISOString(),
+    status: fullyVerified ? 'verified' : failed ? 'failed' : 'not_fully_verified',
+    generatedAt: verifiedAt,
+    verifiedAt,
     credentialId: String(credential?._id || ''),
     credentialType,
     requestedCredentialType: requestedType,
@@ -874,6 +934,10 @@ async function verifyPresentedCredentialPayload({
     merkleRoot,
     merkleProof,
     merkleAlgorithm: credential?.merkleAlgorithm || MERKLE_ALGORITHM,
+    anchorTxHash: cleanString(credential?.anchorTxHash),
+    anchorContractAddress: cleanString(credential?.anchorContractAddress || credential?.contractAddress),
+    anchorExplorerUrl: blockchain.explorerUrl || '',
+    issuerPublicKey: issuerKey.publicKeyPem,
     checks: {
       credentialType: {
         valid: credentialTypeSupported && credentialTypeMatches,
@@ -887,13 +951,12 @@ async function verifyPresentedCredentialPayload({
         studentNo: subjectStudentNo,
       },
       hash: {
-        valid: hashMatchesProof && hashMatchesRecord,
+        valid: vcHashMatches,
         vcHash,
-        legacyVcHash,
         proofHash: proofHash || '',
         storedHash: storedHash || '',
-        storedLegacyHash: storedLegacyHash || '',
         proofHashPresent: Boolean(proofHash),
+        canonicalProofComplete,
         matchesProof: hashMatchesProof,
         matchesRecord: hashMatchesRecord,
       },
@@ -926,7 +989,7 @@ async function verifyPresentedCredentialPayload({
     },
     note: blockchain.verified
       ? ''
-      : 'The current active contract does not provide a verifiable Merkle-root anchor, so blockchain verification is reported as unavailable rather than passed.',
+      : 'The credential proof is prepared, but the Merkle root is not anchored on-chain.',
   };
 }
 

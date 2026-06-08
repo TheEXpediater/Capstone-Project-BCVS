@@ -5,12 +5,17 @@ export async function getContractsDashboard() {
   return response.data.data;
 }
 
-export async function estimateDeployment() {
-  const response = await api.post('/contracts/estimate');
+export async function estimateDeployment(payload = {}) {
+  const response = await api.post('/contracts/estimate', payload);
   return response.data.data;
 }
 
-export async function deployContract() {
-  const response = await api.post('/contracts/deploy');
+export async function deployContract(payload = {}) {
+  const response = await api.post('/contracts/deploy', payload);
+  return response.data.data;
+}
+
+export async function getContractCapabilities(address) {
+  const response = await api.get(`/contracts/capabilities/${encodeURIComponent(address)}`);
   return response.data.data;
 }

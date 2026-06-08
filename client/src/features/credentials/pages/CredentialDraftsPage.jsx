@@ -60,6 +60,21 @@ function shortText(value, start = 10, end = 6) {
   return `${text.slice(0, start)}...${text.slice(-end)}`;
 }
 
+function cleanText(value) {
+  return String(value || '').trim();
+}
+
+function anchorTxUrl(draft) {
+  const explicit = cleanText(draft?.anchorExplorerUrl);
+  if (/^https?:\/\//i.test(explicit) && /\/tx\//i.test(explicit)) return explicit;
+
+  const txHash = cleanText(draft?.anchorTxHash);
+  if (!txHash) return '';
+
+  const base = explicit || (Number(draft?.anchorChainId) === 80002 ? 'https://amoy.polygonscan.com' : '');
+  return base ? `${base.replace(/\/+$/, '')}/tx/${encodeURIComponent(txHash)}` : '';
+}
+
 function isCredentialPaid(draft) {
   return String(draft?.paymentStatus || 'unpaid').toLowerCase() === 'paid';
 }
@@ -201,6 +216,42 @@ function anchorLabel(draft) {
       title: isToday ? 'Queued today' : `Scheduled for ${formatShortDate(draft.scheduledAnchorAt)}`,
       body: draft.anchorMode === 'same_day' ? 'Same day' : 'Scheduled',
       hash: '',
+    };
+  }
+
+  if (draft?.anchorStatus === 'contract_unsupported') {
+    return {
+      badge: 'text-bg-warning',
+      title: 'Contract unsupported',
+      body: 'Proof prepared',
+      hash: draft.merkleRoot || '',
+    };
+  }
+
+  if (draft?.anchorStatus === 'contract_missing') {
+    return {
+      badge: 'text-bg-warning',
+      title: 'Anchor pending',
+      body: 'No active contract',
+      hash: draft.merkleRoot || '',
+    };
+  }
+
+  if (draft?.anchorStatus === 'anchor_failed') {
+    return {
+      badge: 'text-bg-danger',
+      title: 'Anchor failed',
+      body: draft.anchorFailureReason || 'Transaction failed',
+      hash: draft.merkleRoot || '',
+    };
+  }
+
+  if (draft?.anchorStatus === 'merkle_ready') {
+    return {
+      badge: 'text-bg-info',
+      title: 'Proof prepared',
+      body: 'Anchor pending',
+      hash: draft.merkleRoot || '',
     };
   }
 

@@ -28,6 +28,18 @@ const settingSchema = new mongoose.Schema(
     blockchain: {
       selectedContractId: { type: String, default: '' },
       selectedContractName: { type: String, default: '' },
+      selectedContractType: { type: String, default: '' },
+      selectedContractAddress: { type: String, default: '' },
+      selectedContractChainId: { type: Number, default: null },
+      selectedContractNetwork: { type: String, default: '' },
+      selectedContractExplorerUrl: { type: String, default: '' },
+      selectedContractCapabilities: {
+        canAnchorMerkleRoot: { type: Boolean, default: false },
+        canVerifyMerkleRoot: { type: Boolean, default: false },
+        anchorFunctionName: { type: String, default: '' },
+        verifyFunctionName: { type: String, default: '' },
+        rootAnchoredEventName: { type: String, default: '' },
+      },
       walletAddress: { type: String, default: '' },
       networkLabel: { type: String, default: 'Local Chain' },
       walletBalance: { type: String, default: '0.0000' },

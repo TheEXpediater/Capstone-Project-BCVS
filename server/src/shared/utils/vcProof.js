@@ -113,10 +113,6 @@ export function computeVcHash(vc) {
   return `0x${createHash('sha256').update(canonicalizeCredential(vc)).digest('hex')}`;
 }
 
-export function computeLegacyVcHash(vc) {
-  return `0x${createHash('sha256').update(JSON.stringify(stripCredentialProof(vc))).digest('hex')}`;
-}
-
 export function normalizeHex(value) {
   if (Buffer.isBuffer(value)) return `0x${value.toString('hex')}`;
 
@@ -218,22 +214,15 @@ export function verifyVcSignature(vc, publicKeyPem) {
   }
 
   try {
-    const attempts = [canonicalizeCredential(source)];
-    if (!proof?.canonicalizationAlgorithm) {
-      attempts.push(JSON.stringify(stripCredentialProof(source)));
-    }
+    const verifier = createVerify('sha256');
+    verifier.update(canonicalizeCredential(source));
+    verifier.end();
 
-    for (const payload of attempts) {
-      const verifier = createVerify('sha256');
-      verifier.update(payload);
-      verifier.end();
-
-      if (verifier.verify(publicKeyPem, proofValue, 'base64')) {
-        return {
-          valid: true,
-          reason: '',
-        };
-      }
+    if (verifier.verify(publicKeyPem, proofValue, 'base64')) {
+      return {
+        valid: true,
+        reason: '',
+      };
     }
 
     return {

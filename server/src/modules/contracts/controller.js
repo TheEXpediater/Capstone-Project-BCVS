@@ -11,7 +11,7 @@ export async function getDashboard(_req, res, next) {
 
 export async function estimate(req, res, next) {
   try {
-    const data = await contractService.estimateDeployment(req.user);
+    const data = await contractService.estimateDeployment(req.body || {});
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -20,7 +20,16 @@ export async function estimate(req, res, next) {
 
 export async function deploy(req, res, next) {
   try {
-    const data = await contractService.deployContract(req.user);
+    const data = await contractService.deployContract(req.body || {});
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCapabilities(req, res, next) {
+  try {
+    const data = await contractService.getContractCapabilitiesByAddress(req.params.address);
     res.status(200).json({ success: true, data });
   } catch (error) {
     next(error);

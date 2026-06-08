@@ -10,7 +10,8 @@
     "generate:grade-template": "node src/script/students/generate_grade_import_template.js",
     "generate:grade-import-db": "node src/script/students/generate_grade_import_from_db.js",
     "generate:manual-test-imports": "node src/script/students/generate_manual_test_imports_from_curricula.js",
-    "backfill:student-curriculum": "node src/script/students/backfill_student_curriculum.js"
+    "backfill:student-curriculum": "node src/script/students/backfill_student_curriculum.js",
+    "compile:contracts": "node src/script/compile_contracts.js"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +32,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "solc": "^0.8.35"
   }
 }

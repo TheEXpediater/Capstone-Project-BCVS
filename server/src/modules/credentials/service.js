@@ -18,7 +18,12 @@ import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
 import { getAdminPermissionModel } from '../settings/adminPermission.model.js';
 import { getContractModel } from '../contracts/model.js';
-import { getExplorerBaseUrl } from '../contracts/service.js';
+import {
+  anchorMerkleRoot,
+  getActiveContractRecord,
+  getCapabilitiesForContract,
+  getExplorerBaseUrl,
+} from '../contracts/service.js';
 import { notifyStudentByStudentNo, notifyUser } from '../notifications/service.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
@@ -186,7 +191,7 @@ export function canQueueAnchor(draft) {
   if (!isCredentialPaid(draft)) return false;
   if (!draft.signedCredential) return false;
   if (isCredentialRejectedOrRevoked(draft)) return false;
-  if (['anchored', 'merkle_ready'].includes(draft.anchorStatus)) return false;
+  if (['queued', 'anchored'].includes(draft.anchorStatus)) return false;
   return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(cleanString(draft.status));
 }
 
@@ -366,21 +371,8 @@ async function getActiveIssuerKeyOrThrow() {
 }
 
 async function resolveActiveContractAddress(settings) {
-  const configured = cleanString(settings?.blockchain?.selectedContractId);
-
-  if (configured) {
-    return configured;
-  }
-
-  const Contract = getContractModel();
-  const latest = await Contract.findOne({
-    status: 'success',
-    address: { $ne: null },
-  })
-    .sort({ createdAt: -1 })
-    .lean();
-
-  return cleanString(latest?.address);
+  const activeContract = await getActiveContractRecord(settings);
+  return cleanString(activeContract?.address);
 }
 
 function getUrlOrigin(value) {
@@ -397,6 +389,7 @@ function buildExplorerLink({ explorerBaseUrl, anchorTxHash, contractAddress }) {
   const address = cleanString(contractAddress);
 
   if (!base) return '';
+  if (/^https?:\/\//i.test(base) && /\/(tx|address)\//i.test(base)) return base;
   if (txHash) return `${base}/tx/${encodeURIComponent(txHash)}`;
   if (address) return `${base}/address/${encodeURIComponent(address)}`;
 
@@ -423,7 +416,7 @@ async function findContractForAddress(contractAddress) {
 }
 
 async function buildBlockchainMetadata(draft) {
-  const contractAddress = cleanString(draft?.contractAddress);
+  const contractAddress = cleanString(draft?.anchorContractAddress || draft?.contractAddress);
   const anchorTxHash = cleanString(draft?.anchorTxHash);
 
   if (!contractAddress && !anchorTxHash) {
@@ -448,6 +441,7 @@ async function buildBlockchainMetadata(draft) {
 
   return {
     contractAddress,
+    anchorContractAddress: contractAddress,
     anchorTxHash,
     anchorMode: draft?.anchorMode || 'none',
     anchorStatus: draft?.anchorStatus || 'not_requested',
@@ -458,6 +452,7 @@ async function buildBlockchainMetadata(draft) {
     blockNumber: draft?.anchorBlockNumber ?? null,
     eventName: draft?.anchorEventName || '',
     eventArgs: draft?.anchorEventArgs || null,
+    failureReason: draft?.anchorFailureReason || '',
     merkleRoot: draft?.merkleRoot || '',
     merkleLeaf: draft?.merkleLeaf || '',
     merkleProof: draft?.merkleProof || [],
@@ -528,7 +523,9 @@ async function serializeWalletCredential(doc) {
           },
           blockchainUrl: blockchain.anchorUrl,
           contractAddress: blockchain.contractAddress,
+          anchorContractAddress: blockchain.anchorContractAddress,
           anchorTxHash: blockchain.anchorTxHash,
+          anchorFailureReason: blockchain.failureReason,
         }
       : {}),
     meta: {
@@ -547,9 +544,11 @@ async function serializeWalletCredential(doc) {
         ? {
             blockchainUrl: blockchain.anchorUrl,
             contractAddress: blockchain.contractAddress,
+            anchorContractAddress: blockchain.anchorContractAddress,
             anchorTxHash: blockchain.anchorTxHash,
             anchorStatus: blockchain.anchorStatus,
             anchoredAt: blockchain.anchoredAt,
+            anchorFailureReason: blockchain.failureReason,
           }
         : {}),
     },
@@ -1555,6 +1554,129 @@ function endOfToday() {
   return date;
 }
 
+function getCanonicalDraftVcHash(draft) {
+  return cleanString(
+    draft?.vcHash ||
+      draft?.canonicalVcHash ||
+      draft?.signedCredential?.proof?.vcHash ||
+      draft?.signedCredential?.proof?.canonicalVcHash
+  );
+}
+
+function applyMerkleProofFields(draft, proof, tree, activeContract = null) {
+  draft.merkleLeaf = proof.leaf;
+  draft.merkleRoot = tree.root;
+  draft.merkleProof = proof.proof;
+  draft.merkleTreeSize = tree.size;
+  draft.merkleLeafIndex = proof.index;
+  draft.merkleAlgorithm = MERKLE_ALGORITHM;
+
+  if (activeContract?.address) {
+    draft.contractAddress = activeContract.address;
+    draft.anchorContractAddress = activeContract.address;
+    draft.anchorChainId = activeContract.chainId ?? env.blockchain.chainId ?? null;
+    draft.anchorNetwork = activeContract.network || '';
+    draft.anchorExplorerUrl = getExplorerBaseUrl(activeContract.chainId) || '';
+  } else {
+    draft.contractAddress = '';
+    draft.anchorContractAddress = '';
+    draft.anchorChainId = null;
+    draft.anchorNetwork = '';
+    draft.anchorExplorerUrl = '';
+  }
+}
+
+function clearAnchorTransactionFields(draft) {
+  draft.anchoredAt = null;
+  draft.anchoredBy = null;
+  draft.anchorTxHash = '';
+  draft.anchorBlockNumber = null;
+  draft.anchorEventName = '';
+  draft.anchorEventArgs = null;
+}
+
+function markAnchorUnavailable(draft, { status, reason, proof, tree, activeContract }) {
+  applyMerkleProofFields(draft, proof, tree, activeContract);
+  clearAnchorTransactionFields(draft);
+  draft.anchorStatus = status;
+  draft.anchorFailureReason = reason;
+  draft.anchoringUnavailableReason = reason;
+}
+
+function markAnchorSucceeded(draft, anchorResult, proof, tree) {
+  applyMerkleProofFields(
+    draft,
+    proof,
+    tree,
+    {
+      address: anchorResult.anchorContractAddress || anchorResult.contractAddress,
+      chainId: anchorResult.anchorChainId,
+      network: anchorResult.anchorNetwork,
+    }
+  );
+
+  draft.anchorStatus = 'anchored';
+  draft.anchoredAt = anchorResult.anchoredAt;
+  draft.anchoredBy = anchorResult.anchoredBy;
+  draft.anchorTxHash = anchorResult.anchorTxHash || '';
+  draft.anchorBlockNumber = anchorResult.anchorBlockNumber ?? null;
+  draft.anchorContractAddress = anchorResult.anchorContractAddress || anchorResult.contractAddress || '';
+  draft.contractAddress = anchorResult.contractAddress || anchorResult.anchorContractAddress || '';
+  draft.anchorNetwork = anchorResult.anchorNetwork || '';
+  draft.anchorChainId = anchorResult.anchorChainId ?? null;
+  draft.anchorExplorerUrl = anchorResult.anchorExplorerUrl || '';
+  draft.anchorEventName = anchorResult.anchorEventName || '';
+  draft.anchorEventArgs = anchorResult.anchorEventArgs || null;
+  draft.anchorFailureReason = '';
+  draft.anchoringUnavailableReason = '';
+
+  if (!isCredentialClaimed(draft) && !isCredentialRejectedOrRevoked(draft)) {
+    draft.status = 'anchored';
+  }
+}
+
+async function notifyProofPrepared(draft, id) {
+  return notifyStudentByStudentNo(draft.studentNo, {
+    type: 'proof_prepared',
+    title: 'Credential proof prepared',
+    body: 'Your credential proof was prepared. Blockchain anchoring is pending because the active contract does not support Merkle anchoring yet.',
+    data: {
+      request: sanitizeDraftForNotification(draft),
+      credentialId: id,
+      credentialType: draft.credentialType,
+      requestStatus: draft.status,
+      paymentStatus: draft.paymentStatus,
+      credentialStatus: draft.status,
+      anchorStatus: draft.anchorStatus,
+      anchorFailureReason: draft.anchorFailureReason || '',
+      merkleRoot: draft.merkleRoot || '',
+      merkleLeaf: draft.merkleLeaf || '',
+    },
+  }).catch(() => null);
+}
+
+async function notifyCredentialAnchored(draft, id) {
+  return notifyStudentByStudentNo(draft.studentNo, {
+    type: 'credential_anchored',
+    title: 'Credential anchored',
+    body: 'Your credential proof was anchored on-chain and is ready for full verification.',
+    data: {
+      request: sanitizeDraftForNotification(draft),
+      credentialId: id,
+      credentialType: draft.credentialType,
+      requestStatus: draft.status,
+      paymentStatus: draft.paymentStatus,
+      credentialStatus: draft.status,
+      anchorStatus: draft.anchorStatus,
+      anchoredAt: draft.anchoredAt,
+      anchorTxHash: draft.anchorTxHash || '',
+      contractAddress: draft.anchorContractAddress || draft.contractAddress || '',
+      merkleRoot: draft.merkleRoot || '',
+      merkleLeaf: draft.merkleLeaf || '',
+    },
+  }).catch(() => null);
+}
+
 export async function getTodaysAnchorQueueSummary(actor) {
   assertRegistrar(actor);
   await assertCredentialPermission(
@@ -1616,21 +1738,22 @@ export async function processTodaysAnchorQueue(actor) {
     processed: [],
   };
 
-  const leafRows = rows
+  const activeContract = await getActiveContractRecord(settings);
+  const activeCapabilities = activeContract
+    ? getCapabilitiesForContract(activeContract)
+    : null;
+  const eligibleRows = rows.filter((draft) => canProcessAnchor(draft));
+  const leafRows = eligibleRows
     .map((draft) => {
-      const vcHash =
-        draft.vcHash ||
-        draft.canonicalVcHash ||
-        draft.credentialHash ||
-        draft.signedCredential?.proof?.vcHash ||
-        '';
+      const vcHash = getCanonicalDraftVcHash(draft);
       const leaf = draft.merkleLeaf || buildMerkleLeaf(vcHash);
       return {
         id: draft._id.toString(),
+        vcHash,
         leaf,
       };
     })
-    .filter((row) => row.leaf);
+    .filter((row) => row.vcHash && row.leaf);
   const tree = buildMerkleTree(leafRows.map((row) => row.leaf));
   const proofById = new Map(
     leafRows.map((row, index) => [
@@ -1642,12 +1765,34 @@ export async function processTodaysAnchorQueue(actor) {
       },
     ])
   );
-  const activeContractAddress = await resolveActiveContractAddress(settings);
-  const anchorChainId = env.blockchain.chainId || null;
-  const anchorExplorerUrl = getExplorerBaseUrl(anchorChainId) || '';
-  const unavailableReason = activeContractAddress
-    ? 'active_contract_missing_merkle_anchor_interface'
-    : 'active_anchor_contract_missing';
+  const batchState = {
+    status: '',
+    reason: '',
+    anchorResult: null,
+  };
+
+  if (!activeContract) {
+    batchState.status = 'contract_missing';
+    batchState.reason = 'No active contract selected.';
+  } else if (
+    !activeCapabilities?.canAnchorMerkleRoot ||
+    !activeCapabilities?.canVerifyMerkleRoot
+  ) {
+    batchState.status = 'contract_unsupported';
+    batchState.reason = 'Active contract does not support Merkle root anchoring.';
+  } else if (tree.root) {
+    try {
+      batchState.anchorResult = await anchorMerkleRoot({
+        merkleRoot: tree.root,
+        contractRecord: activeContract,
+        actor,
+      });
+      batchState.status = 'anchored';
+    } catch (error) {
+      batchState.status = 'anchor_failed';
+      batchState.reason = error.message || 'Anchor transaction failed.';
+    }
+  }
 
   for (const draft of rows) {
     const id = draft._id.toString();
@@ -1661,61 +1806,55 @@ export async function processTodaysAnchorQueue(actor) {
 
       const proof = proofById.get(id);
       if (!proof || !tree.root) {
-        summary.skippedCount += 1;
-        summary.skipped.push({ id, reason: 'Credential hash is missing; Merkle proof was not created.' });
+        const reason = 'Credential canonical hash is missing; Merkle proof was not created.';
+        draft.anchorStatus = 'anchor_failed';
+        draft.anchorFailureReason = reason;
+        draft.anchoringUnavailableReason = reason;
+        clearAnchorTransactionFields(draft);
+        await draft.save();
+
+        summary.failedCount += 1;
+        summary.failed.push({ id, reason });
         continue;
       }
 
-      draft.anchorStatus = 'merkle_ready';
-      draft.anchoredBy = actor?._id || null;
-      draft.contractAddress = activeContractAddress || draft.contractAddress || '';
-      draft.anchorChainId = anchorChainId;
-      draft.anchorExplorerUrl = anchorExplorerUrl;
-      draft.merkleLeaf = proof.leaf;
-      draft.merkleRoot = tree.root;
-      draft.merkleProof = proof.proof;
-      draft.merkleTreeSize = tree.size;
-      draft.merkleLeafIndex = proof.index;
-      draft.merkleAlgorithm = MERKLE_ALGORITHM;
-      draft.anchoringUnavailableReason = unavailableReason;
+      if (batchState.status === 'anchored') {
+        markAnchorSucceeded(draft, batchState.anchorResult, proof, tree);
+      } else {
+        markAnchorUnavailable(draft, {
+          status: batchState.status || 'anchor_failed',
+          reason: batchState.reason || 'Merkle root anchoring did not complete.',
+          proof,
+          tree,
+          activeContract,
+        });
+      }
 
       await draft.save();
 
-      summary.processedCount += 1;
-      summary.processed.push({
-        id,
-        status: draft.status,
-        anchorStatus: draft.anchorStatus,
-        merkleRoot: draft.merkleRoot,
-        reason: unavailableReason,
-      });
-
-      await notifyStudentByStudentNo(draft.studentNo, {
-        type: 'anchor_scheduled',
-        title: 'Merkle proof prepared',
-        body: 'Your credential proof is ready; on-chain anchoring is not yet available for the active contract.',
-        data: {
-          request: sanitizeDraftForNotification(draft),
-          credentialId: id,
-          credentialType: draft.credentialType,
-          requestStatus: draft.status,
-          paymentStatus: draft.paymentStatus,
-          paymentCode: draft.paymentCode,
-          receiptNo: draft.receiptNo,
-          paidAt: draft.paidAt,
-          amount: draft.amount,
-          createdAt: draft.createdAt,
-          processingNote: draft.paymentNotes || 'Processing may take up to 3 working days after payment.',
-          credentialStatus: draft.status,
+      if (draft.anchorStatus === 'anchor_failed') {
+        summary.failedCount += 1;
+        summary.failed.push({
+          id,
+          reason: draft.anchorFailureReason || 'Anchor transaction failed.',
+        });
+      } else {
+        summary.processedCount += 1;
+        summary.processed.push({
+          id,
+          status: draft.status,
           anchorStatus: draft.anchorStatus,
-          anchoredAt: draft.anchoredAt,
+          merkleRoot: draft.merkleRoot,
           anchorTxHash: draft.anchorTxHash || '',
-          contractAddress: draft.contractAddress || '',
-          merkleRoot: draft.merkleRoot || '',
-          merkleLeaf: draft.merkleLeaf || '',
-          anchoringUnavailableReason: unavailableReason,
-        },
-      }).catch(() => null);
+          reason: draft.anchorFailureReason || draft.anchoringUnavailableReason || '',
+        });
+      }
+
+      if (draft.anchorStatus === 'contract_unsupported') {
+        await notifyProofPrepared(draft, id);
+      } else if (draft.anchorStatus === 'anchored') {
+        await notifyCredentialAnchored(draft, id);
+      }
     } catch (error) {
       summary.failedCount += 1;
       summary.failed.push({
