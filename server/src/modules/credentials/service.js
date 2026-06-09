@@ -8,6 +8,7 @@ import {
   buildMerkleProof,
   buildMerkleTree,
   CANONICALIZATION_ALGORITHM,
+  computeVcHash,
   HASH_ALGORITHM,
   MERKLE_ALGORITHM,
   signVcPayload,
@@ -1558,9 +1559,95 @@ function getCanonicalDraftVcHash(draft) {
   return cleanString(
     draft?.vcHash ||
       draft?.canonicalVcHash ||
+      draft?.credentialHash ||
       draft?.signedCredential?.proof?.vcHash ||
       draft?.signedCredential?.proof?.canonicalVcHash
   );
+}
+
+async function ensureCanonicalDraftVcHash(draft) {
+  const existingHash = getCanonicalDraftVcHash(draft);
+  if (existingHash && buildMerkleLeaf(existingHash)) {
+    let changed = false;
+
+    if (!draft.credentialHash) {
+      draft.credentialHash = existingHash;
+      changed = true;
+    }
+
+    if (!draft.vcHash) {
+      draft.vcHash = existingHash;
+      changed = true;
+    }
+
+    if (!draft.canonicalVcHash) {
+      draft.canonicalVcHash = existingHash;
+      changed = true;
+    }
+
+    if (!draft.canonicalizationAlgorithm) {
+      draft.canonicalizationAlgorithm = CANONICALIZATION_ALGORITHM;
+      changed = true;
+    }
+
+    if (!draft.hashAlgorithm) {
+      draft.hashAlgorithm = HASH_ALGORITHM;
+      changed = true;
+    }
+
+    if (!draft.merkleLeaf) {
+      draft.merkleLeaf = buildMerkleLeaf(existingHash);
+      changed = true;
+    }
+
+    if (changed) {
+      await draft.save();
+    }
+
+    return existingHash;
+  }
+
+  if (!draft?.signedCredential) {
+    throw new ApiError(409, 'Signed credential payload is missing; canonical hash cannot be regenerated.');
+  }
+
+  const regeneratedHash = computeVcHash(draft.signedCredential);
+  const regeneratedLeaf = buildMerkleLeaf(regeneratedHash);
+
+  if (!regeneratedHash || !regeneratedLeaf) {
+    throw new ApiError(409, 'Credential canonical hash could not be regenerated.');
+  }
+
+  const existingProof = draft.signedCredential?.proof || {};
+  const proof = {
+    ...existingProof,
+    vcHash: buildMerkleLeaf(existingProof.vcHash) ? existingProof.vcHash : regeneratedHash,
+    canonicalVcHash: buildMerkleLeaf(existingProof.canonicalVcHash)
+      ? existingProof.canonicalVcHash
+      : regeneratedHash,
+    canonicalizationAlgorithm:
+      existingProof.canonicalizationAlgorithm || CANONICALIZATION_ALGORITHM,
+    hashAlgorithm: existingProof.hashAlgorithm || HASH_ALGORITHM,
+  };
+
+  draft.credentialHash = draft.credentialHash || regeneratedHash;
+  draft.vcHash = draft.vcHash || regeneratedHash;
+  draft.canonicalVcHash = draft.canonicalVcHash || regeneratedHash;
+  draft.canonicalizationAlgorithm = draft.canonicalizationAlgorithm || CANONICALIZATION_ALGORITHM;
+  draft.hashAlgorithm = draft.hashAlgorithm || HASH_ALGORITHM;
+  draft.signedCredential = {
+    ...(draft.signedCredential?.toObject?.() || draft.signedCredential || {}),
+    proof,
+  };
+
+  if (!draft.merkleLeaf) {
+    draft.merkleLeaf = regeneratedLeaf;
+  }
+
+  draft.markModified?.('signedCredential');
+  await draft.save();
+
+  return regeneratedHash;
 }
 
 function applyMerkleProofFields(draft, proof, tree, activeContract = null) {
@@ -1777,18 +1864,45 @@ export async function processTodaysAnchorQueue(actor) {
   const activeCapabilities = activeContract
     ? getCapabilitiesForContract(activeContract)
     : null;
-  const eligibleRows = rows.filter((draft) => canProcessAnchor(draft));
-  const leafRows = eligibleRows
-    .map((draft) => {
-      const vcHash = getCanonicalDraftVcHash(draft);
+  const eligibleRows = [];
+  const proofFailures = new Map();
+
+  for (const draft of rows) {
+    const id = draft._id.toString();
+
+    if (!canProcessAnchor(draft)) {
+      continue;
+    }
+
+    try {
+      const vcHash = await ensureCanonicalDraftVcHash(draft);
       const leaf = draft.merkleLeaf || buildMerkleLeaf(vcHash);
-      return {
-        id: draft._id.toString(),
+
+      if (!vcHash || !leaf) {
+        throw new ApiError(409, 'Credential canonical hash could not be regenerated.');
+      }
+
+      eligibleRows.push({
+        id,
         vcHash,
         leaf,
-      };
-    })
-    .filter((row) => row.vcHash && row.leaf);
+      });
+    } catch (error) {
+      const reason =
+        error?.message ||
+        'Credential canonical hash is missing; Merkle proof was not created.';
+
+      draft.anchorStatus = 'anchor_failed';
+      draft.anchorFailureReason = reason;
+      draft.anchoringUnavailableReason = reason;
+      clearAnchorTransactionFields(draft);
+      syncAnchoringMetadata(draft, { isAnchored: false, reason });
+      await draft.save();
+      proofFailures.set(id, reason);
+    }
+  }
+
+  const leafRows = eligibleRows;
   const tree = buildMerkleTree(leafRows.map((row) => row.leaf));
   const proofById = new Map(
     leafRows.map((row, index) => [
@@ -1796,6 +1910,7 @@ export async function processTodaysAnchorQueue(actor) {
       {
         leaf: row.leaf,
         index,
+        vcHash: row.vcHash,
         proof: buildMerkleProof(tree.leaves, index),
       },
     ])
@@ -1833,6 +1948,13 @@ export async function processTodaysAnchorQueue(actor) {
     const id = draft._id.toString();
 
     try {
+      if (proofFailures.has(id)) {
+        const reason = proofFailures.get(id);
+        summary.failedCount += 1;
+        summary.failed.push({ id, reason });
+        continue;
+      }
+
       if (!canProcessAnchor(draft)) {
         summary.skippedCount += 1;
         summary.skipped.push({ id, reason: 'Credential is not eligible for anchoring.' });

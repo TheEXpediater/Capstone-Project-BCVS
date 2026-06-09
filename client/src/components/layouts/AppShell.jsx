@@ -125,11 +125,11 @@ export default function AppShell({ children }) {
   }
 
   const isDeveloper = user?.role === 'developer';
-  const canSeeSettings = ['admin', 'developer', 'super_admin'].includes(user?.role);
-  const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
+  const canSeeSettings = isDeveloper;
+  const canSeeContracts = isDeveloper;
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
   const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);
-  const canSeeCredentialDrafts = ['admin', 'super_admin', 'developer', 'cashier'].includes(user?.role);
+  const canSeeCredentialDrafts = ['admin', 'super_admin', 'cashier'].includes(user?.role);
 
   const links = useMemo(() => {
     const items = [{ to: '/', label: 'Dashboard', icon: <FaHome /> }];

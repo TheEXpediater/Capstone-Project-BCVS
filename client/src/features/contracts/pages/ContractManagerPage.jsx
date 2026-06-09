@@ -4,6 +4,7 @@ import {
   deployContract,
   estimateDeployment,
   getContractsDashboard,
+  registerExistingContract,
   selectActiveAnchorContract,
 } from '../contractsAPI';
 
@@ -29,12 +30,80 @@ function capabilityLabel(capabilities) {
 }
 
 function explorerBase(url) {
-  return String(url || '').replace(/\/tx\/[^/]+$/i, '');
+  return String(url || '')
+    .replace(/\/tx\/[^/]+$/i, '')
+    .replace(/\/address\/[^/]+$/i, '');
 }
 
 function addressLink(item) {
   const base = explorerBase(item.explorerUrl);
   return base && item.address ? `${base}/address/${encodeURIComponent(item.address)}` : '';
+}
+
+function ExistingContractModal({
+  form,
+  busy,
+  onChange,
+  onClose,
+  onVerify,
+}) {
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">Add Existing Contract</h2>
+                <p className="text-muted mb-0 small">
+                  Verify an already deployed MerkleAnchor contract on the configured network.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={onClose}
+                disabled={busy}
+                aria-label="Close"
+              />
+            </div>
+            <div className="modal-body">
+              <div className="mb-3">
+                <label className="form-label fw-semibold">Contract Address</label>
+                <input
+                  className="form-control"
+                  value={form.address}
+                  onChange={(event) => onChange({ ...form, address: event.target.value })}
+                  placeholder="0x..."
+                  disabled={busy}
+                />
+              </div>
+              <div>
+                <label className="form-label fw-semibold">Contract Type</label>
+                <select
+                  className="form-select"
+                  value={form.contractType}
+                  onChange={(event) => onChange({ ...form, contractType: event.target.value })}
+                  disabled={busy}
+                >
+                  <option value="merkle_anchor">Merkle Anchor</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onClose} disabled={busy}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={onVerify} disabled={busy || !form.address.trim()}>
+                {busy ? 'Verifying...' : 'Verify Contract'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </>
+  );
 }
 
 export default function ContractManagerPage() {
@@ -53,6 +122,7 @@ export default function ContractManagerPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [estimating, setEstimating] = useState(false);
   const [deploying, setDeploying] = useState(false);
+  const [verifyingExisting, setVerifyingExisting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [dashboard, setDashboard] = useState({
     health: null,
@@ -64,6 +134,11 @@ export default function ContractManagerPage() {
   });
   const [estimate, setEstimate] = useState(null);
   const [selectedContractType, setSelectedContractType] = useState('merkle_anchor');
+  const [existingModalOpen, setExistingModalOpen] = useState(false);
+  const [existingForm, setExistingForm] = useState({
+    address: '',
+    contractType: 'merkle_anchor',
+  });
 
   const canDeploy = currentUser?.role === 'developer';
 
@@ -122,6 +197,30 @@ export default function ContractManagerPage() {
     }
   }
 
+  async function handleRegisterExisting() {
+    try {
+      setVerifyingExisting(true);
+      const data = await registerExistingContract(existingForm);
+      setFeedback({
+        type: 'success',
+        text: `Contract verified and registered at ${data?.address || existingForm.address}.`,
+      });
+      setExistingModalOpen(false);
+      setExistingForm({ address: '', contractType: 'merkle_anchor' });
+      await loadDashboard(true);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error?.response?.data?.message ||
+          error.message ||
+          'Failed to verify existing contract.',
+      });
+    } finally {
+      setVerifyingExisting(false);
+    }
+  }
+
   async function handleSelectActiveAnchor(item) {
     try {
       setDeploying(true);
@@ -157,9 +256,20 @@ export default function ContractManagerPage() {
           <h1 className="h3 mb-1">Contract Manager</h1>
           <p className="text-muted mb-0">Deploy contracts and review the saved deployment list from the smart contract service.</p>
         </div>
-        <button className="btn btn-outline-secondary" onClick={() => loadDashboard(true)} disabled={refreshing}>
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <div className="d-flex flex-wrap gap-2">
+          {canDeploy ? (
+            <button
+              className="btn btn-primary"
+              onClick={() => setExistingModalOpen(true)}
+              disabled={verifyingExisting}
+            >
+              Add Existing Contract
+            </button>
+          ) : null}
+          <button className="btn btn-outline-secondary" onClick={() => loadDashboard(true)} disabled={refreshing}>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {feedback.text ? <div className={`alert alert-${feedback.type}`}>{feedback.text}</div> : null}
@@ -298,53 +408,95 @@ export default function ContractManagerPage() {
                     <th>Status</th>
                     <th>Network</th>
                     <th>Tx</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.contracts.map((item) => (
-                    <tr key={item._id || item.txHash || item.address}>
-                      <td>
-                        <div className="fw-semibold">{item.contractName || 'AdminContract'}</div>
-                        <div className="text-muted small">{item.gasToken || 'POL'}</div>
-                      </td>
-                      <td>{contractTypeLabel(item.contractType)}</td>
-                      <td className="text-break">
-                        {addressLink(item) ? (
-                          <a href={addressLink(item)} target="_blank" rel="noreferrer">
-                            {item.address}
-                          </a>
-                        ) : (
-                          item.address || 'Pending'
-                        )}
-                      </td>
-                      <td>
-                        <span className={`badge ${capabilityClass(item.capabilities)}`}>
-                          {capabilityLabel(item.capabilities)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${item.status === 'success' ? 'text-bg-success' : item.status === 'pending' ? 'text-bg-warning' : 'text-bg-danger'}`}>
-                          {item.status || 'unknown'}
-                        </span>
-                      </td>
-                      <td>{item.network || item.chainId || '—'}</td>
-                      <td>
-                        {item.explorerUrl ? (
-                          <a href={item.explorerUrl} target="_blank" rel="noreferrer">Open</a>
-                        ) : item.txHash ? (
-                          <span className="text-break small">{item.txHash}</span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {dashboard.contracts.map((item) => {
+                    const isActiveAnchor =
+                      item.contractType === 'merkle_anchor' &&
+                      (item.isActive ||
+                        item.active ||
+                        String(item._id || '') === String(activeAnchorId || '') ||
+                        item.address === activeAnchorAddress);
+                    const canSetActive =
+                      canDeploy &&
+                      item.contractType === 'merkle_anchor' &&
+                      item.status === 'success' &&
+                      item.address &&
+                      !isActiveAnchor;
+
+                    return (
+                      <tr key={item._id || item.txHash || item.address}>
+                        <td>
+                          <div className="fw-semibold">{item.contractName || 'AdminContract'}</div>
+                          <div className="text-muted small">{item.gasToken || 'POL'}</div>
+                        </td>
+                        <td>{contractTypeLabel(item.contractType)}</td>
+                        <td className="text-break">
+                          {addressLink(item) ? (
+                            <a href={addressLink(item)} target="_blank" rel="noreferrer">
+                              {item.address}
+                            </a>
+                          ) : (
+                            item.address || 'Pending'
+                          )}
+                        </td>
+                        <td>
+                          <span className={`badge ${capabilityClass(item.capabilities)}`}>
+                            {capabilityLabel(item.capabilities)}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`badge ${item.status === 'success' ? 'text-bg-success' : item.status === 'pending' ? 'text-bg-warning' : 'text-bg-danger'}`}>
+                            {item.status || 'unknown'}
+                          </span>
+                          {item.verified ? <div className="small text-muted">Verified</div> : null}
+                        </td>
+                        <td>{item.network || item.chainId || '-'}</td>
+                        <td>
+                          {item.txHash && item.explorerUrl && /\/tx\//i.test(item.explorerUrl) ? (
+                            <a href={item.explorerUrl} target="_blank" rel="noreferrer">Open</a>
+                          ) : item.txHash ? (
+                            <span className="text-break small">{item.txHash}</span>
+                          ) : (
+                            <span className="text-muted small">Registered</span>
+                          )}
+                        </td>
+                        <td>
+                          {isActiveAnchor ? (
+                            <span className="badge text-bg-success">Active</span>
+                          ) : canSetActive ? (
+                            <button
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={() => handleSelectActiveAnchor(item)}
+                              disabled={deploying}
+                            >
+                              Set Active
+                            </button>
+                          ) : (
+                            <span className="text-muted small">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
       </div>
+
+      {existingModalOpen ? (
+        <ExistingContractModal
+          form={existingForm}
+          busy={verifyingExisting}
+          onChange={setExistingForm}
+          onClose={() => setExistingModalOpen(false)}
+          onVerify={handleRegisterExisting}
+        />
+      ) : null}
     </div>
   );
 }

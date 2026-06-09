@@ -20,7 +20,12 @@ const contractSchema = new mongoose.Schema(
     },
     deployerAddress: {
       type: String,
-      required: true,
+      default: '',
+    },
+    ownerAddress: {
+      type: String,
+      default: '',
+      trim: true,
     },
     txHash: {
       type: String,
@@ -69,7 +74,17 @@ const contractSchema = new mongoose.Schema(
       verifyFunctionName: { type: String, default: '', trim: true },
       rootAnchoredEventName: { type: String, default: '', trim: true },
     },
+    verified: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     isActive: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    active: {
       type: Boolean,
       default: false,
       index: true,

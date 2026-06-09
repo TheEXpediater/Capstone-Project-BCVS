@@ -27,6 +27,19 @@ export async function deploy(req, res, next) {
   }
 }
 
+export async function registerExisting(req, res, next) {
+  try {
+    const data = await contractService.registerExistingContract(req.body || {}, req.user);
+    res.status(200).json({
+      success: true,
+      data,
+      message: 'Existing contract verified and registered successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getCapabilities(req, res, next) {
   try {
     const data = await contractService.getContractCapabilitiesByAddress(req.params.address);

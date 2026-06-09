@@ -156,10 +156,14 @@ export function getAbiForContract(contract = {}) {
   return loadArtifact(inferContractType(contract)).abi;
 }
 
-function requireBlockchainEnv() {
+function requireRpcEnv() {
   if (!env.blockchain.rpcUrl) {
     throw new ApiError(500, 'Missing RPC_URL in server .env');
   }
+}
+
+function requireBlockchainEnv() {
+  requireRpcEnv();
 
   if (!env.blockchain.contractOperatorPrivateKey) {
     throw new ApiError(500, 'Missing CONTRACT_OPERATOR_PRIVATE_KEY in server .env');
@@ -167,7 +171,7 @@ function requireBlockchainEnv() {
 }
 
 function getProvider() {
-  requireBlockchainEnv();
+  requireRpcEnv();
   return new ethers.JsonRpcProvider(env.blockchain.rpcUrl);
 }
 
@@ -231,12 +235,16 @@ function serializeContract(contract = {}) {
   const contractType = inferContractType(raw);
   const config = getContractConfig(contractType);
   const capabilities = getCapabilitiesForContract({ ...raw, contractType });
+  const isActive = Boolean(raw?.isActive || raw?.active);
 
   return {
     ...raw,
     contractType,
     contractName: raw?.contractName || config.contractName,
     capabilities,
+    verified: Boolean(raw?.verified || (raw?.status === 'success' && raw?.address)),
+    isActive,
+    active: isActive,
   };
 }
 
@@ -354,6 +362,8 @@ export async function deployContract({ contractType = 'admin' } = {}) {
       estimatedCostNative: estimate.totalCostNative,
       estimatedCostWei: estimate.totalCostWei,
       capabilities,
+      verified: false,
+      active: false,
       status: 'pending',
     });
 
@@ -369,6 +379,7 @@ export async function deployContract({ contractType = 'admin' } = {}) {
     deploymentRecord.txHash = deployTx?.hash ?? null;
     deploymentRecord.explorerUrl = explorerUrl || null;
     deploymentRecord.status = 'success';
+    deploymentRecord.verified = true;
     deploymentRecord.errorMessage = null;
     deploymentRecord.capabilities = capabilities;
     await deploymentRecord.save();
@@ -398,6 +409,167 @@ export async function deployContract({ contractType = 'admin' } = {}) {
 
     throw new ApiError(500, error.message || 'Deploy error');
   }
+}
+
+function hasReadableFunction(abi = [], name = '') {
+  return abi.some(
+    (item) =>
+      item?.type === 'function' &&
+      item?.name === name &&
+      ['view', 'pure'].includes(item?.stateMutability)
+  );
+}
+
+function firstNoArgReadableFunction(abi = []) {
+  return (
+    abi.find(
+      (item) =>
+        item?.type === 'function' &&
+        ['view', 'pure'].includes(item?.stateMutability) &&
+        !item?.inputs?.length &&
+        item?.outputs?.length
+    )?.name || ''
+  );
+}
+
+async function verifyReadableContractCall({ contract, abi, capabilities }) {
+  const candidates = [];
+
+  if (hasReadableFunction(abi, 'owner')) {
+    candidates.push({ method: 'owner', args: [] });
+  }
+
+  const noArgReadable = firstNoArgReadableFunction(abi);
+  if (noArgReadable && noArgReadable !== 'owner') {
+    candidates.push({ method: noArgReadable, args: [] });
+  }
+
+  if (capabilities?.verifyFunctionName) {
+    candidates.push({ method: capabilities.verifyFunctionName, args: [ethers.ZeroHash] });
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const value = await contract[candidate.method](...(candidate.args || []));
+      return {
+        ok: true,
+        method: candidate.method,
+        value: typeof value === 'bigint' ? value.toString() : String(value ?? ''),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return {
+    ok: false,
+    method: '',
+    value: '',
+  };
+}
+
+export async function registerExistingContract(
+  { address = '', contractType = 'merkle_anchor' } = {},
+  actor = null
+) {
+  assertAnchorManager(actor);
+
+  const config = getContractConfig(contractType);
+  const normalizedAddress = cleanString(address);
+
+  if (!ethers.isAddress(normalizedAddress)) {
+    throw new ApiError(400, 'A valid contract address is required.');
+  }
+
+  const checksumAddress = ethers.getAddress(normalizedAddress);
+  const provider = getProvider();
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId || env.blockchain.chainId);
+
+  if (Number(env.blockchain.chainId) && chainId !== Number(env.blockchain.chainId)) {
+    throw new ApiError(
+      409,
+      `Connected chainId ${chainId} does not match configured chainId ${env.blockchain.chainId}.`
+    );
+  }
+
+  const code = await provider.getCode(checksumAddress);
+  if (!code || code === '0x') {
+    throw new ApiError(404, 'No contract code was found at this address on the configured network.');
+  }
+
+  const artifact = loadArtifact(config.contractType);
+  const capabilities = detectContractCapabilities(artifact.abi);
+  const contract = new ethers.Contract(checksumAddress, artifact.abi, provider);
+  const readableCheck = await verifyReadableContractCall({
+    contract,
+    abi: artifact.abi,
+    capabilities,
+  });
+
+  if (!readableCheck.ok) {
+    throw new ApiError(
+      409,
+      'Contract exists, but it did not respond to a readable MerkleAnchor ABI method.'
+    );
+  }
+
+  if (config.contractType === 'merkle_anchor') {
+    if (!capabilities.canAnchorMerkleRoot || !capabilities.canVerifyMerkleRoot) {
+      throw new ApiError(409, 'Contract does not support Merkle root anchoring.');
+    }
+  }
+
+  const Contract = getContractModel();
+  const ownerAddress =
+    readableCheck.method === 'owner' && ethers.isAddress(readableCheck.value)
+      ? ethers.getAddress(readableCheck.value)
+      : '';
+  const explorerBaseUrl = getExplorerBaseUrl(chainId);
+
+  let record = await Contract.findOne({
+    address: checksumAddress,
+    chainId,
+    contractType: config.contractType,
+  });
+
+  const payload = {
+    contractType: config.contractType,
+    contractName: config.contractName,
+    address: checksumAddress,
+    deployerAddress: ownerAddress || '',
+    ownerAddress,
+    chainId,
+    network: network.name || `chain-${chainId}`,
+    gasToken: 'POL',
+    status: 'success',
+    verified: true,
+    capabilities,
+    explorerUrl: explorerBaseUrl || null,
+    errorMessage: null,
+  };
+
+  if (record) {
+    Object.assign(record, payload);
+  } else {
+    record = await Contract.create(payload);
+  }
+
+  await record.save();
+
+  return {
+    success: true,
+    contract: serializeContract(record),
+    address: checksumAddress,
+    contractType: config.contractType,
+    contractName: config.contractName,
+    ownerAddress,
+    chainId,
+    network: network.name || `chain-${chainId}`,
+    verified: true,
+    readableMethod: readableCheck.method,
+    capabilities,
+  };
 }
 
 export async function findContractByIdOrAddress(value) {
@@ -504,7 +676,7 @@ export async function selectActiveAnchorContract({ contractId = '', contractAddr
 
   await Contract.updateMany(
     { contractType: 'merkle_anchor', _id: { $ne: contract._id } },
-    { $set: { isActive: false } }
+    { $set: { isActive: false, active: false } }
   );
 
   await Contract.updateOne(
@@ -512,6 +684,8 @@ export async function selectActiveAnchorContract({ contractId = '', contractAddr
     {
       $set: {
         isActive: true,
+        active: true,
+        verified: true,
         capabilities,
       },
     }

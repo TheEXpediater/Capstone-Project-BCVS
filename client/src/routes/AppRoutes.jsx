@@ -89,7 +89,7 @@ export default function AppRoutes() {
         path="/users"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['developer', 'super_admin']}>
+            <RoleRoute allowedRoles={['developer']}>
               <AppShell>
                 <UserManagementPage />
               </AppShell>
@@ -115,7 +115,7 @@ export default function AppRoutes() {
         path="/system-settings"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['admin', 'super_admin', 'developer']}>
+            <RoleRoute allowedRoles={['developer']}>
               <AppShell>
                 <SystemSettingsPage />
               </AppShell>
