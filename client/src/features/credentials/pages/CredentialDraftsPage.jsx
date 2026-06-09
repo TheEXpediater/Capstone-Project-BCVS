@@ -28,13 +28,6 @@ function formatDate(value) {
   return parsed.toLocaleString();
 }
 
-function formatShortDate(value) {
-  if (!value) return 'Not available';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return 'Not available';
-  return parsed.toLocaleDateString();
-}
-
 function formatCurrency(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return 'Not set';
@@ -53,26 +46,8 @@ function titleCase(value) {
   return text ? text.replace(/\b\w/g, (letter) => letter.toUpperCase()) : 'Not available';
 }
 
-function shortText(value, start = 10, end = 6) {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  if (text.length <= start + end + 3) return text;
-  return `${text.slice(0, start)}...${text.slice(-end)}`;
-}
-
 function cleanText(value) {
   return String(value || '').trim();
-}
-
-function anchorTxUrl(draft) {
-  const explicit = cleanText(draft?.anchorExplorerUrl);
-  if (/^https?:\/\//i.test(explicit) && /\/tx\//i.test(explicit)) return explicit;
-
-  const txHash = cleanText(draft?.anchorTxHash);
-  if (!txHash) return '';
-
-  const base = explicit || (Number(draft?.anchorChainId) === 80002 ? 'https://amoy.polygonscan.com' : '');
-  return base ? `${base.replace(/\/+$/, '')}/tx/${encodeURIComponent(txHash)}` : '';
 }
 
 function isCredentialPaid(draft) {
@@ -168,99 +143,85 @@ function getPaymentBadge(draft) {
   return isCredentialPaid(draft) ? 'text-bg-success' : 'text-bg-warning';
 }
 
-function claimLabel(draft) {
-  if (isCredentialClaimed(draft)) {
-    return {
-      badge: 'text-bg-success',
-      title: 'Claimed',
-      body: formatDate(draft.claimedAt),
-    };
-  }
-
-  if (canShowClaimQr(draft)) {
-    const expired =
-      draft?.claimTokenExpiresAt && new Date(draft.claimTokenExpiresAt).getTime() <= Date.now();
-    return {
-      badge: expired ? 'text-bg-warning' : 'text-bg-info',
-      title: expired ? 'Fresh QR needed' : 'Claim QR available',
-      body: expired ? 'Token expired' : 'Unclaimed',
-    };
-  }
-
-  return {
-    badge: 'text-bg-secondary',
-    title: 'Unclaimed',
-    body: isCredentialRejectedOrRevoked(draft) ? 'Not claimable' : 'Not ready',
-  };
+function credentialLabel(value) {
+  const type = cleanText(value).toLowerCase();
+  if (type === 'tor') return 'TOR';
+  if (type === 'diploma') return 'Diploma';
+  return titleCase(value || 'credential');
 }
 
-function anchorLabel(draft) {
-  if (draft?.anchorStatus === 'anchored') {
-    return {
-      badge: 'text-bg-success',
-      title: 'Anchored',
-      body: formatDate(draft.anchoredAt),
-      hash: draft.anchorTxHash || draft.contractAddress || '',
-    };
+function matchesStudentName(draft, search) {
+  const query = cleanText(search).toLowerCase();
+  if (!query) return true;
+  return cleanText(draft?.studentName).toLowerCase().includes(query);
+}
+
+function matchesPaymentStatus(draft, status) {
+  const selected = cleanText(status).toLowerCase();
+  if (!selected) return true;
+  return cleanText(draft?.paymentStatus).toLowerCase() === selected;
+}
+
+function anchorScheduleLabel(draft) {
+  const mode = cleanText(draft?.anchorMode).toLowerCase();
+  const preference = cleanText(draft?.anchorPreference).toLowerCase();
+
+  if (mode === 'same_day' || preference === 'request') return 'Today';
+  return '7 Days';
+}
+
+function matchesAnchorSchedule(draft, schedule) {
+  const selected = cleanText(schedule).toLowerCase();
+  if (!selected) return true;
+  return selected === 'today'
+    ? anchorScheduleLabel(draft) === 'Today'
+    : anchorScheduleLabel(draft) === '7 Days';
+}
+
+function signatureStatusLabel(draft) {
+  return hasSignedCredential(draft) ? 'Signed' : 'Pending';
+}
+
+function signatureStatusBadge(draft) {
+  return hasSignedCredential(draft) ? 'text-bg-success' : 'text-bg-warning';
+}
+
+function anchorStatusLabel(draft) {
+  const status = cleanText(draft?.anchorStatus).toLowerCase();
+
+  if (status === 'anchored') return 'Anchored';
+  if (status === 'anchor_failed') return 'Failed';
+  if (['merkle_ready', 'contract_missing', 'contract_unsupported'].includes(status)) {
+    return 'Processing';
   }
+  return 'Queued';
+}
 
-  if (draft?.anchorStatus === 'queued') {
-    const scheduled = new Date(draft.scheduledAnchorAt || 0);
-    const today = new Date();
-    const isToday =
-      !Number.isNaN(scheduled.getTime()) &&
-      scheduled.toDateString() === today.toDateString();
+function anchorStatusBadge(draft) {
+  const label = anchorStatusLabel(draft);
+  if (label === 'Anchored') return 'text-bg-success';
+  if (label === 'Failed') return 'text-bg-danger';
+  if (label === 'Processing') return 'text-bg-info';
+  return 'text-bg-warning';
+}
 
-    return {
-      badge: 'text-bg-info',
-      title: isToday ? 'Queued today' : `Scheduled for ${formatShortDate(draft.scheduledAnchorAt)}`,
-      body: draft.anchorMode === 'same_day' ? 'Same day' : 'Scheduled',
-      hash: '',
-    };
-  }
+function anchorStatusFilterValue(draft) {
+  const label = anchorStatusLabel(draft);
+  if (label === 'Anchored') return 'anchored';
+  if (label === 'Failed') return 'failed';
+  if (label === 'Processing') return 'processing';
+  return 'queued';
+}
 
-  if (draft?.anchorStatus === 'contract_unsupported') {
-    return {
-      badge: 'text-bg-warning',
-      title: 'Contract unsupported',
-      body: 'Proof prepared',
-      hash: draft.merkleRoot || '',
-    };
-  }
+function matchesAnchorStatus(draft, status) {
+  const selected = cleanText(status).toLowerCase();
+  const value = anchorStatusFilterValue(draft);
+  if (selected === 'queued') return value === 'queued' || value === 'processing';
+  return value === selected;
+}
 
-  if (draft?.anchorStatus === 'contract_missing') {
-    return {
-      badge: 'text-bg-warning',
-      title: 'Anchor pending',
-      body: 'No active contract',
-      hash: draft.merkleRoot || '',
-    };
-  }
-
-  if (draft?.anchorStatus === 'anchor_failed') {
-    return {
-      badge: 'text-bg-danger',
-      title: 'Anchor failed',
-      body: draft.anchorFailureReason || 'Transaction failed',
-      hash: draft.merkleRoot || '',
-    };
-  }
-
-  if (draft?.anchorStatus === 'merkle_ready') {
-    return {
-      badge: 'text-bg-info',
-      title: 'Proof prepared',
-      body: 'Anchor pending',
-      hash: draft.merkleRoot || '',
-    };
-  }
-
-  return {
-    badge: 'text-bg-secondary',
-    title: 'Not queued',
-    body: '',
-    hash: '',
-  };
+function isAnchored(draft) {
+  return cleanText(draft?.anchorStatus).toLowerCase() === 'anchored';
 }
 
 function ModalShell({ title, subtitle, children, footer, onClose, size = '' }) {
@@ -420,7 +381,7 @@ function QueueResultModal({ result, onClose }) {
   );
 }
 
-function DraftDetailsModal({ draft, onClose }) {
+function DraftDetailsModal({ draft, actions, onClose }) {
   if (!draft) return null;
 
   const profile = draft.profileSnapshot || {};
@@ -435,9 +396,12 @@ function DraftDetailsModal({ draft, onClose }) {
       onClose={onClose}
       size="modal-xl"
       footer={
-        <button className="btn btn-outline-secondary" onClick={onClose}>
-          Close
-        </button>
+        <>
+          {actions}
+          <button className="btn btn-outline-secondary" onClick={onClose}>
+            Close
+          </button>
+        </>
       }
     >
       <div className="d-flex flex-column gap-4">
@@ -845,6 +809,374 @@ function PaymentTable({
   );
 }
 
+function CredentialTableShell({ title, loading, hasRows, emptyText, filters, onRefresh, children }) {
+  return (
+    <div className="card border-0 shadow-sm">
+      <div className="card-body p-4">
+        <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+          <h2 className="h5 mb-0">{title}</h2>
+          <button className="btn btn-outline-secondary btn-sm" onClick={onRefresh} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
+
+        {filters}
+
+        {loading ? (
+          <div className="text-muted">Loading credentials...</div>
+        ) : !hasRows ? (
+          <div className="alert alert-light border mb-0">{emptyText}</div>
+        ) : (
+          <div className="table-responsive">
+            {children}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VcProcessingTable({
+  rows,
+  loading,
+  paymentStatus,
+  search,
+  onPaymentStatus,
+  onSearch,
+  onRefresh,
+  onDetails,
+}) {
+  return (
+    <CredentialTableShell
+      title="VC"
+      loading={loading}
+      hasRows={rows.length > 0}
+      emptyText="No credentials are waiting for processing."
+      onRefresh={onRefresh}
+      filters={
+        <div className="row g-2 align-items-end mb-3">
+          <div className="col-md-3 col-lg-2">
+            <label className="form-label small fw-semibold" htmlFor="vc-payment-status">
+              Payment Status
+            </label>
+            <select
+              id="vc-payment-status"
+              className="form-select form-select-sm"
+              value={paymentStatus}
+              onChange={(event) => onPaymentStatus(event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="paid">Paid</option>
+              <option value="unpaid">Unpaid</option>
+            </select>
+          </div>
+          <div className="col-md-5 col-lg-4">
+            <label className="form-label small fw-semibold" htmlFor="vc-student-search">
+              Student Name
+            </label>
+            <input
+              id="vc-student-search"
+              className="form-control form-control-sm"
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+              placeholder="Search student name"
+            />
+          </div>
+        </div>
+      }
+    >
+      <table className="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Student Name</th>
+            <th>Credential</th>
+            <th>Anchor Schedule</th>
+            <th className="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => (
+            <tr key={item._id}>
+              <td className="fw-semibold">{item.studentName || 'Not available'}</td>
+              <td>{credentialLabel(item.credentialType)}</td>
+              <td>{anchorScheduleLabel(item)}</td>
+              <td className="text-end">
+                <button
+                  className="btn btn-outline-primary btn-sm text-nowrap"
+                  onClick={() => onDetails(item._id)}
+                >
+                  More Details
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CredentialTableShell>
+  );
+}
+
+function SigningTable({
+  rows,
+  loading,
+  busyId,
+  search,
+  canManage,
+  onSearch,
+  onRefresh,
+  onSign,
+  onDetails,
+}) {
+  return (
+    <CredentialTableShell
+      title="Signing"
+      loading={loading}
+      hasRows={rows.length > 0}
+      emptyText="No paid credentials are ready for signing."
+      onRefresh={onRefresh}
+      filters={
+        <div className="row g-2 align-items-end mb-3">
+          <div className="col-md-5 col-lg-4">
+            <label className="form-label small fw-semibold" htmlFor="signing-student-search">
+              Student Name
+            </label>
+            <input
+              id="signing-student-search"
+              className="form-control form-control-sm"
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+              placeholder="Search student name"
+            />
+          </div>
+        </div>
+      }
+    >
+      <table className="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Student Name</th>
+            <th>Credential</th>
+            <th>Signature Status</th>
+            <th className="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => (
+            <tr key={item._id}>
+              <td className="fw-semibold">{item.studentName || 'Not available'}</td>
+              <td>{credentialLabel(item.credentialType)}</td>
+              <td>
+                <span className={`badge ${signatureStatusBadge(item)}`}>
+                  {signatureStatusLabel(item)}
+                </span>
+              </td>
+              <td className="text-end">
+                <div className="d-inline-flex flex-wrap justify-content-end gap-2">
+                  <button
+                    className="btn btn-success btn-sm text-nowrap"
+                    onClick={() => onSign(item)}
+                    disabled={!canManage || busyId === item._id || hasSignedCredential(item)}
+                  >
+                    Sign
+                  </button>
+                  <button
+                    className="btn btn-outline-primary btn-sm text-nowrap"
+                    onClick={() => onDetails(item._id)}
+                    disabled={busyId === item._id}
+                  >
+                    More Details
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CredentialTableShell>
+  );
+}
+
+function AnchorProgressTable({
+  rows,
+  loading,
+  schedule,
+  status,
+  onSchedule,
+  onStatus,
+  onRefresh,
+  onDetails,
+}) {
+  return (
+    <CredentialTableShell
+      title="Anchor"
+      loading={loading}
+      hasRows={rows.length > 0}
+      emptyText="No credentials match the selected anchor filters."
+      onRefresh={onRefresh}
+      filters={
+        <div className="row g-2 align-items-end mb-3">
+          <div className="col-md-3 col-lg-2">
+            <label className="form-label small fw-semibold" htmlFor="anchor-schedule">
+              Schedule
+            </label>
+            <select
+              id="anchor-schedule"
+              className="form-select form-select-sm"
+              value={schedule}
+              onChange={(event) => onSchedule(event.target.value)}
+            >
+              <option value="today">Today</option>
+              <option value="7days">7 Days</option>
+            </select>
+          </div>
+          <div className="col-md-3 col-lg-2">
+            <label className="form-label small fw-semibold" htmlFor="anchor-status">
+              Status
+            </label>
+            <select
+              id="anchor-status"
+              className="form-select form-select-sm"
+              value={status}
+              onChange={(event) => onStatus(event.target.value)}
+            >
+              <option value="queued">Queued</option>
+              <option value="anchored">Anchored</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+        </div>
+      }
+    >
+      <table className="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Student Name</th>
+            <th>Credential</th>
+            <th>Anchor Status</th>
+            <th className="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => (
+            <tr key={item._id}>
+              <td className="fw-semibold">{item.studentName || 'Not available'}</td>
+              <td>{credentialLabel(item.credentialType)}</td>
+              <td>
+                <span className={`badge ${anchorStatusBadge(item)}`}>
+                  {anchorStatusLabel(item)}
+                </span>
+              </td>
+              <td className="text-end">
+                <button
+                  className="btn btn-outline-primary btn-sm text-nowrap"
+                  onClick={() => onDetails(item._id)}
+                >
+                  View Details
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </CredentialTableShell>
+  );
+}
+
+function ClaimedCredentialsTable({
+  rows,
+  loading,
+  busyId,
+  anchorStatus,
+  search,
+  currentUser,
+  onAnchorStatus,
+  onSearch,
+  onRefresh,
+  onDetails,
+  onRegenerateQr,
+}) {
+  return (
+    <CredentialTableShell
+      title="Claimed"
+      loading={loading}
+      hasRows={rows.length > 0}
+      emptyText="No claimed credentials match the selected filters."
+      onRefresh={onRefresh}
+      filters={
+        <div className="row g-2 align-items-end mb-3">
+          <div className="col-md-3 col-lg-2">
+            <label className="form-label small fw-semibold" htmlFor="claimed-anchor-status">
+              Anchor Status
+            </label>
+            <select
+              id="claimed-anchor-status"
+              className="form-select form-select-sm"
+              value={anchorStatus}
+              onChange={(event) => onAnchorStatus(event.target.value)}
+            >
+              <option value="anchored">Anchored</option>
+              <option value="not_anchored">Not Anchored</option>
+            </select>
+          </div>
+          <div className="col-md-5 col-lg-4">
+            <label className="form-label small fw-semibold" htmlFor="claimed-student-search">
+              Student Name
+            </label>
+            <input
+              id="claimed-student-search"
+              className="form-control form-control-sm"
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+              placeholder="Search student name"
+            />
+          </div>
+        </div>
+      }
+    >
+      <table className="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Student Name</th>
+            <th>Credential</th>
+            <th>Claimed Date</th>
+            <th className="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item) => {
+            const canRegenerate = canShowClaimOverrideQr(item, currentUser);
+            return (
+              <tr key={item._id}>
+                <td className="fw-semibold">{item.studentName || 'Not available'}</td>
+                <td>{credentialLabel(item.credentialType)}</td>
+                <td>{formatDate(item.claimedAt)}</td>
+                <td className="text-end">
+                  <div className="d-inline-flex flex-wrap justify-content-end gap-2">
+                    <button
+                      className="btn btn-outline-primary btn-sm text-nowrap"
+                      onClick={() => onDetails(item._id)}
+                      disabled={busyId === item._id}
+                    >
+                      View Details
+                    </button>
+                    <button
+                      className="btn btn-warning btn-sm text-nowrap"
+                      onClick={() => onRegenerateQr(item)}
+                      disabled={!canRegenerate || busyId === item._id}
+                    >
+                      Regenerate QR
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </CredentialTableShell>
+  );
+}
+
 export default function CredentialDraftsPage() {
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentUser = auth?.user || {};
@@ -856,7 +1188,13 @@ export default function CredentialDraftsPage() {
   const [rows, setRows] = useState([]);
   const [paymentRows, setPaymentRows] = useState([]);
   const [activeTab, setActiveTab] = useState(cashierOnly ? 'payments' : 'drafts');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [vcPaymentFilter, setVcPaymentFilter] = useState('');
+  const [vcSearch, setVcSearch] = useState('');
+  const [signingSearch, setSigningSearch] = useState('');
+  const [anchorScheduleFilter, setAnchorScheduleFilter] = useState('today');
+  const [anchorStatusFilter, setAnchorStatusFilter] = useState('queued');
+  const [claimedAnchorFilter, setClaimedAnchorFilter] = useState('anchored');
+  const [claimedSearch, setClaimedSearch] = useState('');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('unpaid');
   const [loading, setLoading] = useState(true);
@@ -871,26 +1209,23 @@ export default function CredentialDraftsPage() {
   const [queueResult, setQueueResult] = useState(null);
   const [queueSummary, setQueueSummary] = useState(null);
 
-  const loadDrafts = useCallback(
-    async (nextStatus = statusFilter) => {
-      try {
-        setLoading(true);
-        const data = await listCredentialDrafts(nextStatus ? { status: nextStatus } : {});
-        setRows(data || []);
-      } catch (error) {
-        setFeedback({
-          type: 'danger',
-          text:
-            error?.response?.data?.message ||
-            error?.message ||
-            'Failed to load credential drafts.',
-        });
-      } finally {
-        setLoading(false);
-      }
-    },
-    [statusFilter]
-  );
+  const loadDrafts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await listCredentialDrafts();
+      setRows(data || []);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to load credential drafts.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const loadPayments = useCallback(async () => {
     try {
@@ -1188,44 +1523,199 @@ export default function CredentialDraftsPage() {
     });
   }
 
-  const filters = [
-    { label: 'All', value: '' },
-    { label: 'Draft', value: 'draft' },
-    { label: 'For Signature', value: 'for_signature' },
-    { label: 'Signed', value: 'signed' },
-    { label: 'Claim Ready', value: 'claim_ready' },
-    { label: 'Queued', value: 'queued_for_anchor' },
-    { label: 'Anchored', value: 'anchored' },
-    { label: 'Claimed', value: 'claimed' },
-  ];
+  function detailsAction(run) {
+    setSelectedDraft(null);
+    run();
+  }
+
+  function renderDetailsActions(draft) {
+    if (!draft) return null;
+
+    return (
+      <div className="me-auto d-flex flex-wrap gap-2">
+        {draft.status === 'draft' && canManageCredentials ? (
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => detailsAction(() => confirmSubmit(draft))}
+            disabled={busyId === draft._id}
+          >
+            Submit
+          </button>
+        ) : null}
+
+        {draft.status === 'for_signature' && canManageCredentials ? (
+          <>
+            <button
+              className="btn btn-success btn-sm"
+              onClick={() => detailsAction(() => confirmSign(draft))}
+              disabled={busyId === draft._id || !isCredentialPaid(draft)}
+            >
+              Sign
+            </button>
+            <button
+              className="btn btn-outline-danger btn-sm"
+              onClick={() => detailsAction(() => confirmReject(draft))}
+              disabled={busyId === draft._id}
+            >
+              Reject
+            </button>
+          </>
+        ) : null}
+
+        {canShowClaimQr(draft) && canManageCredentials && hasActiveClaimToken(draft) ? (
+          <button
+            className="btn btn-info btn-sm"
+            onClick={() => detailsAction(() => viewExistingClaimQr(draft))}
+            disabled={busyId === draft._id}
+          >
+            View QR
+          </button>
+        ) : null}
+
+        {canShowClaimQr(draft) && canManageCredentials && !hasActiveClaimToken(draft) && canGenerateFreshClaimQr(draft) ? (
+          <button
+            className="btn btn-info btn-sm"
+            onClick={() => detailsAction(() => confirmClaimQr(draft, hasExpiredClaimToken(draft)))}
+            disabled={busyId === draft._id}
+          >
+            {hasExpiredClaimToken(draft) ? 'Fresh QR' : 'Claim QR'}
+          </button>
+        ) : null}
+
+        {canShowClaimQr(draft) && canManageCredentials && !hasActiveClaimToken(draft) && !canGenerateFreshClaimQr(draft) ? (
+          <button className="btn btn-outline-info btn-sm" disabled>
+            QR Active
+          </button>
+        ) : null}
+
+        {canShowClaimOverrideQr(draft, currentUser) ? (
+          <>
+            {hasActiveClaimToken(draft) ? (
+              <button
+                className="btn btn-warning btn-sm"
+                onClick={() => detailsAction(() => viewExistingClaimQr(draft, true))}
+                disabled={busyId === draft._id}
+              >
+                View QR
+              </button>
+            ) : null}
+            <button
+              className="btn btn-outline-warning btn-sm"
+              onClick={() => detailsAction(() => confirmOverrideQr(draft))}
+              disabled={busyId === draft._id}
+            >
+              Regenerate QR
+            </button>
+          </>
+        ) : null}
+
+        {canQueueAnchor(draft, currentUser) ? (
+          <>
+            <button
+              className="btn btn-warning btn-sm"
+              onClick={() => detailsAction(() => confirmQueueAnchor(draft, 'same_day'))}
+              disabled={busyId === draft._id}
+            >
+              Anchor Today
+            </button>
+            <button
+              className="btn btn-outline-warning btn-sm"
+              onClick={() => detailsAction(() => confirmQueueAnchor(draft, 'scheduled'))}
+              disabled={busyId === draft._id}
+            >
+              Schedule 7 Days
+            </button>
+          </>
+        ) : null}
+      </div>
+    );
+  }
 
   const tabs = cashierOnly
     ? [{ key: 'payments', label: 'Payments' }]
     : [
-        { key: 'drafts', label: 'VC Table' },
+        { key: 'drafts', label: 'VC' },
         { key: 'signing', label: 'Signing' },
         { key: 'anchor', label: 'Anchor' },
+        { key: 'claimed', label: 'Claimed' },
         ...(canSeePaymentsTab ? [{ key: 'payments', label: 'Payments' }] : []),
       ];
 
-  const draftRows = activeTab === 'signing'
-    ? rows.filter((item) => item.status === 'for_signature')
-    : activeTab === 'anchor'
-      ? rows.filter((item) =>
-          ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(item.status) ||
-          ['queued', 'anchored'].includes(item.anchorStatus)
-        )
-      : rows;
+  const vcRows = useMemo(
+    () =>
+      rows.filter((item) => {
+        const status = cleanText(item.status).toLowerCase();
+        const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
+        const isIntakeStatus = ['draft', 'signed', 'claim_ready'].includes(status);
+        const isAlreadyQueued = ['queued', 'anchored'].includes(anchorStatus);
+
+        return (
+          isIntakeStatus &&
+          !isCredentialClaimed(item) &&
+          !isAlreadyQueued &&
+          matchesPaymentStatus(item, vcPaymentFilter) &&
+          matchesStudentName(item, vcSearch)
+        );
+      }),
+    [rows, vcPaymentFilter, vcSearch]
+  );
+
+  const signingRows = useMemo(
+    () =>
+      rows.filter((item) => {
+        const status = cleanText(item.status).toLowerCase();
+        return (
+          isCredentialPaid(item) &&
+          ['for_signature', 'signed'].includes(status) &&
+          matchesStudentName(item, signingSearch)
+        );
+      }),
+    [rows, signingSearch]
+  );
+
+  const anchorRows = useMemo(
+    () =>
+      rows.filter((item) => {
+        const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
+        const isAnchorTracked = [
+          'queued',
+          'merkle_ready',
+          'contract_missing',
+          'contract_unsupported',
+          'anchor_failed',
+          'anchored',
+        ].includes(anchorStatus);
+
+        return (
+          isAnchorTracked &&
+          matchesAnchorSchedule(item, anchorScheduleFilter) &&
+          matchesAnchorStatus(item, anchorStatusFilter)
+        );
+      }),
+    [rows, anchorScheduleFilter, anchorStatusFilter]
+  );
+
+  const claimedRows = useMemo(
+    () =>
+      rows.filter((item) => {
+        const anchorMatch =
+          claimedAnchorFilter === 'anchored' ? isAnchored(item) : !isAnchored(item);
+
+        return (
+          isCredentialClaimed(item) &&
+          anchorMatch &&
+          matchesStudentName(item, claimedSearch)
+        );
+      }),
+    [rows, claimedAnchorFilter, claimedSearch]
+  );
 
   return (
     <>
       <div className="d-flex flex-column gap-4">
         <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
           <div>
-            <h1 className="h3 mb-1">VC</h1>
-            <p className="text-muted mb-0">
-              Manage payment, signing, claim QR, anchoring, and credential lifecycle state.
-            </p>
+            <h1 className="h3 mb-0">VC</h1>
           </div>
 
           {canManageCredentials ? (
@@ -1270,220 +1760,68 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {activeTab !== 'payments' ? (
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4">
-              <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-                <div>
-                  <h2 className="h5 mb-1">Credential Lifecycle Table</h2>
-                  <p className="text-muted mb-0">
-                    Anchoring and claiming are tracked separately. Anchored but unclaimed credentials can still be claimed.
-                  </p>
-                </div>
-                <button className="btn btn-outline-secondary" onClick={() => loadDrafts()} disabled={loading}>
-                  {loading ? 'Refreshing...' : 'Refresh'}
-                </button>
-              </div>
+        {activeTab === 'drafts' ? (
+          <VcProcessingTable
+            rows={vcRows}
+            loading={loading}
+            paymentStatus={vcPaymentFilter}
+            search={vcSearch}
+            onPaymentStatus={setVcPaymentFilter}
+            onSearch={setVcSearch}
+            onRefresh={loadDrafts}
+            onDetails={openDraft}
+          />
+        ) : null}
 
-              <div className="d-flex flex-wrap gap-2 mb-3">
-                {filters.map((item) => (
-                  <button
-                    key={item.value || 'all'}
-                    className={`btn btn-sm ${
-                      statusFilter === item.value ? 'btn-primary' : 'btn-outline-primary'
-                    }`}
-                    onClick={() => {
-                      setStatusFilter(item.value);
-                      loadDrafts(item.value);
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+        {activeTab === 'signing' ? (
+          <SigningTable
+            rows={signingRows}
+            loading={loading}
+            busyId={busyId}
+            search={signingSearch}
+            canManage={canManageCredentials}
+            onSearch={setSigningSearch}
+            onRefresh={loadDrafts}
+            onSign={confirmSign}
+            onDetails={openDraft}
+          />
+        ) : null}
 
-              {loading ? (
-                <div className="text-muted">Loading credential drafts...</div>
-              ) : draftRows.length === 0 ? (
-                <div className="alert alert-light border mb-0">
-                  No credential drafts found for this filter.
-                </div>
-              ) : (
-                <div className="table-responsive">
-                  <table className="table align-middle mb-0">
-                    <thead>
-                      <tr>
-                        <th>Student</th>
-                        <th>Credential</th>
-                        <th>Payment</th>
-                        <th>Credential Status</th>
-                        <th>Claim</th>
-                        <th>Anchor</th>
-                        <th>Created</th>
-                        <th>Updated</th>
-                        <th style={{ minWidth: 230 }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {draftRows.map((item) => {
-                        const claim = claimLabel(item);
-                        const anchor = anchorLabel(item);
-                        return (
-                          <tr key={item._id}>
-                            <td style={{ maxWidth: 230 }}>
-                              <div className="fw-semibold text-truncate">{item.studentName}</div>
-                              <div className="small text-muted text-truncate">{item.studentNo}</div>
-                            </td>
-                            <td style={{ maxWidth: 180 }}>
-                              <div className="fw-semibold text-truncate">
-                                {titleCase(item.credentialType || 'student_record')}
-                              </div>
-                              <div className="small text-muted text-truncate">{shortText(item._id)}</div>
-                            </td>
-                            <td style={{ maxWidth: 180 }}>
-                              <span className={`badge ${getPaymentBadge(item)}`}>
-                                {isCredentialPaid(item) ? 'Paid' : 'Unpaid'}
-                              </span>
-                              <div className="small text-muted text-truncate">
-                                {item.paymentCode || 'No payment code'}
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`badge ${getStatusBadge(item.status)}`}>
-                                {titleCase(item.status)}
-                              </span>
-                            </td>
-                            <td style={{ maxWidth: 180 }}>
-                              <span className={`badge ${claim.badge}`}>{claim.title}</span>
-                              <div className="small text-muted text-truncate">{claim.body}</div>
-                            </td>
-                            <td style={{ maxWidth: 200 }}>
-                              <span className={`badge ${anchor.badge}`}>{anchor.title}</span>
-                              {anchor.body ? <div className="small text-muted">{anchor.body}</div> : null}
-                              {anchor.hash ? (
-                                <div className="small text-muted text-truncate">{shortText(anchor.hash)}</div>
-                              ) : null}
-                            </td>
-                            <td>{formatDate(item.createdAt)}</td>
-                            <td>{formatDate(item.updatedAt)}</td>
-                            <td>
-                              <div className="d-flex flex-wrap gap-2">
-                                <button
-                                  className="btn btn-outline-primary btn-sm"
-                                  onClick={() => openDraft(item._id)}
-                                  disabled={busyId === item._id}
-                                >
-                                  Details
-                                </button>
+        {activeTab === 'anchor' ? (
+          <AnchorProgressTable
+            rows={anchorRows}
+            loading={loading}
+            schedule={anchorScheduleFilter}
+            status={anchorStatusFilter}
+            onSchedule={setAnchorScheduleFilter}
+            onStatus={setAnchorStatusFilter}
+            onRefresh={loadDrafts}
+            onDetails={openDraft}
+          />
+        ) : null}
 
-                                {item.status === 'draft' && canManageCredentials ? (
-                                  <button
-                                    className="btn btn-primary btn-sm"
-                                    onClick={() => confirmSubmit(item)}
-                                    disabled={busyId === item._id}
-                                  >
-                                    Submit
-                                  </button>
-                                ) : null}
-
-                                {item.status === 'for_signature' && canManageCredentials ? (
-                                  <>
-                                    <button
-                                      className="btn btn-success btn-sm"
-                                      onClick={() => confirmSign(item)}
-                                      disabled={busyId === item._id || !isCredentialPaid(item)}
-                                    >
-                                      Sign
-                                    </button>
-                                    <button
-                                      className="btn btn-outline-danger btn-sm"
-                                      onClick={() => confirmReject(item)}
-                                      disabled={busyId === item._id}
-                                    >
-                                      Reject
-                                    </button>
-                                  </>
-                                ) : null}
-
-                                {canShowClaimQr(item) && canManageCredentials && hasActiveClaimToken(item) ? (
-                                  <button
-                                    className="btn btn-info btn-sm"
-                                    onClick={() => viewExistingClaimQr(item)}
-                                    disabled={busyId === item._id}
-                                  >
-                                    View QR
-                                  </button>
-                                ) : null}
-
-                                {canShowClaimQr(item) && canManageCredentials && !hasActiveClaimToken(item) && canGenerateFreshClaimQr(item) ? (
-                                  <button
-                                    className="btn btn-info btn-sm"
-                                    onClick={() => confirmClaimQr(item, hasExpiredClaimToken(item))}
-                                    disabled={busyId === item._id}
-                                  >
-                                    {hasExpiredClaimToken(item) ? 'Fresh QR' : 'Claim QR'}
-                                  </button>
-                                ) : null}
-
-                                {canShowClaimQr(item) && canManageCredentials && !hasActiveClaimToken(item) && !canGenerateFreshClaimQr(item) ? (
-                                  <button className="btn btn-outline-info btn-sm" disabled>
-                                    QR Active
-                                  </button>
-                                ) : null}
-
-                                {canShowClaimOverrideQr(item, currentUser) ? (
-                                  hasActiveClaimToken(item) ? (
-                                    <button
-                                      className="btn btn-warning btn-sm"
-                                      onClick={() => viewExistingClaimQr(item, true)}
-                                      disabled={busyId === item._id}
-                                    >
-                                      View Override QR
-                                    </button>
-                                  ) : (
-                                  <button
-                                    className="btn btn-outline-warning btn-sm"
-                                    onClick={() => confirmOverrideQr(item)}
-                                    disabled={busyId === item._id}
-                                  >
-                                    Override QR
-                                  </button>
-                                  )
-                                ) : null}
-
-                                {canQueueAnchor(item, currentUser) ? (
-                                  <>
-                                    <button
-                                      className="btn btn-warning btn-sm"
-                                      onClick={() => confirmQueueAnchor(item, 'same_day')}
-                                      disabled={busyId === item._id}
-                                    >
-                                      Anchor Today
-                                    </button>
-                                    <button
-                                      className="btn btn-outline-warning btn-sm"
-                                      onClick={() => confirmQueueAnchor(item, 'scheduled')}
-                                      disabled={busyId === item._id}
-                                    >
-                                      Schedule 7 Days
-                                    </button>
-                                  </>
-                                ) : null}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+        {activeTab === 'claimed' ? (
+          <ClaimedCredentialsTable
+            rows={claimedRows}
+            loading={loading}
+            busyId={busyId}
+            anchorStatus={claimedAnchorFilter}
+            search={claimedSearch}
+            currentUser={currentUser}
+            onAnchorStatus={setClaimedAnchorFilter}
+            onSearch={setClaimedSearch}
+            onRefresh={loadDrafts}
+            onDetails={openDraft}
+            onRegenerateQr={confirmOverrideQr}
+          />
         ) : null}
       </div>
 
-      <DraftDetailsModal draft={selectedDraft} onClose={() => setSelectedDraft(null)} />
+      <DraftDetailsModal
+        draft={selectedDraft}
+        actions={renderDetailsActions(selectedDraft)}
+        onClose={() => setSelectedDraft(null)}
+      />
       <ClaimQrModal
         key={claimQr?.claimUri || 'claim-qr'}
         claimQr={claimQr}
