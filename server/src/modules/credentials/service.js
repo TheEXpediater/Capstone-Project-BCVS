@@ -1595,12 +1595,46 @@ function clearAnchorTransactionFields(draft) {
   draft.anchorEventArgs = null;
 }
 
+function syncAnchoringMetadata(draft, { isAnchored = false, proof = null, reason = '' } = {}) {
+  draft.anchoring = {
+    ...(draft.anchoring?.toObject?.() || draft.anchoring || {}),
+    isAnchored,
+    status: draft.anchorStatus || 'not_requested',
+    anchoredAt: draft.anchoredAt || null,
+    txHash: draft.anchorTxHash || '',
+    blockNumber: draft.anchorBlockNumber ?? null,
+    contractAddress: draft.anchorContractAddress || draft.contractAddress || '',
+    contractId: draft.anchoring?.contractId || '',
+    chainId: draft.anchorChainId ?? null,
+    network: draft.anchorNetwork || '',
+    explorerUrl: draft.anchorExplorerUrl || '',
+    merkleRoot: draft.merkleRoot || '',
+    merkleLeaf: draft.merkleLeaf || '',
+    merkleProof: Array.isArray(draft.merkleProof) ? draft.merkleProof : [],
+    merkleTreeSize: draft.merkleTreeSize || 0,
+    merkleLeafIndex: draft.merkleLeafIndex ?? -1,
+    merkleAlgorithm: draft.merkleAlgorithm || MERKLE_ALGORITHM,
+    proofHash: proof?.leaf || draft.anchoring?.proofHash || '',
+    canonicalCredentialHash:
+      proof?.vcHash ||
+      draft.vcHash ||
+      draft.canonicalVcHash ||
+      draft.signedCredential?.proof?.vcHash ||
+      '',
+    eventName: draft.anchorEventName || '',
+    eventArgs: draft.anchorEventArgs || null,
+    failureReason: reason || draft.anchorFailureReason || draft.anchoringUnavailableReason || '',
+  };
+  draft.markModified?.('anchoring');
+}
+
 function markAnchorUnavailable(draft, { status, reason, proof, tree, activeContract }) {
   applyMerkleProofFields(draft, proof, tree, activeContract);
   clearAnchorTransactionFields(draft);
   draft.anchorStatus = status;
   draft.anchorFailureReason = reason;
   draft.anchoringUnavailableReason = reason;
+  syncAnchoringMetadata(draft, { isAnchored: false, proof, reason });
 }
 
 function markAnchorSucceeded(draft, anchorResult, proof, tree) {
@@ -1629,6 +1663,7 @@ function markAnchorSucceeded(draft, anchorResult, proof, tree) {
   draft.anchorEventArgs = anchorResult.anchorEventArgs || null;
   draft.anchorFailureReason = '';
   draft.anchoringUnavailableReason = '';
+  syncAnchoringMetadata(draft, { isAnchored: true, proof });
 
   if (!isCredentialClaimed(draft) && !isCredentialRejectedOrRevoked(draft)) {
     draft.status = 'anchored';

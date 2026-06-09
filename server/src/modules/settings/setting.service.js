@@ -211,6 +211,17 @@ function buildWalletResponse(settings, contractsDashboard) {
   const activeContract = (contractsDashboard.contracts || []).find(
     (contract) => contract.address === selectedContractId || String(contract._id) === selectedContractId
   );
+  const activeAnchorContractId =
+    settings.blockchain.activeAnchorContractId ||
+    settings.blockchain.activeAnchorContractAddress ||
+    '';
+  const activeAnchorContract = (contractsDashboard.contracts || []).find(
+    (contract) =>
+      contract.contractType === 'merkle_anchor' &&
+      (contract.address === activeAnchorContractId ||
+        String(contract._id) === activeAnchorContractId ||
+        contract.address === settings.blockchain.activeAnchorContractAddress)
+  );
 
   return {
     ok: Boolean(contractsDashboard?.health?.ok),
@@ -244,6 +255,23 @@ function buildWalletResponse(settings, contractsDashboard) {
       settings.blockchain.selectedContractCapabilities ||
       activeContract?.capabilities ||
       EMPTY_MERKLE_CAPABILITIES,
+    activeAnchorContractId:
+      settings.blockchain.activeAnchorContractId || activeAnchorContract?._id?.toString?.() || '',
+    activeAnchorContractAddress:
+      settings.blockchain.activeAnchorContractAddress || activeAnchorContract?.address || '',
+    activeAnchorContractName:
+      settings.blockchain.activeAnchorContractName || activeAnchorContract?.contractName || '',
+    activeAnchorContractChainId:
+      settings.blockchain.activeAnchorContractChainId ?? activeAnchorContract?.chainId ?? null,
+    activeAnchorContractNetwork:
+      settings.blockchain.activeAnchorContractNetwork || activeAnchorContract?.network || '',
+    activeAnchorContractExplorerUrl:
+      settings.blockchain.activeAnchorContractExplorerUrl || activeAnchorContract?.explorerUrl || '',
+    activeAnchorContractCapabilities:
+      settings.blockchain.activeAnchorContractCapabilities ||
+      activeAnchorContract?.capabilities ||
+      EMPTY_MERKLE_CAPABILITIES,
+    activeAnchorContract: activeAnchorContract || contractsDashboard.activeAnchorContract || null,
     activeContract: activeContract || null,
     error: contractsDashboard?.error || '',
   };
@@ -341,6 +369,14 @@ export async function getDashboard(actor) {
           selectedContractExplorerUrl: settings.blockchain?.selectedContractExplorerUrl || '',
           selectedContractCapabilities:
             settings.blockchain?.selectedContractCapabilities || EMPTY_MERKLE_CAPABILITIES,
+          activeAnchorContractId: settings.blockchain?.activeAnchorContractId || '',
+          activeAnchorContractAddress: settings.blockchain?.activeAnchorContractAddress || '',
+          activeAnchorContractName: settings.blockchain?.activeAnchorContractName || '',
+          activeAnchorContractChainId: settings.blockchain?.activeAnchorContractChainId ?? null,
+          activeAnchorContractNetwork: settings.blockchain?.activeAnchorContractNetwork || '',
+          activeAnchorContractExplorerUrl: settings.blockchain?.activeAnchorContractExplorerUrl || '',
+          activeAnchorContractCapabilities:
+            settings.blockchain?.activeAnchorContractCapabilities || EMPTY_MERKLE_CAPABILITIES,
         },
       },
       admins: [],
@@ -520,13 +556,27 @@ export async function updateActiveContract(contractId, actor) {
   settings.blockchain.selectedContractNetwork = contract.network || '';
   settings.blockchain.selectedContractExplorerUrl = contract.explorerUrl || '';
   settings.blockchain.selectedContractCapabilities = capabilities;
+
+  if (contract.contractType === 'merkle_anchor') {
+    settings.blockchain.activeAnchorContractId = String(contract._id);
+    settings.blockchain.activeAnchorContractAddress = contract.address || '';
+    settings.blockchain.activeAnchorContractName = contract.contractName || 'MerkleAnchor';
+    settings.blockchain.activeAnchorContractChainId = contract.chainId ?? null;
+    settings.blockchain.activeAnchorContractNetwork = contract.network || '';
+    settings.blockchain.activeAnchorContractExplorerUrl = contract.explorerUrl || '';
+    settings.blockchain.activeAnchorContractCapabilities = capabilities;
+  }
+
   settings.updatedBy = actor._id;
 
   contract.capabilities = capabilities;
   contract.isActive = true;
 
   await Contract.updateMany(
-    { _id: { $ne: contract._id } },
+    {
+      _id: { $ne: contract._id },
+      ...(contract.contractType === 'merkle_anchor' ? { contractType: 'merkle_anchor' } : {}),
+    },
     { $set: { isActive: false } }
   );
   await contract.save();
@@ -542,6 +592,13 @@ export async function updateActiveContract(contractId, actor) {
     selectedContractNetwork: settings.blockchain.selectedContractNetwork,
     selectedContractExplorerUrl: settings.blockchain.selectedContractExplorerUrl,
     selectedContractCapabilities: settings.blockchain.selectedContractCapabilities,
+    activeAnchorContractId: settings.blockchain.activeAnchorContractId,
+    activeAnchorContractAddress: settings.blockchain.activeAnchorContractAddress,
+    activeAnchorContractName: settings.blockchain.activeAnchorContractName,
+    activeAnchorContractChainId: settings.blockchain.activeAnchorContractChainId,
+    activeAnchorContractNetwork: settings.blockchain.activeAnchorContractNetwork,
+    activeAnchorContractExplorerUrl: settings.blockchain.activeAnchorContractExplorerUrl,
+    activeAnchorContractCapabilities: settings.blockchain.activeAnchorContractCapabilities,
     warning: capabilities.canAnchorMerkleRoot
       ? ''
       : 'Active contract does not support Merkle root anchoring. Credentials can prepare local proofs, but blockchain verification will not pass until a compatible MerkleAnchor contract is deployed and selected.',

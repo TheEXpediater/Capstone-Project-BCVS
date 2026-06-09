@@ -795,21 +795,26 @@ async function buildAnchorCheck(credential = {}, merkleValid = false) {
     const chainCheck = await verifyMerkleRootOnChain({
       merkleRoot,
       contractAddress,
+      blockNumber: credential?.anchorBlockNumber,
+      txHash,
     });
 
     if (chainCheck.verified) {
       return {
         verified: true,
         anchoredOnChain: true,
+        eventVerified: Boolean(chainCheck.eventVerified),
         reason: '',
         chainId,
         network: cleanString(credential?.anchorNetwork),
         contractAddress,
         txHash,
         blockNumber: credential?.anchorBlockNumber ?? null,
+        anchoredAt: credential?.anchoredAt || credential?.anchoring?.anchoredAt || null,
         explorerUrl,
         eventName: cleanString(credential?.anchorEventName),
         eventArgs: credential?.anchorEventArgs || null,
+        eventCheck: chainCheck.eventCheck || null,
         capabilities: chainCheck.capabilities || null,
       };
     }
@@ -826,6 +831,7 @@ async function buildAnchorCheck(credential = {}, merkleValid = false) {
     contractAddress,
     txHash,
     blockNumber: credential?.anchorBlockNumber ?? null,
+    anchoredAt: credential?.anchoredAt || credential?.anchoring?.anchoredAt || null,
     explorerUrl,
     eventName: cleanString(credential?.anchorEventName),
     eventArgs: credential?.anchorEventArgs || null,
@@ -919,6 +925,8 @@ async function verifyPresentedCredentialPayload({
     signatureValid: Boolean(signature.valid),
     vcHashMatches,
     merkleProofValid: merkleValid,
+    blockchainAnchorValid: blockchain.verified,
+    overallValid: fullyVerified,
     anchoredOnChain: blockchain.verified,
     failureReasons,
     verified: fullyVerified,
@@ -937,6 +945,8 @@ async function verifyPresentedCredentialPayload({
     anchorTxHash: cleanString(credential?.anchorTxHash),
     anchorContractAddress: cleanString(credential?.anchorContractAddress || credential?.contractAddress),
     anchorExplorerUrl: blockchain.explorerUrl || '',
+    anchorBlockNumber: blockchain.blockNumber ?? null,
+    anchorTimestamp: blockchain.anchoredAt || null,
     issuerPublicKey: issuerKey.publicKeyPem,
     checks: {
       credentialType: {

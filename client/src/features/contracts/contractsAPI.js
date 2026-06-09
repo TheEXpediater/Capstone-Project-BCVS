@@ -15,6 +15,11 @@ export async function deployContract(payload = {}) {
   return response.data.data;
 }
 
+export async function selectActiveAnchorContract(payload = {}) {
+  const response = await api.post('/contracts/anchor/select', payload);
+  return response.data.data;
+}
+
 export async function getContractCapabilities(address) {
   const response = await api.get(`/contracts/capabilities/${encodeURIComponent(address)}`);
   return response.data.data;

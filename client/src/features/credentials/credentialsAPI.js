@@ -55,6 +55,21 @@ export async function scheduleCredentialAnchor(id, payload = {}) {
   return response.data.data;
 }
 
+export async function anchorCredential(id, payload = {}) {
+  const response = await api.post(`/anchors/credential/${id}`, payload);
+  return response.data.data;
+}
+
+export async function batchAnchorCredentials(credentialIds = []) {
+  const response = await api.post('/anchors/batch', { credentialIds });
+  return response.data.data;
+}
+
+export async function verifyCredentialAnchor(id) {
+  const response = await api.get(`/anchors/verify/${id}`);
+  return response.data.data;
+}
+
 export async function getTodaysAnchorQueueSummary() {
   const response = await api.get('/credentials/anchor-queue/today');
   return response.data.data;

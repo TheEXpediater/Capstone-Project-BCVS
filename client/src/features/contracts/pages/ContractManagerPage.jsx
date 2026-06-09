@@ -4,6 +4,7 @@ import {
   deployContract,
   estimateDeployment,
   getContractsDashboard,
+  selectActiveAnchorContract,
 } from '../contractsAPI';
 
 const CONTRACT_TYPES = [
@@ -57,6 +58,9 @@ export default function ContractManagerPage() {
     health: null,
     account: null,
     contracts: [],
+    activeAnchorContract: null,
+    activeAnchorContractId: '',
+    activeAnchorContractAddress: '',
   });
   const [estimate, setEstimate] = useState(null);
   const [selectedContractType, setSelectedContractType] = useState('merkle_anchor');
@@ -72,6 +76,9 @@ export default function ContractManagerPage() {
         health: data.health || null,
         account: data.account || null,
         contracts: data.contracts || [],
+        activeAnchorContract: data.activeAnchorContract || null,
+        activeAnchorContractId: data.activeAnchorContractId || '',
+        activeAnchorContractAddress: data.activeAnchorContractAddress || '',
       });
     } catch (error) {
       setFeedback({ type: 'danger', text: error.message || 'Failed to load contract dashboard.' });
@@ -115,9 +122,33 @@ export default function ContractManagerPage() {
     }
   }
 
+  async function handleSelectActiveAnchor(item) {
+    try {
+      setDeploying(true);
+      const data = await selectActiveAnchorContract({
+        contractId: item._id,
+        contractAddress: item.address,
+      });
+      setFeedback({
+        type: 'success',
+        text: `Active anchor contract set to ${data?.activeAnchorContractAddress || item.address}.`,
+      });
+      await loadDashboard(true);
+    } catch (error) {
+      setFeedback({ type: 'danger', text: error.message || 'Failed to select active anchor contract.' });
+    } finally {
+      setDeploying(false);
+    }
+  }
+
   if (loading) {
     return <div className="card border-0 shadow-sm"><div className="card-body p-4">Loading contract manager...</div></div>;
   }
+
+  const activeAnchorAddress =
+    dashboard.activeAnchorContractAddress || dashboard.activeAnchorContract?.address || '';
+  const activeAnchorId =
+    dashboard.activeAnchorContractId || dashboard.activeAnchorContract?._id || activeAnchorAddress;
 
   return (
     <div className="container-fluid py-4">
@@ -218,6 +249,30 @@ export default function ContractManagerPage() {
           </div>
         </div>
       ) : null}
+
+      <div className="card border-0 shadow-sm mb-4">
+        <div className="card-body p-4">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <h2 className="h5 mb-1">Active Anchor Contract</h2>
+              <p className="text-muted mb-0">New credential anchors use this MerkleAnchor deployment.</p>
+            </div>
+            <span className={`badge ${activeAnchorAddress ? 'text-bg-success' : 'text-bg-warning'}`}>
+              {activeAnchorAddress ? 'Selected' : 'Not selected'}
+            </span>
+          </div>
+          <div className="row g-3 mt-1">
+            <div className="col-md-6">
+              <div className="small text-muted">Contract</div>
+              <div className="fw-semibold">{dashboard.activeAnchorContract?.contractName || 'MerkleAnchor'}</div>
+            </div>
+            <div className="col-md-6">
+              <div className="small text-muted">Address</div>
+              <div className="fw-semibold text-break">{activeAnchorAddress || 'Deploy and select a MerkleAnchor contract'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">

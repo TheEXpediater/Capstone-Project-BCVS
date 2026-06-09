@@ -49,5 +49,6 @@ export const env = {
     rpcUrl: process.env.RPC_URL || '',
     contractOperatorPrivateKey: process.env.CONTRACT_OPERATOR_PRIVATE_KEY || '',
     chainId: Number(process.env.ANCHOR_CHAIN_ID || 80002),
+    confirmations: Number(process.env.ANCHOR_CONFIRMATIONS || 2),
   },
 };

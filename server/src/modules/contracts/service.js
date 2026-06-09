@@ -6,6 +6,7 @@ import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { normalizeHex } from '../../shared/utils/vcProof.js';
 import { getContractModel } from './model.js';
+import { getSystemSettingModel } from '../settings/setting.model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -175,6 +176,17 @@ function getWallet() {
   return new ethers.Wallet(env.blockchain.contractOperatorPrivateKey, provider);
 }
 
+async function ensureMainSettings() {
+  const SystemSetting = getSystemSettingModel();
+  let settings = await SystemSetting.findOne({ code: 'main' });
+
+  if (!settings) {
+    settings = await SystemSetting.create({ code: 'main' });
+  }
+
+  return settings;
+}
+
 export function getExplorerBaseUrl(chainId) {
   if (Number(chainId) === 80002) {
     return 'https://amoy.polygonscan.com';
@@ -284,14 +296,32 @@ export async function getBlockchainRuntimeOverview() {
 
 export async function getContractsDashboard() {
   const Contract = getContractModel();
+  const SystemSetting = getSystemSettingModel();
 
-  const [overview, contracts] = await Promise.all([
+  const [overview, contracts, settings] = await Promise.all([
     getBlockchainRuntimeOverview(),
     Contract.find().sort({ createdAt: -1 }).lean(),
+    SystemSetting.findOne({ code: 'main' }).lean(),
   ]);
+
+  const activeAnchorContractId = cleanString(
+    settings?.blockchain?.activeAnchorContractId ||
+      settings?.blockchain?.activeAnchorContractAddress
+  );
 
   return {
     ...overview,
+    activeAnchorContractId,
+    activeAnchorContractAddress: cleanString(settings?.blockchain?.activeAnchorContractAddress),
+    activeAnchorContract: activeAnchorContractId
+      ? contracts.map(serializeContract).find(
+          (contract) =>
+            contract.contractType === 'merkle_anchor' &&
+            (String(contract._id) === activeAnchorContractId ||
+              contract.address === activeAnchorContractId ||
+              contract.address === settings?.blockchain?.activeAnchorContractAddress)
+        ) || null
+      : null,
     contracts: contracts.map(serializeContract),
   };
 }
@@ -396,6 +426,16 @@ export async function findContractByIdOrAddress(value) {
 }
 
 export async function getActiveContractRecord(settings) {
+  const configuredAnchor = cleanString(
+    settings?.blockchain?.activeAnchorContractId ||
+      settings?.blockchain?.activeAnchorContractAddress
+  );
+
+  if (configuredAnchor) {
+    const anchorContract = await findContractByIdOrAddress(configuredAnchor);
+    if (anchorContract?.contractType === 'merkle_anchor') return anchorContract;
+  }
+
   const configured = cleanString(settings?.blockchain?.selectedContractId);
   if (!configured) return null;
   return findContractByIdOrAddress(configured);
@@ -410,6 +450,84 @@ export async function getContractCapabilitiesByAddress(address) {
   return {
     contract,
     capabilities: getCapabilitiesForContract(contract),
+  };
+}
+
+function assertAnchorManager(actor) {
+  if (!actor || actor.role !== 'developer') {
+    throw new ApiError(403, 'Only the MIS developer can switch the active anchor contract.');
+  }
+}
+
+export async function selectActiveAnchorContract({ contractId = '', contractAddress = '' } = {}, actor = null) {
+  assertAnchorManager(actor);
+
+  const normalizedId = cleanString(contractId || contractAddress);
+  if (!normalizedId) {
+    throw new ApiError(400, 'Anchor contract id or address is required.');
+  }
+
+  const contract = await findContractByIdOrAddress(normalizedId);
+  if (!contract) {
+    throw new ApiError(404, 'Selected anchor contract was not found.');
+  }
+
+  if (contract.contractType !== 'merkle_anchor') {
+    throw new ApiError(409, 'Only MerkleAnchor contracts can be selected for anchoring.');
+  }
+
+  const capabilities = getCapabilitiesForContract(contract);
+  if (!capabilities.canAnchorMerkleRoot || !capabilities.canVerifyMerkleRoot) {
+    throw new ApiError(409, 'Selected contract does not support Merkle root anchoring.');
+  }
+
+  const settings = await ensureMainSettings();
+  const Contract = getContractModel();
+
+  settings.blockchain.activeAnchorContractId = String(contract._id);
+  settings.blockchain.activeAnchorContractAddress = contract.address || '';
+  settings.blockchain.activeAnchorContractName = contract.contractName || 'MerkleAnchor';
+  settings.blockchain.activeAnchorContractChainId = contract.chainId ?? null;
+  settings.blockchain.activeAnchorContractNetwork = contract.network || '';
+  settings.blockchain.activeAnchorContractExplorerUrl = contract.explorerUrl || '';
+  settings.blockchain.activeAnchorContractCapabilities = capabilities;
+
+  settings.blockchain.selectedContractId = contract.address || String(contract._id);
+  settings.blockchain.selectedContractName = contract.contractName || 'MerkleAnchor';
+  settings.blockchain.selectedContractType = contract.contractType;
+  settings.blockchain.selectedContractAddress = contract.address || '';
+  settings.blockchain.selectedContractChainId = contract.chainId ?? null;
+  settings.blockchain.selectedContractNetwork = contract.network || '';
+  settings.blockchain.selectedContractExplorerUrl = contract.explorerUrl || '';
+  settings.blockchain.selectedContractCapabilities = capabilities;
+  settings.updatedBy = actor?._id || null;
+
+  await Contract.updateMany(
+    { contractType: 'merkle_anchor', _id: { $ne: contract._id } },
+    { $set: { isActive: false } }
+  );
+
+  await Contract.updateOne(
+    { _id: contract._id },
+    {
+      $set: {
+        isActive: true,
+        capabilities,
+      },
+    }
+  );
+
+  await settings.save();
+
+  return {
+    activeAnchorContractId: settings.blockchain.activeAnchorContractId,
+    activeAnchorContractAddress: settings.blockchain.activeAnchorContractAddress,
+    activeAnchorContractName: settings.blockchain.activeAnchorContractName,
+    activeAnchorContractChainId: settings.blockchain.activeAnchorContractChainId,
+    activeAnchorContractNetwork: settings.blockchain.activeAnchorContractNetwork,
+    activeAnchorContractExplorerUrl: settings.blockchain.activeAnchorContractExplorerUrl,
+    activeAnchorContractCapabilities: settings.blockchain.activeAnchorContractCapabilities,
+    contract,
   };
 }
 
@@ -474,10 +592,60 @@ async function callVerifyFunction(contract, functionName, root) {
   return Boolean(result);
 }
 
+async function findRootAnchoredLogs({
+  contract,
+  eventName,
+  root,
+  blockNumber = null,
+  txHash = '',
+} = {}) {
+  const normalizedEventName = cleanString(eventName);
+  if (!normalizedEventName || !contract?.filters?.[normalizedEventName]) {
+    return {
+      checked: false,
+      found: false,
+      logs: [],
+      reason: 'root_anchored_event_missing_from_abi',
+    };
+  }
+
+  try {
+    const filter = contract.filters[normalizedEventName](root);
+    const block = Number(blockNumber || 0);
+    const fromBlock = Number.isFinite(block) && block > 0 ? block : 0;
+    const toBlock = Number.isFinite(block) && block > 0 ? block : 'latest';
+    const logs = await contract.queryFilter(filter, fromBlock, toBlock);
+    const hash = cleanString(txHash).toLowerCase();
+    const matchingLogs = hash
+      ? logs.filter((log) => cleanString(log.transactionHash).toLowerCase() === hash)
+      : logs;
+
+    return {
+      checked: true,
+      found: matchingLogs.length > 0,
+      logs: matchingLogs.map((log) => ({
+        transactionHash: log.transactionHash,
+        blockNumber: Number(log.blockNumber || 0) || null,
+        index: Number(log.index || 0),
+      })),
+      reason: matchingLogs.length ? '' : 'root_anchored_event_not_found',
+    };
+  } catch (error) {
+    return {
+      checked: true,
+      found: false,
+      logs: [],
+      reason: error.message || 'root_anchored_event_lookup_failed',
+    };
+  }
+}
+
 export async function verifyMerkleRootOnChain({
   merkleRoot,
   contractAddress,
   contractRecord = null,
+  blockNumber = null,
+  txHash = '',
 } = {}) {
   let root = '';
   try {
@@ -515,11 +683,34 @@ export async function verifyMerkleRootOnChain({
     const provider = getProvider();
     const abi = getAbiForContract(record);
     const contract = new ethers.Contract(address, abi, provider);
-    const verified = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
+    const rootVerified = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
+    const eventCheck = rootVerified
+      ? await findRootAnchoredLogs({
+          contract,
+          eventName: capabilities.rootAnchoredEventName,
+          root,
+          blockNumber,
+          txHash,
+        })
+      : {
+          checked: false,
+          found: false,
+          logs: [],
+          reason: 'merkle_root_not_anchored_on_chain',
+        };
+    const eventRequired = Boolean(capabilities.rootAnchoredEventName);
+    const verified = rootVerified && (!eventRequired || eventCheck.found);
 
     return {
       verified,
-      reason: verified ? '' : 'merkle_root_not_anchored_on_chain',
+      rootVerified,
+      eventVerified: eventCheck.found,
+      eventCheck,
+      reason: verified
+        ? ''
+        : rootVerified
+          ? eventCheck.reason || 'root_anchored_event_not_found'
+          : 'merkle_root_not_anchored_on_chain',
       contractAddress: address,
       contractType: record.contractType,
       capabilities,
@@ -565,7 +756,8 @@ export async function anchorMerkleRoot({
   const chainId = Number(network.chainId || record.chainId || env.blockchain.chainId);
 
   const tx = await contract[capabilities.anchorFunctionName](root);
-  const receipt = await tx.wait();
+  const confirmations = Math.max(1, Number(env.blockchain.confirmations || 1));
+  const receipt = await tx.wait(confirmations);
 
   if (Number(receipt?.status) !== 1) {
     throw new ApiError(500, 'Anchor transaction failed.');

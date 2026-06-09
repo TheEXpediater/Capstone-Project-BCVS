@@ -35,3 +35,16 @@ export async function getCapabilities(req, res, next) {
     next(error);
   }
 }
+
+export async function selectActiveAnchor(req, res, next) {
+  try {
+    const data = await contractService.selectActiveAnchorContract(req.body || {}, req.user);
+    res.status(200).json({
+      success: true,
+      data,
+      message: 'Active anchor contract updated successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+}

@@ -1,5 +1,6 @@
 import express from 'express';
 import authRoutes from '../modules/auth/routes.js';
+import anchorRoutes from '../modules/anchors/routes.js';
 import { listAllUsers } from '../modules/auth/controller.js';
 import contractRoutes from '../modules/contracts/routes.js';
 import dashboardRoutes from '../modules/dashboard/routes.js';
@@ -30,6 +31,7 @@ router.get(
 );
 
 router.use('/auth', authRoutes);
+router.use('/anchors', anchorRoutes);
 router.use('/contracts', contractRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/credentials', credentialRoutes);

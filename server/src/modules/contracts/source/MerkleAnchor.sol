@@ -9,8 +9,8 @@ contract MerkleAnchor {
 
     event RootAnchored(
         bytes32 indexed root,
-        address indexed actor,
-        uint256 timestamp
+        uint256 timestamp,
+        address indexed anchoredBy
     );
 
     error ZeroRoot();
@@ -33,7 +33,7 @@ contract MerkleAnchor {
         anchoredRoots[root] = true;
         anchoredAt[root] = block.timestamp;
 
-        emit RootAnchored(root, msg.sender, block.timestamp);
+        emit RootAnchored(root, block.timestamp, msg.sender);
     }
 
     function isRootAnchored(bytes32 root) external view returns (bool) {
