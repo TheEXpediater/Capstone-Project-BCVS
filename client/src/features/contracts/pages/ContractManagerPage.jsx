@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import {
+  checkAnchorReadiness,
   deployContract,
   estimateDeployment,
   getContractsDashboard,
@@ -110,6 +111,62 @@ function ExistingContractModal({
   );
 }
 
+function ReadinessModal({ result, onClose }) {
+  const checks = [
+    ['Contract Exists', Boolean(result?.contractExists)],
+    ['Anchor Method Available', Boolean(result?.canAnchor)],
+    ['RPC Connected', Boolean(result?.rpcConnected)],
+    ['Wallet Loaded', Boolean(result?.walletLoaded)],
+    ['Wallet Balance', Boolean(result?.walletBalance)],
+    ['Anchor Simulation Passed', Boolean(result?.anchorSimulation)],
+  ];
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-dialog-centered modal-lg">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">Anchor Readiness Check</h2>
+                <p className="text-muted mb-0 small">Read-only health check for the active anchor contract.</p>
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+            </div>
+            <div className="modal-body">
+              <div className="mb-3 d-flex flex-wrap align-items-center gap-2">
+                <span className={`badge ${result?.ready ? 'text-bg-success' : 'text-bg-danger'}`}>
+                  {result?.ready ? 'READY FOR ANCHORING' : 'NOT READY'}
+                </span>
+                <span className="small text-muted">Wallet balance: {result?.walletBalance ?? '0.0'} POL</span>
+              </div>
+              <ul className="list-group list-group-flush">
+                {checks.map(([label, ok]) => (
+                  <li key={label} className="list-group-item d-flex justify-content-between align-items-center px-0">
+                    <span>{label}</span>
+                    <span className={`badge ${ok ? 'text-bg-success' : 'text-bg-danger'}`}>
+                      {ok ? '✓' : '✗'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {Array.isArray(result?.errors) && result.errors.length ? (
+                <div className="alert alert-danger mt-3 mb-0">
+                  {result.errors.map((item) => <div key={item}>{item}</div>)}
+                </div>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onClose}>Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </>
+  );
+}
+
 export default function ContractManagerPage() {
   const reduxUser = useSelector((state) => state.auth?.user);
   const fallbackUser = useMemo(() => {
@@ -127,6 +184,7 @@ export default function ContractManagerPage() {
   const [estimating, setEstimating] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [verifyingExisting, setVerifyingExisting] = useState(false);
+  const [checkingReadiness, setCheckingReadiness] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [dashboard, setDashboard] = useState({
     health: null,
@@ -139,6 +197,8 @@ export default function ContractManagerPage() {
   const [estimate, setEstimate] = useState(null);
   const [selectedContractType, setSelectedContractType] = useState('merkle_anchor');
   const [existingModalOpen, setExistingModalOpen] = useState(false);
+  const [readinessModalOpen, setReadinessModalOpen] = useState(false);
+  const [readinessResult, setReadinessResult] = useState(null);
   const [existingForm, setExistingForm] = useState({
     address: '',
     contractType: 'merkle_anchor',
@@ -244,6 +304,27 @@ export default function ContractManagerPage() {
     }
   }
 
+  async function handleCheckReadiness() {
+    try {
+      if (!activeAnchorId) {
+        setFeedback({ type: 'warning', text: 'Select an active anchor contract before running the readiness check.' });
+        return;
+      }
+
+      setCheckingReadiness(true);
+      const data = await checkAnchorReadiness(activeAnchorId);
+      setReadinessResult(data);
+      setReadinessModalOpen(true);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: error?.response?.data?.message || error.message || 'Failed to check anchor readiness.',
+      });
+    } finally {
+      setCheckingReadiness(false);
+    }
+  }
+
   if (loading) {
     return <div className="card border-0 shadow-sm"><div className="card-body p-4">Loading contract manager...</div></div>;
   }
@@ -270,6 +351,13 @@ export default function ContractManagerPage() {
               Add Existing Contract
             </button>
           ) : null}
+          <button
+            className="btn btn-outline-success"
+            onClick={handleCheckReadiness}
+            disabled={checkingReadiness || !activeAnchorAddress}
+          >
+            {checkingReadiness ? 'Checking...' : 'Check Anchor Readiness'}
+          </button>
           <button className="btn btn-outline-secondary" onClick={() => loadDashboard(true)} disabled={refreshing}>
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
@@ -499,6 +587,13 @@ export default function ContractManagerPage() {
           onChange={setExistingForm}
           onClose={() => setExistingModalOpen(false)}
           onVerify={handleRegisterExisting}
+        />
+      ) : null}
+
+      {readinessModalOpen ? (
+        <ReadinessModal
+          result={readinessResult}
+          onClose={() => setReadinessModalOpen(false)}
         />
       ) : null}
     </div>

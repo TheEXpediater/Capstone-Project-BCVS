@@ -29,3 +29,8 @@ export async function getContractCapabilities(address) {
   const response = await api.get(`/contracts/capabilities/${encodeURIComponent(address)}`);
   return response.data.data;
 }
+
+export async function checkAnchorReadiness(contractIdOrAddress) {
+  const response = await api.get(`/contracts/${encodeURIComponent(contractIdOrAddress)}/health`);
+  return response.data.data;
+}

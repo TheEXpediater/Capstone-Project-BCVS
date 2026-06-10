@@ -743,6 +743,127 @@ export async function getContractCapabilitiesByAddress(address) {
   };
 }
 
+export async function checkAnchorReadiness(contractIdOrAddress = '') {
+  return checkAnchorReadinessWithDependencies(contractIdOrAddress);
+}
+
+export async function checkAnchorReadinessWithDependencies(
+  contractIdOrAddress = '',
+  dependencies = {}
+) {
+  const normalized = cleanString(contractIdOrAddress);
+
+  if (!normalized) {
+    throw new ApiError(400, 'A contract id or address is required.');
+  }
+
+  let contract = null;
+
+  try {
+    contract = await findContractByIdOrAddress(normalized);
+  } catch {
+    contract = null;
+  }
+
+  const contractAddress = cleanString(contract?.address || normalized);
+
+  if (!ethers.isAddress(contractAddress)) {
+    throw new ApiError(400, 'A valid contract address is required.');
+  }
+
+  const errors = [];
+  const createContract = dependencies.createContract || ((address, abi, provider) => new ethers.Contract(address, abi, provider));
+  const formatEther = dependencies.formatEther || ethers.formatEther;
+  const keccak256 = dependencies.keccak256 || ethers.keccak256;
+  const toUtf8Bytes = dependencies.toUtf8Bytes || ethers.toUtf8Bytes;
+
+  let provider = dependencies.provider || null;
+  let wallet = dependencies.wallet || null;
+  let rpcConnected = false;
+  let contractExists = false;
+  let canAnchor = false;
+  let walletLoaded = false;
+  let walletBalance = '0.0';
+  let anchorSimulation = false;
+
+  try {
+    provider = provider || (dependencies.getProvider ? dependencies.getProvider() : getProvider());
+    await provider.getNetwork();
+    rpcConnected = true;
+  } catch (error) {
+    errors.push('RPC connectivity check failed.');
+  }
+
+  if (provider) {
+    try {
+      const code = await provider.getCode(contractAddress);
+      contractExists = Boolean(code && code !== '0x');
+      if (!contractExists) {
+        errors.push('No contract bytecode was found at the provided address.');
+      }
+    } catch (error) {
+      errors.push('Unable to verify contract bytecode on the RPC provider.');
+    }
+  }
+
+  const capabilities = contract
+    ? getCapabilitiesForContract(contract)
+    : getCapabilitiesForContract({ address: contractAddress, contractType: 'merkle_anchor' });
+
+  canAnchor = Boolean(capabilities?.canAnchorMerkleRoot || capabilities?.anchorFunctionName);
+  if (!canAnchor) {
+    errors.push('The contract does not expose an anchoring function.');
+  }
+
+  if (provider) {
+    try {
+      wallet = wallet || (dependencies.getWallet ? dependencies.getWallet(provider) : getWallet());
+      walletLoaded = true;
+      const balanceWei = await provider.getBalance(wallet.address);
+      walletBalance = formatEther(balanceWei);
+
+      if (canAnchor) {
+        const abi = getAbiForContract(contract || { address: contractAddress, contractType: 'merkle_anchor' });
+        const contractInstance = createContract(contractAddress, abi, provider);
+        const functionName = capabilities?.anchorFunctionName || findAnchorFunction(abi, ANCHOR_FUNCTION_NAMES);
+
+        if (!functionName) {
+          errors.push('The contract does not expose a supported anchor function for simulation.');
+        } else {
+          const testRoot = keccak256(toUtf8Bytes('BCVS_HEALTH_CHECK'));
+          const callPayload = buildAnchorFunctionCall({ abi, functionName, root: testRoot, batchId: 'bcvs-health-check' });
+          await contractInstance[functionName].staticCall(...callPayload.args);
+          anchorSimulation = true;
+        }
+      }
+    } catch (error) {
+      errors.push(error.message || 'Operator wallet or simulation check failed.');
+      walletLoaded = false;
+      anchorSimulation = false;
+    }
+  } else {
+    errors.push('The RPC provider is unavailable for wallet and simulation checks.');
+  }
+
+  return {
+    ready: Boolean(
+      contractExists &&
+        canAnchor &&
+        rpcConnected &&
+        walletLoaded &&
+        anchorSimulation &&
+        errors.length === 0
+    ),
+    contractExists,
+    canAnchor,
+    rpcConnected,
+    walletLoaded,
+    walletBalance,
+    anchorSimulation,
+    ...(errors.length ? { errors } : {}),
+  };
+}
+
 function assertAnchorManager(actor) {
   if (!actor || actor.role !== 'developer') {
     throw new ApiError(403, 'Only the MIS developer can switch the active anchor contract.');

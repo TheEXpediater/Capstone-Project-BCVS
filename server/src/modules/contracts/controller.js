@@ -61,3 +61,12 @@ export async function selectActiveAnchor(req, res, next) {
     next(error);
   }
 }
+
+export async function checkReadiness(req, res, next) {
+  try {
+    const data = await contractService.checkAnchorReadiness(req.params.id || req.params.address);
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
