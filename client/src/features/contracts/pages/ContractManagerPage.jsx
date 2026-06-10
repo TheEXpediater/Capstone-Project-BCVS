@@ -9,13 +9,10 @@ import {
   selectActiveAnchorContract,
 } from '../contractsAPI';
 
-const CONTRACT_TYPES = [
-  { value: 'admin', label: 'Admin Contract' },
-  { value: 'merkle_anchor', label: 'Merkle Anchor Contract' },
-];
+const ANCHOR_CONTRACT_TYPE = 'merkle_anchor';
 
-function contractTypeLabel(value) {
-  return CONTRACT_TYPES.find((item) => item.value === value)?.label || 'Admin Contract';
+function contractTypeLabel() {
+  return 'Merkle Anchor Contract';
 }
 
 function capabilityClass(capabilities) {
@@ -195,7 +192,7 @@ export default function ContractManagerPage() {
     activeAnchorContractAddress: '',
   });
   const [estimate, setEstimate] = useState(null);
-  const [selectedContractType, setSelectedContractType] = useState('merkle_anchor');
+  const [selectedContractType] = useState(ANCHOR_CONTRACT_TYPE);
   const [existingModalOpen, setExistingModalOpen] = useState(false);
   const [readinessModalOpen, setReadinessModalOpen] = useState(false);
   const [readinessResult, setReadinessResult] = useState(null);
@@ -234,7 +231,7 @@ export default function ContractManagerPage() {
   async function handleEstimate() {
     try {
       setEstimating(true);
-      const data = await estimateDeployment({ contractType: selectedContractType });
+      const data = await estimateDeployment({ contractType: ANCHOR_CONTRACT_TYPE });
       setEstimate(data);
       setFeedback({ type: 'success', text: 'Deployment estimate loaded.' });
     } catch (error) {
@@ -247,7 +244,7 @@ export default function ContractManagerPage() {
   async function handleDeploy() {
     try {
       setDeploying(true);
-      const data = await deployContract({ contractType: selectedContractType });
+      const data = await deployContract({ contractType: ANCHOR_CONTRACT_TYPE });
       setFeedback({
         type: 'success',
         text: `Contract deployed${data?.address ? ` at ${data.address}` : ''}.`,
@@ -304,15 +301,16 @@ export default function ContractManagerPage() {
     }
   }
 
-  async function handleCheckReadiness() {
+  async function handleCheckReadiness(item = null) {
     try {
-      if (!activeAnchorId) {
+      const contractIdOrAddress = item?._id || item?.address || activeAnchorId;
+      if (!contractIdOrAddress) {
         setFeedback({ type: 'warning', text: 'Select an active anchor contract before running the readiness check.' });
         return;
       }
 
       setCheckingReadiness(true);
-      const data = await checkAnchorReadiness(activeAnchorId);
+      const data = await checkAnchorReadiness(contractIdOrAddress);
       setReadinessResult(data);
       setReadinessModalOpen(true);
     } catch (error) {
@@ -325,21 +323,58 @@ export default function ContractManagerPage() {
     }
   }
 
-  if (loading) {
-    return <div className="card border-0 shadow-sm"><div className="card-body p-4">Loading contract manager...</div></div>;
-  }
-
   const activeAnchorAddress =
     dashboard.activeAnchorContractAddress || dashboard.activeAnchorContract?.address || '';
   const activeAnchorId =
     dashboard.activeAnchorContractId || dashboard.activeAnchorContract?._id || activeAnchorAddress;
 
+  const anchorContracts = useMemo(() => {
+    const contracts = (dashboard.contracts || []).filter((item) => item.contractType === 'merkle_anchor');
+
+    return contracts.sort((a, b) => {
+      const aActive =
+        a.isActive ||
+        a.active ||
+        String(a._id || '') === String(activeAnchorId || '') ||
+        a.address === activeAnchorAddress;
+      const bActive =
+        b.isActive ||
+        b.active ||
+        String(b._id || '') === String(activeAnchorId || '') ||
+        b.address === activeAnchorAddress;
+
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+      return 0;
+    });
+  }, [dashboard.contracts, activeAnchorAddress, activeAnchorId]);
+
+  const activeContract = anchorContracts.find((item) => {
+    return (
+      item.isActive ||
+      item.active ||
+      String(item._id || '') === String(activeAnchorId || '') ||
+      item.address === activeAnchorAddress
+    );
+  });
+
+  const activeContractStatus =
+    activeContract?.capabilities?.canAnchorMerkleRoot || activeContract?.capabilities?.canVerifyMerkleRoot
+      ? 'Ready'
+      : activeContract
+        ? 'Not Ready'
+        : 'Not selected';
+
+  if (loading) {
+    return <div className="card border-0 shadow-sm"><div className="card-body p-4">Loading contract manager...</div></div>;
+  }
+
   return (
     <div className="container-fluid py-4">
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
-          <h1 className="h3 mb-1">Contract Manager</h1>
-          <p className="text-muted mb-0">Deploy contracts and review the saved deployment list from the smart contract service.</p>
+          <h1 className="h3 mb-1">Anchor Contracts</h1>
+          <p className="text-muted mb-0">Review and manage MerkleAnchor contracts used by VC anchoring and verification.</p>
         </div>
         <div className="d-flex flex-wrap gap-2">
           {canDeploy ? (
@@ -348,16 +383,9 @@ export default function ContractManagerPage() {
               onClick={() => setExistingModalOpen(true)}
               disabled={verifyingExisting}
             >
-              Add Existing Contract
+              Register Existing Anchor Contract
             </button>
           ) : null}
-          <button
-            className="btn btn-outline-success"
-            onClick={handleCheckReadiness}
-            disabled={checkingReadiness || !activeAnchorAddress}
-          >
-            {checkingReadiness ? 'Checking...' : 'Check Anchor Readiness'}
-          </button>
           <button className="btn btn-outline-secondary" onClick={() => loadDashboard(true)} disabled={refreshing}>
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
@@ -392,30 +420,15 @@ export default function ContractManagerPage() {
         <div className="col-lg-4">
           <div className="card border-0 shadow-sm h-100">
             <div className="card-body p-4">
-              <h2 className="h5 mb-3">Deployment</h2>
+              <h2 className="h5 mb-3">Deploy Anchor Contract</h2>
               {canDeploy ? (
                 <>
-                  <div className="btn-group w-100 mb-3" role="group" aria-label="Contract type">
-                    {CONTRACT_TYPES.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        className={`btn ${selectedContractType === item.value ? 'btn-primary' : 'btn-outline-primary'}`}
-                        onClick={() => {
-                          setSelectedContractType(item.value);
-                          setEstimate(null);
-                        }}
-                        disabled={estimating || deploying}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                  <div className="alert alert-light border mb-3">Only MerkleAnchor contracts are exposed in this manager view.</div>
                   <button className="btn btn-outline-primary w-100 mb-2" onClick={handleEstimate} disabled={estimating || deploying}>
-                    {estimating ? 'Estimating...' : `Estimate ${contractTypeLabel(selectedContractType)} Cost`}
+                    {estimating ? 'Estimating...' : 'Estimate Anchor Contract Cost'}
                   </button>
                   <button className="btn btn-primary w-100" onClick={handleDeploy} disabled={!estimate || deploying}>
-                    {deploying ? 'Deploying...' : `Deploy ${contractTypeLabel(selectedContractType)}`}
+                    {deploying ? 'Deploying...' : 'Deploy New Anchor Contract'}
                   </button>
                 </>
               ) : (
@@ -452,59 +465,42 @@ export default function ContractManagerPage() {
         </div>
       ) : null}
 
-      <div className="card border-0 shadow-sm mb-4">
-        <div className="card-body p-4">
-          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
-            <div>
-              <h2 className="h5 mb-1">Active Anchor Contract</h2>
-              <p className="text-muted mb-0">New credential anchors use this MerkleAnchor deployment.</p>
-            </div>
-            <span className={`badge ${activeAnchorAddress ? 'text-bg-success' : 'text-bg-warning'}`}>
-              {activeAnchorAddress ? 'Selected' : 'Not selected'}
-            </span>
-          </div>
-          <div className="row g-3 mt-1">
-            <div className="col-md-6">
-              <div className="small text-muted">Contract</div>
-              <div className="fw-semibold">{dashboard.activeAnchorContract?.contractName || 'MerkleAnchor'}</div>
-            </div>
-            <div className="col-md-6">
-              <div className="small text-muted">Address</div>
-              <div className="fw-semibold text-break">{activeAnchorAddress || 'Deploy and select a MerkleAnchor contract'}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <div className="d-flex justify-content-between align-items-start mb-3">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
             <div>
-              <h2 className="h5 mb-1">Deployed Contracts</h2>
-              <p className="text-muted mb-0">Records are coming from the smart contract backend deployment collection.</p>
+              <h2 className="h5 mb-1">Anchor Contracts</h2>
+              <p className="text-muted mb-0">The active contract appears first and is used for future anchoring.</p>
             </div>
-            <span className="badge text-bg-secondary">{dashboard.contracts.length}</span>
+            <span className="badge text-bg-secondary">{anchorContracts.length}</span>
           </div>
 
-          {dashboard.contracts.length === 0 ? (
-            <div className="alert alert-light border mb-0">No deployments found yet.</div>
+          <div className="alert alert-light border mb-3 py-2">
+            <strong>Active Contract:</strong> {activeAnchorAddress || 'None selected'}
+            <span className="mx-2">•</span>
+            <strong>Status:</strong> <span className={`badge ${activeContractStatus === 'Ready' ? 'text-bg-success' : 'text-bg-warning'}`}>{activeContractStatus}</span>
+          </div>
+
+          {anchorContracts.length === 0 ? (
+            <div className="alert alert-light border mb-0">
+              No anchor contracts registered.
+              <button className="btn btn-primary btn-sm ms-2" onClick={() => setExistingModalOpen(true)} disabled={verifyingExisting}>
+                Register Existing Contract
+              </button>
+            </div>
           ) : (
             <div className="table-responsive">
               <table className="table align-middle">
                 <thead>
                   <tr>
-                    <th>Contract</th>
-                    <th>Type</th>
-                    <th>Address</th>
-                    <th>Capability</th>
+                    <th>Contract Address</th>
                     <th>Status</th>
-                    <th>Network</th>
-                    <th>Tx</th>
+                    <th>Active</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {dashboard.contracts.map((item) => {
+                  {anchorContracts.map((item) => {
                     const isActiveAnchor =
                       item.contractType === 'merkle_anchor' &&
                       (item.isActive ||
@@ -518,13 +514,13 @@ export default function ContractManagerPage() {
                       item.address &&
                       !isActiveAnchor;
 
+                    const readyStatus =
+                      item.capabilities?.canAnchorMerkleRoot || item.capabilities?.canVerifyMerkleRoot
+                        ? 'Ready'
+                        : 'Not Ready';
+
                     return (
-                      <tr key={item._id || item.txHash || item.address}>
-                        <td>
-                          <div className="fw-semibold">{item.contractName || 'AdminContract'}</div>
-                          <div className="text-muted small">{item.gasToken || 'POL'}</div>
-                        </td>
-                        <td>{contractTypeLabel(item.contractType)}</td>
+                      <tr key={item._id || item.txHash || item.address} className={isActiveAnchor ? 'table-success' : ''}>
                         <td className="text-break">
                           {addressLink(item) ? (
                             <a href={addressLink(item)} target="_blank" rel="noreferrer">
@@ -533,42 +529,39 @@ export default function ContractManagerPage() {
                           ) : (
                             item.address || 'Pending'
                           )}
+                          <div className="text-muted small">{item.contractName || 'MerkleAnchor'}</div>
                         </td>
                         <td>
-                          <span className={`badge ${capabilityClass(item.capabilities)}`}>
-                            {capabilityLabel(item.capabilities)}
+                          <span className={`badge ${readyStatus === 'Ready' ? 'text-bg-success' : 'text-bg-warning'}`}>
+                            {readyStatus}
                           </span>
                         </td>
                         <td>
-                          <span className={`badge ${item.status === 'success' ? 'text-bg-success' : item.status === 'pending' ? 'text-bg-warning' : 'text-bg-danger'}`}>
-                            {item.status || 'unknown'}
-                          </span>
-                          {item.verified ? <div className="small text-muted">Verified</div> : null}
-                        </td>
-                        <td>{item.network || item.chainId || '-'}</td>
-                        <td>
-                          {item.txHash && item.explorerUrl && /\/tx\//i.test(item.explorerUrl) ? (
-                            <a href={item.explorerUrl} target="_blank" rel="noreferrer">Open</a>
-                          ) : item.txHash ? (
-                            <span className="text-break small">{item.txHash}</span>
-                          ) : (
-                            <span className="text-muted small">Registered</span>
-                          )}
+                          {isActiveAnchor ? <span className="badge text-bg-success">Active</span> : <span className="text-muted small">Inactive</span>}
                         </td>
                         <td>
-                          {isActiveAnchor ? (
-                            <span className="badge text-bg-success">Active</span>
-                          ) : canSetActive ? (
+                          <div className="d-flex flex-wrap gap-2">
                             <button
-                              className="btn btn-outline-primary btn-sm"
-                              onClick={() => handleSelectActiveAnchor(item)}
-                              disabled={deploying}
+                              className="btn btn-outline-success btn-sm"
+                              onClick={() => handleCheckReadiness(item)}
+                              disabled={checkingReadiness}
                             >
-                              Set Active
+                              Check
                             </button>
-                          ) : (
-                            <span className="text-muted small">-</span>
-                          )}
+                            {isActiveAnchor ? (
+                              <span className="badge text-bg-success align-self-center">Active</span>
+                            ) : canSetActive ? (
+                              <button
+                                className="btn btn-outline-primary btn-sm"
+                                onClick={() => handleSelectActiveAnchor(item)}
+                                disabled={deploying}
+                              >
+                                Set Active
+                              </button>
+                            ) : (
+                              <span className="text-muted small align-self-center">-</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

@@ -121,7 +121,7 @@ function capabilityLabel(capabilities) {
 }
 
 function contractTypeLabel(value) {
-  return value === 'merkle_anchor' ? 'MerkleAnchor' : 'AdminContract';
+  return value === 'merkle_anchor' ? 'MerkleAnchor' : 'MerkleAnchor';
 }
 
 function explorerBase(url) {
@@ -429,7 +429,7 @@ export default function SystemSettingsPage() {
       title: 'Change active contract?',
       body: 'New anchoring operations will use the selected deployed contract.',
       details: selectedContractOption
-        ? `${selectedContractOption.contractName || 'AdminContract'} - ${selectedContractOption.address}`
+        ? `${selectedContractOption.contractName || 'MerkleAnchor'} - ${selectedContractOption.address}`
         : selectedContractId,
       confirmLabel: 'Save Contract',
       run: async () => {
@@ -1003,7 +1003,7 @@ export default function SystemSettingsPage() {
                   .filter((item) => item.address)
                   .map((item) => (
                     <option key={item._id || item.address} value={item.address || item._id}>
-                      {(item.contractName || 'AdminContract')} - {item.address} - {capabilityLabel(item.capabilities)}
+                      {(item.contractName || 'MerkleAnchor')} - {item.address}
                     </option>
                   ))}
               </select>
