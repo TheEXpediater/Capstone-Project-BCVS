@@ -4,6 +4,8 @@ import { getNotificationModel } from '../notifications/model.js';
 import { getStudentModel } from '../students/model.js';
 import { getVerificationSubmissionModel } from '../verification/model.js';
 
+const LATEST_LIMIT = 5;
+
 const CREDENTIAL_ACTIVITY_TYPES = [
   'credential_requested',
   'credential_ready',
@@ -33,7 +35,7 @@ function unpaidPaymentFilter() {
 
 function serializePaymentQueueRow(row) {
   return {
-    id: row._id,
+    id: String(row._id),
     paymentCode: row.paymentCode || '',
     studentNo: row.studentNo || '',
     studentName: row.studentName || '',
@@ -48,7 +50,7 @@ function serializePaymentQueueRow(row) {
 
 function serializeActivity(row) {
   return {
-    id: row._id,
+    id: String(row._id),
     type: row.type,
     title: row.title,
     body: row.body || '',
@@ -59,7 +61,7 @@ function serializeActivity(row) {
 
 function serializeVerification(row) {
   return {
-    id: row._id,
+    id: String(row._id),
     fullName: row.fullName || '',
     email: row.email || '',
     submittedStudentNo: row.submittedStudentNo || '',
@@ -110,15 +112,15 @@ export async function getDashboardSummary(actor) {
     CredentialDraft.countDocuments({ status: 'queued_for_anchor' }),
     Notification.find({ type: { $in: CREDENTIAL_ACTIVITY_TYPES } })
       .sort({ createdAt: -1 })
-      .limit(8)
+      .limit(LATEST_LIMIT)
       .lean(),
     VerificationSubmission.find({})
       .sort({ createdAt: -1 })
-      .limit(8)
+      .limit(LATEST_LIMIT)
       .lean(),
     CredentialDraft.find(unpaidFilter)
       .sort({ createdAt: -1 })
-      .limit(10)
+      .limit(LATEST_LIMIT)
       .lean(),
   ]);
 
@@ -139,6 +141,8 @@ export async function getDashboardSummary(actor) {
 
   return {
     roleMode,
+    generatedAt: new Date().toISOString(),
+    latestLimit: LATEST_LIMIT,
     metrics,
     paymentQueue: ['cashier', 'full'].includes(roleMode)
       ? paymentQueue.map(serializePaymentQueueRow)

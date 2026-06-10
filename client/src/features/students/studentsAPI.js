@@ -1,12 +1,17 @@
 import api from '../../services/api';
 
-export async function listStudents() {
-  const response = await api.get('/students');
+export async function listStudents(params = {}) {
+  const response = await api.get('/students', { params });
   return response.data.data;
 }
 
 export async function searchStudents(query) {
   const response = await api.get('/students/search', { params: { query } });
+  return response.data.data;
+}
+
+export async function createStudentProfile(payload) {
+  const response = await api.post('/students', payload);
   return response.data.data;
 }
 
@@ -17,6 +22,11 @@ export async function getStudentProfile(id) {
 
 export async function updateStudentProfile(id, payload) {
   const response = await api.put(`/students/${id}`, payload);
+  return response.data.data;
+}
+
+export async function deleteStudentProfile(id) {
+  const response = await api.delete(`/students/${id}`);
   return response.data.data;
 }
 

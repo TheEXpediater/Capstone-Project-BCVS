@@ -7,14 +7,24 @@ function extractRows(body) {
   return [];
 }
 
-export const listStudents = asyncHandler(async (_req, res) => {
-  const data = await studentService.listStudents();
+export const listStudents = asyncHandler(async (req, res) => {
+  const data = await studentService.listStudents(req.query || {});
   res.status(200).json({ success: true, data });
 });
 
 export const searchStudents = asyncHandler(async (req, res) => {
   const data = await studentService.searchStudents(req.query?.query || '');
   res.status(200).json({ success: true, data });
+});
+
+export const createStudent = asyncHandler(async (req, res) => {
+  const data = await studentService.createStudent(req.body || {}, req.user);
+
+  res.status(201).json({
+    success: true,
+    data,
+    message: 'Student record created successfully.',
+  });
 });
 
 export const getStudentById = asyncHandler(async (req, res) => {
@@ -33,6 +43,16 @@ export const updateStudentById = asyncHandler(async (req, res) => {
     success: true,
     data,
     message: 'Student profile updated successfully.',
+  });
+});
+
+export const deleteStudentById = asyncHandler(async (req, res) => {
+  const data = await studentService.deleteStudentById(req.params.id);
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Student record deleted successfully.',
   });
 });
 

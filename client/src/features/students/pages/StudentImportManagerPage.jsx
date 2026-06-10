@@ -1,15 +1,78 @@
-import { useEffect, useState } from 'react';
-import { FaCog, FaEdit, FaFileSignature, FaIdCard, FaListAlt } from 'react-icons/fa';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  FaChevronLeft,
+  FaChevronRight,
+  FaCog,
+  FaEdit,
+  FaFileSignature,
+  FaFilter,
+  FaIdCard,
+  FaListAlt,
+  FaPlus,
+  FaSearch,
+  FaTrash,
+  FaUpload,
+} from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import {
   bulkImportStudentGrades,
   bulkImportStudents,
+  createStudentProfile,
+  deleteStudentProfile,
   getStudentGrades,
   getStudentProfile,
   listStudents,
   updateStudentProfile,
 } from '../studentsAPI';
+import { listCurricula } from '../../curriculum/curriculumAPI';
 import { createCredentialDraftFromStudent } from '../../credentials/credentialsAPI';
+
+const PAGE_SIZE = 10;
+
+const EMPTY_STUDENT_FORM = {
+  studentNo: '',
+  studentName: '',
+  extensionName: '',
+  gender: '',
+  curriculumId: '',
+  programCode: '',
+  programName: '',
+  curriculumYear: '',
+  degreeTitle: '',
+  major: '',
+  dateAdmission: '',
+  dateGraduated: '',
+  dateGraduation: '',
+  placeBirth: '',
+  permanentAddress: '',
+  residentialAddress: '',
+  entranceCredentials: 'SF10 / Form 138',
+  highSchool: '',
+};
+
+const EMPTY_FILTERS = {
+  studentName: '',
+  programCode: '',
+  curriculumYear: '',
+  graduationYear: '',
+  graduated: '',
+};
+
+const EMPTY_IMPORT_STATE = {
+  fileName: '',
+  sheetName: '',
+  rows: [],
+  loading: false,
+};
+
+const EMPTY_PAGINATION = {
+  page: 1,
+  limit: PAGE_SIZE,
+  total: 0,
+  totalPages: 1,
+  hasPrevPage: false,
+  hasNextPage: false,
+};
 
 function formatDate(value) {
   if (!value) return '—';
@@ -20,6 +83,15 @@ function formatDate(value) {
   }
 
   return parsed.toLocaleDateString();
+}
+
+function formatYear(value) {
+  if (!value) return '—';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+
+  return String(parsed.getFullYear());
 }
 
 function buildSummaryText(label, summary) {
@@ -116,26 +188,40 @@ function formatDateInput(value) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function createStudentForm(student) {
+function createStudentForm(student = null) {
+  if (!student) return { ...EMPTY_STUDENT_FORM };
+
   return {
-    studentName: student?.studentName || '',
-    extensionName: student?.extensionName || '',
-    gender: student?.gender || '',
-    permanentAddress: student?.permanentAddress || '',
-    residentialAddress: student?.residentialAddress || '',
-    entranceCredentials: student?.entranceCredentials || '',
-    highSchool: student?.highSchool || '',
-    degreeTitle: student?.degreeTitle || '',
-    major: student?.major || '',
-    dateAdmission: formatDateInput(student?.dateAdmission),
-    placeBirth: student?.placeBirth || '',
-    dateGraduated: formatDateInput(student?.dateGraduated),
-    dateGraduation: formatDateInput(student?.dateGraduation),
-    graduated: Boolean(student?.graduated),
-    programCode: student?.programCode || '',
-    programName: student?.programName || '',
-    curriculumYear: student?.curriculum?.curriculumYear || '',
+    studentNo: student.studentNo || '',
+    studentName: student.studentName || '',
+    extensionName: student.extensionName || '',
+    gender: student.gender || '',
+    curriculumId: student.curriculum?._id || student.curriculumId || '',
+    programCode: student.programCode || student.curriculum?.program || '',
+    programName: student.programName || student.curriculum?.programName || '',
+    curriculumYear: student.curriculumYear || student.curriculum?.curriculumYear || '',
+    degreeTitle: student.degreeTitle || student.programName || student.curriculum?.programName || '',
+    major: student.major || '',
+    dateAdmission: formatDateInput(student.dateAdmission),
+    dateGraduated: formatDateInput(student.dateGraduated),
+    dateGraduation: formatDateInput(student.dateGraduation),
+    placeBirth: student.placeBirth || '',
+    permanentAddress: student.permanentAddress || '',
+    residentialAddress: student.residentialAddress || '',
+    entranceCredentials: student.entranceCredentials || '',
+    highSchool: student.highSchool || '',
   };
+}
+
+function curriculumLabel(curriculum) {
+  const program = curriculum?.program || 'Program';
+  const name = curriculum?.programName || 'Unnamed curriculum';
+  const year = curriculum?.curriculumYear || 'No year';
+  return `${program} - ${name} (${year})`;
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
 function FeedbackAlert({ feedback }) {
@@ -192,9 +278,7 @@ function DataPreview({ rows }) {
             {previewRows.map((row, index) => (
               <tr key={index}>
                 {columns.map((column) => (
-                  <td key={`${index}-${column}`}>
-                    {String(row[column] ?? '')}
-                  </td>
+                  <td key={`${index}-${column}`}>{String(row[column] ?? '')}</td>
                 ))}
               </tr>
             ))}
@@ -205,9 +289,396 @@ function DataPreview({ rows }) {
   );
 }
 
+function StudentFormFields({
+  form,
+  onChange,
+  curricula,
+  includeStudentNo = false,
+  readOnlyStudentNo = false,
+}) {
+  function updateField(field, value) {
+    onChange({
+      ...form,
+      [field]: value,
+    });
+  }
+
+  function handleCurriculumChange(curriculumId) {
+    const selected = curricula.find((item) => String(item._id) === String(curriculumId));
+
+    onChange({
+      ...form,
+      curriculumId,
+      programCode: selected?.program || '',
+      programName: selected?.programName || '',
+      curriculumYear: selected?.curriculumYear || '',
+      degreeTitle: selected?.programName || form.degreeTitle || '',
+    });
+  }
+
+  return (
+    <div className="row g-3">
+      {includeStudentNo ? (
+        <div className="col-md-4">
+          <label className="form-label fw-semibold">Student No.</label>
+          <input
+            className="form-control"
+            value={form.studentNo}
+            onChange={(event) => updateField('studentNo', event.target.value)}
+            disabled={readOnlyStudentNo}
+            required
+          />
+        </div>
+      ) : null}
+
+      <div className={includeStudentNo ? 'col-md-8' : 'col-md-6'}>
+        <label className="form-label fw-semibold">Student Name</label>
+        <input
+          className="form-control"
+          value={form.studentName}
+          onChange={(event) => updateField('studentName', event.target.value)}
+          placeholder="Last Name, First Name Middle Name"
+          required
+        />
+      </div>
+
+      <div className="col-md-6">
+        <label className="form-label fw-semibold">Program / Curriculum</label>
+        <select
+          className="form-select"
+          value={form.curriculumId}
+          onChange={(event) => handleCurriculumChange(event.target.value)}
+          required
+        >
+          <option value="">Select existing curriculum</option>
+          {curricula.map((curriculum) => (
+            <option key={curriculum._id} value={curriculum._id}>
+              {curriculumLabel(curriculum)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="col-md-3">
+        <label className="form-label fw-semibold">Major</label>
+        <input
+          className="form-control"
+          value={form.major}
+          onChange={(event) => updateField('major', event.target.value)}
+          placeholder="Optional"
+        />
+      </div>
+
+      <div className="col-md-3">
+        <label className="form-label fw-semibold">Extension Name</label>
+        <input
+          className="form-control"
+          value={form.extensionName}
+          onChange={(event) => updateField('extensionName', event.target.value)}
+          placeholder="Jr., Sr., III"
+        />
+      </div>
+
+      <div className="col-md-3">
+        <label className="form-label fw-semibold">Gender</label>
+        <select
+          className="form-select"
+          value={form.gender}
+          onChange={(event) => updateField('gender', event.target.value)}
+        >
+          <option value="">Select</option>
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+        </select>
+      </div>
+
+      <div className="col-md-3">
+        <label className="form-label fw-semibold">Date Admission</label>
+        <input
+          type="date"
+          className="form-control"
+          value={form.dateAdmission}
+          onChange={(event) => updateField('dateAdmission', event.target.value)}
+        />
+      </div>
+
+      <div className="col-md-3">
+        <label className="form-label fw-semibold">Date Graduated</label>
+        <input
+          type="date"
+          className="form-control"
+          value={form.dateGraduated}
+          onChange={(event) => updateField('dateGraduated', event.target.value)}
+        />
+      </div>
+
+      <div className="col-md-3">
+        <label className="form-label fw-semibold">Date Graduation</label>
+        <input
+          type="date"
+          className="form-control"
+          value={form.dateGraduation}
+          onChange={(event) => updateField('dateGraduation', event.target.value)}
+        />
+      </div>
+
+      <div className="col-md-6">
+        <label className="form-label fw-semibold">Place of Birth</label>
+        <input
+          className="form-control"
+          value={form.placeBirth}
+          onChange={(event) => updateField('placeBirth', event.target.value)}
+          placeholder="City/Municipality, Province"
+        />
+      </div>
+
+      <div className="col-md-6">
+        <label className="form-label fw-semibold">High School</label>
+        <input
+          className="form-control"
+          value={form.highSchool}
+          onChange={(event) => updateField('highSchool', event.target.value)}
+        />
+      </div>
+
+      <div className="col-md-6">
+        <label className="form-label fw-semibold">Entrance Credentials</label>
+        <input
+          className="form-control"
+          value={form.entranceCredentials}
+          onChange={(event) => updateField('entranceCredentials', event.target.value)}
+          placeholder="SF10 / Form 138"
+        />
+      </div>
+
+      <div className="col-md-6">
+        <label className="form-label fw-semibold">Permanent Address</label>
+        <textarea
+          className="form-control"
+          rows="2"
+          value={form.permanentAddress}
+          onChange={(event) => updateField('permanentAddress', event.target.value)}
+        />
+      </div>
+
+      <div className="col-md-6">
+        <label className="form-label fw-semibold">Residential Address</label>
+        <textarea
+          className="form-control"
+          rows="2"
+          value={form.residentialAddress}
+          onChange={(event) => updateField('residentialAddress', event.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function StudentDataModal({
+  open,
+  activeTab,
+  setActiveTab,
+  form,
+  setForm,
+  curricula,
+  creating,
+  studentImport,
+  onClose,
+  onCreate,
+  onFileChange,
+  onImport,
+}) {
+  if (!open) return null;
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">Student Data</h2>
+                <p className="text-muted mb-0 small">
+                  Create one student by default, or upload a CSV or Excel file when doing bulk entry.
+                </p>
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+            </div>
+
+            <div className="modal-body">
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  className={`btn ${activeTab === 'manual' ? 'btn-primary' : 'btn-outline-primary'}`}
+                  onClick={() => setActiveTab('manual')}
+                >
+                  <FaPlus className="me-2" />
+                  Manual Entry
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${activeTab === 'csv' ? 'btn-primary' : 'btn-outline-primary'}`}
+                  onClick={() => setActiveTab('csv')}
+                >
+                  <FaUpload className="me-2" />
+                  Upload CSV / Excel
+                </button>
+              </div>
+
+              {activeTab === 'manual' ? (
+                <>
+                  <div className="alert alert-light border small">
+                    Program is selected from the existing curriculum list. The Graduated value is not manually edited here because it is computed from grade remarks.
+                  </div>
+                  <StudentFormFields
+                    form={form}
+                    onChange={setForm}
+                    curricula={curricula}
+                    includeStudentNo
+                  />
+                </>
+              ) : null}
+
+              {activeTab === 'csv' ? (
+                <div className="d-flex flex-column gap-3">
+                  <div>
+                    <label className="form-label fw-semibold">Student CSV / Excel file</label>
+                    <input
+                      type="file"
+                      className="form-control"
+                      accept=".csv,.xlsx,.xls"
+                      onChange={onFileChange}
+                    />
+                    <div className="form-text">
+                      Required columns: StudentNo, StudentName, ProgramCode, and CurriculumYear. The ProgramCode + CurriculumYear pair must already exist in Curriculum Manager.
+                    </div>
+                  </div>
+
+                  {studentImport.fileName ? (
+                    <div className="alert alert-light border mb-0">
+                      <div><strong>File:</strong> {studentImport.fileName}</div>
+                      <div><strong>Sheet:</strong> {studentImport.sheetName || 'First sheet'}</div>
+                      <div><strong>Rows:</strong> {studentImport.rows.length}</div>
+                    </div>
+                  ) : null}
+
+                  <DataPreview rows={studentImport.rows} />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onClose} disabled={creating || studentImport.loading}>
+                Cancel
+              </button>
+              {activeTab === 'manual' ? (
+                <button className="btn btn-primary" onClick={onCreate} disabled={creating}>
+                  {creating ? 'Saving...' : 'Save Student Record'}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={onImport}
+                  disabled={studentImport.loading || !studentImport.rows.length}
+                >
+                  {studentImport.loading ? 'Importing...' : 'Import Student Data'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </>
+  );
+}
+
+function ImportModal({
+  open,
+  title,
+  description,
+  warning,
+  fileName,
+  sheetName,
+  rows,
+  loading,
+  buttonText,
+  helperText,
+  onClose,
+  onFileChange,
+  onImport,
+}) {
+  if (!open) return null;
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">{title}</h2>
+                <p className="text-muted mb-0 small">{description}</p>
+              </div>
+              <button type="button" className="btn-close" onClick={onClose} disabled={loading} aria-label="Close" />
+            </div>
+
+            <div className="modal-body">
+              <div className="d-flex flex-column gap-3">
+                {warning ? <div className="alert alert-warning mb-0">{warning}</div> : null}
+
+                <div>
+                  <label className="form-label fw-semibold">CSV / Excel file</label>
+                  <input
+                    type="file"
+                    className="form-control"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={onFileChange}
+                  />
+                  {helperText ? <div className="form-text">{helperText}</div> : null}
+                </div>
+
+                {fileName ? (
+                  <div className="alert alert-light border mb-0">
+                    <div><strong>File:</strong> {fileName}</div>
+                    <div><strong>Sheet:</strong> {sheetName || 'First sheet'}</div>
+                    <div><strong>Rows:</strong> {rows.length}</div>
+                  </div>
+                ) : null}
+
+                <DataPreview rows={rows} />
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onClose} disabled={loading}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={onImport} disabled={loading || !rows.length}>
+                {loading ? 'Importing...' : buttonText}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </>
+  );
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="col-md-6">
+      <div className="small text-muted">{label}</div>
+      <div className="fw-semibold">{value || '—'}</div>
+    </div>
+  );
+}
+
 function StudentProfileModal({
   student,
   initialEditing = false,
+  curricula,
   onClose,
   onOpenGrades,
   onSave,
@@ -226,13 +697,6 @@ function StudentProfileModal({
   const original = createStudentForm(student);
   const hasChanges = JSON.stringify(form) !== JSON.stringify(original);
 
-  function updateField(field, value) {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  }
-
   function handleRequestClose() {
     if (isEditing && hasChanges) {
       const approved = window.confirm('Discard unsaved changes?');
@@ -241,25 +705,7 @@ function StudentProfileModal({
     onClose();
   }
 
-  function handleStartEdit() {
-    const approved = window.confirm('Turn this profile into edit mode?');
-    if (!approved) return;
-    setIsEditing(true);
-  }
-
-  function handleCancelEdit() {
-    if (hasChanges) {
-      const approved = window.confirm('Discard unsaved changes?');
-      if (!approved) return;
-    }
-    setForm(original);
-    setIsEditing(false);
-  }
-
   async function handleSave() {
-    const approved = window.confirm('Save changes to this student profile?');
-    if (!approved) return;
-
     try {
       setSaving(true);
       const updated = await onSave(student._id, form);
@@ -272,267 +718,77 @@ function StudentProfileModal({
 
   function handleOpenGradesFromModal() {
     if (isEditing && hasChanges) {
-      const approved = window.confirm(
-        'You have unsaved changes. Open grades without saving?'
-      );
+      const approved = window.confirm('You have unsaved changes. Open grades without saving?');
       if (!approved) return;
     }
     onOpenGrades(student._id);
   }
 
-  function renderValue(label, value, input) {
-    return (
-      <div className="col-md-6">
-        <div className="small text-muted">{label}</div>
-        {isEditing ? input : <div className="fw-semibold">{value || '—'}</div>}
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-        <div className="modal-dialog modal-lg modal-dialog-centered">
+        <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
               <div>
-                <h2 className="h5 mb-1">
-                  {isEditing ? 'Edit Student Profile' : 'Student Profile'}
-                </h2>
+                <h2 className="h5 mb-1">{isEditing ? 'Edit Student Profile' : 'Student Profile'}</h2>
                 <p className="text-muted mb-0 small">{student.studentNo}</p>
               </div>
-              <button
-                type="button"
-                className="btn-close"
-                onClick={handleRequestClose}
-                aria-label="Close"
-              />
+              <button type="button" className="btn-close" onClick={handleRequestClose} aria-label="Close" />
             </div>
 
             <div className="modal-body">
-              <div className="row g-3">
-                <div className="col-md-6">
-                  <div className="small text-muted">Student No</div>
-                  <div className="fw-semibold">{student.studentNo || '—'}</div>
+              {isEditing ? (
+                <StudentFormFields
+                  form={form}
+                  onChange={setForm}
+                  curricula={curricula}
+                  includeStudentNo
+                  readOnlyStudentNo
+                />
+              ) : (
+                <div className="row g-3">
+                  <DetailItem label="Student No." value={student.studentNo} />
+                  <DetailItem label="Student Name" value={student.studentName} />
+                  <DetailItem label="Program Code" value={student.programCode || student.curriculum?.program} />
+                  <DetailItem label="Program Name" value={student.programName || student.curriculum?.programName} />
+                  <DetailItem label="Curriculum Year" value={student.curriculumYear || student.curriculum?.curriculumYear} />
+                  <DetailItem label="Major" value={student.major} />
+                  <DetailItem label="Gender" value={student.gender} />
+                  <DetailItem label="Extension Name" value={student.extensionName} />
+                  <DetailItem label="Date Admission" value={formatDate(student.dateAdmission)} />
+                  <DetailItem label="Date Graduated" value={formatDate(student.dateGraduated)} />
+                  <DetailItem label="Date Graduation" value={formatDate(student.dateGraduation)} />
+                  <DetailItem label="Graduated" value={student.graduated ? 'Yes' : 'No'} />
+                  <DetailItem label="Place of Birth" value={student.placeBirth} />
+                  <DetailItem label="Entrance Credentials" value={student.entranceCredentials} />
+                  <DetailItem label="High School" value={student.highSchool} />
+                  <DetailItem label="Permanent Address" value={student.permanentAddress} />
+                  <DetailItem label="Residential Address" value={student.residentialAddress} />
                 </div>
-
-                {renderValue(
-                  'Student Name',
-                  form.studentName,
-                  <input
-                    className="form-control"
-                    value={form.studentName}
-                    onChange={(e) => updateField('studentName', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Program Code',
-                  form.programCode,
-                  <input
-                    className="form-control"
-                    value={form.programCode}
-                    onChange={(e) => updateField('programCode', e.target.value.toUpperCase())}
-                  />
-                )}
-
-                {renderValue(
-                  'Program Name',
-                  form.programName || form.degreeTitle,
-                  <input
-                    className="form-control"
-                    value={form.programName}
-                    onChange={(e) => updateField('programName', e.target.value)}
-                  />
-                )}
-
-                <div className="col-md-4">
-                  <div className="small text-muted">Graduated</div>
-                  <div className="fw-semibold">{form.graduated ? 'Yes' : 'No'}</div>
-                  {isEditing ? (
-                    <div className="small text-muted">
-                      Auto-computed from imported grade remarks.
-                    </div>
-                  ) : null}
-                </div>
-
-                {renderValue(
-                  'Curriculum Year',
-                  form.curriculumYear || student?.curriculum?.curriculumYear,
-                  <input
-                    className="form-control"
-                    value={form.curriculumYear}
-                    onChange={(e) => updateField('curriculumYear', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Major',
-                  form.major,
-                  <input
-                    className="form-control"
-                    value={form.major}
-                    onChange={(e) => updateField('major', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Gender',
-                  form.gender,
-                  <input
-                    className="form-control"
-                    value={form.gender}
-                    onChange={(e) => updateField('gender', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Extension Name',
-                  form.extensionName,
-                  <input
-                    className="form-control"
-                    value={form.extensionName}
-                    onChange={(e) => updateField('extensionName', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Date Admission',
-                  formatDate(form.dateAdmission),
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={form.dateAdmission}
-                    onChange={(e) => updateField('dateAdmission', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Date Graduated',
-                  formatDate(form.dateGraduated),
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={form.dateGraduated}
-                    onChange={(e) => updateField('dateGraduated', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Date Graduation',
-                  formatDate(form.dateGraduation),
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={form.dateGraduation}
-                    onChange={(e) => updateField('dateGraduation', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Place of Birth',
-                  form.placeBirth,
-                  <input
-                    className="form-control"
-                    value={form.placeBirth}
-                    onChange={(e) => updateField('placeBirth', e.target.value)}
-                  />
-                )}
-
-                <div className="col-md-6">
-                  <div className="small text-muted">Curriculum</div>
-                  <div className="fw-semibold">
-                    {student.curriculum
-                      ? `${student.curriculum.program} ${student.curriculum.curriculumYear}`
-                      : 'Not linked yet'}
-                  </div>
-                </div>
-
-                <div className="col-12">
-                  <div className="small text-muted">Permanent Address</div>
-                  {isEditing ? (
-                    <textarea
-                      className="form-control"
-                      rows="2"
-                      value={form.permanentAddress}
-                      onChange={(e) => updateField('permanentAddress', e.target.value)}
-                    />
-                  ) : (
-                    <div className="fw-semibold">{form.permanentAddress || '—'}</div>
-                  )}
-                </div>
-
-                <div className="col-12">
-                  <div className="small text-muted">Residential Address</div>
-                  {isEditing ? (
-                    <textarea
-                      className="form-control"
-                      rows="2"
-                      value={form.residentialAddress}
-                      onChange={(e) => updateField('residentialAddress', e.target.value)}
-                    />
-                  ) : (
-                    <div className="fw-semibold">{form.residentialAddress || '—'}</div>
-                  )}
-                </div>
-
-                {renderValue(
-                  'Entrance Credentials',
-                  form.entranceCredentials,
-                  <input
-                    className="form-control"
-                    value={form.entranceCredentials}
-                    onChange={(e) => updateField('entranceCredentials', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'High School',
-                  form.highSchool,
-                  <input
-                    className="form-control"
-                    value={form.highSchool}
-                    onChange={(e) => updateField('highSchool', e.target.value)}
-                  />
-                )}
-
-                {renderValue(
-                  'Degree Title',
-                  form.degreeTitle,
-                  <input
-                    className="form-control"
-                    value={form.degreeTitle}
-                    onChange={(e) => updateField('degreeTitle', e.target.value)}
-                  />
-                )}
-              </div>
+              )}
             </div>
 
             <div className="modal-footer">
-              <button className="btn btn-outline-secondary" onClick={handleRequestClose}>
-                Close
-              </button>
-
-              {!isEditing ? (
+              {isEditing ? (
                 <>
-                  <button className="btn btn-outline-primary" onClick={handleStartEdit}>
-                    Edit
+                  <button className="btn btn-outline-secondary" onClick={() => setIsEditing(false)} disabled={saving}>
+                    Cancel Edit
                   </button>
-                  <button className="btn btn-primary" onClick={handleOpenGradesFromModal}>
-                    Show Grades
+                  <button className="btn btn-primary" onClick={handleSave} disabled={saving || !hasChanges}>
+                    {saving ? 'Saving...' : 'Save Changes'}
                   </button>
                 </>
               ) : (
                 <>
-                  <button className="btn btn-outline-secondary" onClick={handleCancelEdit}>
-                    Cancel Edit
+                  <button className="btn btn-outline-secondary" onClick={handleRequestClose}>Close</button>
+                  <button className="btn btn-outline-primary" onClick={handleOpenGradesFromModal}>
+                    <FaListAlt className="me-2" />
+                    View Grades
                   </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSave}
-                    disabled={saving}
-                  >
-                    {saving ? 'Saving...' : 'Save Changes'}
+                  <button className="btn btn-primary" onClick={() => setIsEditing(true)}>
+                    <FaEdit className="me-2" />
+                    Edit Profile
                   </button>
                 </>
               )}
@@ -540,88 +796,65 @@ function StudentProfileModal({
           </div>
         </div>
       </div>
-
-      <div className="modal-backdrop show" onClick={handleRequestClose} />
+      <div className="modal-backdrop show" />
     </>
   );
 }
 
 function buildGradeDisplayRows(grades) {
-  const yearCounts = new Map();
-  const semesterCounts = new Map();
-
-  for (const grade of grades || []) {
-    const yearKey = grade.yearLevel || '—';
-    const semesterKey = `${yearKey}__${grade.semester || '—'}`;
-
-    yearCounts.set(yearKey, (yearCounts.get(yearKey) || 0) + 1);
-    semesterCounts.set(semesterKey, (semesterCounts.get(semesterKey) || 0) + 1);
+  if (!grades?.length) {
+    return [];
   }
 
-  let lastYearKey = null;
-  let lastSemesterKey = null;
-
-  return (grades || []).map((grade) => {
-    const yearKey = grade.yearLevel || '—';
-    const semesterKey = `${yearKey}__${grade.semester || '—'}`;
-
-    const showYear = yearKey !== lastYearKey;
-    const showSemester = semesterKey !== lastSemesterKey;
-
-    lastYearKey = yearKey;
-    lastSemesterKey = semesterKey;
-
-    return {
-      ...grade,
-      showYear,
-      showSemester,
-      yearRowSpan: showYear ? yearCounts.get(yearKey) || 1 : 0,
-      semesterRowSpan: showSemester ? semesterCounts.get(semesterKey) || 1 : 0,
-    };
-  });
+  return (grades || []).map((grade) => ({
+    ...grade,
+    yearLevel: grade.yearLevel || '—',
+    semester: grade.semester || '—',
+    subjectCode: grade.subjectCode || '—',
+    subjectTitle: grade.subjectTitle || '—',
+    units: grade.units ?? '—',
+    finalGrade: grade.finalGrade || '—',
+    remarks: grade.remarks || '—',
+    schoolYear: grade.schoolYear || '—',
+  }));
 }
 
 function StudentGradesModal({ data, onClose }) {
   if (!data) return null;
 
-  const grades = data.grades || [];
-  const student = data.student;
-  const displayRows = buildGradeDisplayRows(grades);
+  const rows = buildGradeDisplayRows(data.grades);
+  const student = data.student || {};
 
   return (
     <>
       <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-        <div className="modal-dialog modal-xl modal-dialog-centered">
+        <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
               <div>
                 <h2 className="h5 mb-1">Student Grades</h2>
                 <p className="text-muted mb-0 small">
-                  {student?.studentNo} — {student?.studentName}
+                  {student.studentNo} · {student.studentName}
                 </p>
               </div>
-              <button
-                type="button"
-                className="btn-close"
-                onClick={onClose}
-                aria-label="Close"
-              />
+              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
             </div>
-
             <div className="modal-body">
-              {grades.length === 0 ? (
-                <div className="alert alert-light border mb-0">
-                  No grades imported for this student yet.
-                </div>
-              ) : (
+              <div className="alert alert-light border d-flex flex-wrap gap-3 align-items-center">
+                <span><strong>Program:</strong> {student.programCode || '—'}</span>
+                <span><strong>Curriculum:</strong> {student.curriculum?.curriculumYear || student.curriculumYear || '—'}</span>
+                <span><strong>Graduated:</strong> {student.graduated ? 'Yes' : 'No'}</span>
+              </div>
+
+              {rows.length ? (
                 <div className="table-responsive">
-                  <table className="table align-middle">
+                  <table className="table table-sm align-middle">
                     <thead>
                       <tr>
                         <th>Year</th>
                         <th>Semester</th>
-                        <th>Subject Code</th>
-                        <th>Subject Title</th>
+                        <th>Code</th>
+                        <th>Subject</th>
                         <th>Units</th>
                         <th>Grade</th>
                         <th>Remarks</th>
@@ -629,48 +862,35 @@ function StudentGradesModal({ data, onClose }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {displayRows.map((grade) => (
-                        <tr key={grade._id}>
-                          {grade.showYear ? (
-                            <td rowSpan={grade.yearRowSpan} className="align-top fw-semibold">
-                              {grade.yearLevel || '—'}
-                            </td>
-                          ) : null}
-
-                          {grade.showSemester ? (
-                            <td rowSpan={grade.semesterRowSpan} className="align-top">
-                              {grade.semester || '—'}
-                            </td>
-                          ) : null}
-
-                          <td className="fw-semibold">{grade.subjectCode || '—'}</td>
-                          <td>{grade.subjectTitle || '—'}</td>
-                          <td>{grade.units ?? 0}</td>
-                          <td>{grade.finalGrade || '—'}</td>
-                          <td>{grade.remarks || '—'}</td>
-                          <td>{grade.schoolYear || '—'}</td>
+                      {rows.map((grade) => (
+                        <tr key={grade._id || `${grade.yearLevel}-${grade.semester}-${grade.subjectCode}`}>
+                          <td>{grade.yearLevel}</td>
+                          <td>{grade.semester}</td>
+                          <td className="fw-semibold">{grade.subjectCode}</td>
+                          <td>{grade.subjectTitle}</td>
+                          <td>{grade.units}</td>
+                          <td>{grade.finalGrade}</td>
+                          <td>{grade.remarks}</td>
+                          <td>{grade.schoolYear}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+              ) : (
+                <div className="alert alert-light border mb-0">No grades imported for this student yet.</div>
               )}
             </div>
-
             <div className="modal-footer">
-              <button className="btn btn-outline-secondary" onClick={onClose}>
-                Close
-              </button>
+              <button className="btn btn-outline-secondary" onClick={onClose}>Close</button>
             </div>
           </div>
         </div>
       </div>
-
-      <div className="modal-backdrop show" onClick={onClose} />
+      <div className="modal-backdrop show" />
     </>
   );
 }
-
 
 function StudentActionMenu({
   student,
@@ -680,85 +900,101 @@ function StudentActionMenu({
   onOpenProfile,
   onOpenGrades,
   onConfirmVcDraft,
+  onDeleteStudent,
   profileLoading,
   gradesLoadingId,
   creatingVcDraftId,
 }) {
-  const gradesBusy = gradesLoadingId === student._id;
-  const vcBusy = creatingVcDraftId === student._id;
-
   return (
-    <div className="d-flex justify-content-end gap-2 position-relative">
+    <div className="d-inline-flex align-items-center gap-2 position-relative">
       <button
-        className="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-1"
         type="button"
+        className="btn btn-outline-primary btn-sm"
         onClick={() => onOpenProfile(student._id, 'view')}
         disabled={profileLoading}
       >
-        <FaIdCard />
+        <FaIdCard className="me-1" />
         Profile
       </button>
 
       <button
-        className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1"
         type="button"
+        className="btn btn-outline-secondary btn-sm"
         onClick={onToggle}
-        aria-label={`Open actions for ${student.studentName}`}
-        aria-expanded={isOpen}
+        aria-label="Student actions"
       >
         <FaCog />
       </button>
 
       {isOpen ? (
         <div
-          className="dropdown-menu show shadow-sm"
-          style={{ right: 0, left: 'auto', minWidth: 220, zIndex: 1050 }}
+          className="card shadow-sm position-absolute end-0 top-100 mt-1 text-start"
+          style={{ minWidth: 210, zIndex: 1060 }}
         >
-          <button
-            className="dropdown-item d-flex align-items-center gap-2"
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenProfile(student._id, 'edit');
-            }}
-            disabled={profileLoading}
-          >
-            <FaEdit />
-            Edit Profile
-          </button>
-
-          <button
-            className="dropdown-item d-flex align-items-center gap-2"
-            type="button"
-            onClick={() => {
-              onClose();
-              onOpenGrades(student._id);
-            }}
-            disabled={gradesBusy}
-          >
-            <FaListAlt />
-            {gradesBusy ? 'Loading Grades...' : 'View Grades'}
-          </button>
-
-          <div className="dropdown-divider" />
-
-          <button
-            className="dropdown-item d-flex align-items-center gap-2 text-success"
-            type="button"
-            onClick={() => onConfirmVcDraft(student)}
-            disabled={vcBusy}
-          >
-            <FaFileSignature />
-            {vcBusy ? 'Creating...' : 'Create VC Draft'}
-          </button>
+          <div className="list-group list-group-flush">
+            <button
+              type="button"
+              className="list-group-item list-group-item-action"
+              onClick={() => {
+                onClose();
+                onOpenProfile(student._id, 'edit');
+              }}
+            >
+              <FaEdit className="me-2" />
+              Edit Profile
+            </button>
+            <button
+              type="button"
+              className="list-group-item list-group-item-action"
+              onClick={() => {
+                onClose();
+                onOpenGrades(student._id);
+              }}
+              disabled={gradesLoadingId === student._id}
+            >
+              <FaListAlt className="me-2" />
+              {gradesLoadingId === student._id ? 'Loading Grades...' : 'View Grades'}
+            </button>
+            <button
+              type="button"
+              className="list-group-item list-group-item-action"
+              onClick={() => {
+                onClose();
+                onConfirmVcDraft(student);
+              }}
+              disabled={creatingVcDraftId === student._id}
+            >
+              <FaFileSignature className="me-2" />
+              {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
+            </button>
+            <button
+              type="button"
+              className="list-group-item list-group-item-action text-danger"
+              onClick={() => {
+                onClose();
+                onDeleteStudent(student);
+              }}
+            >
+              <FaTrash className="me-2" />
+              Delete Student
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
   );
 }
 
-function ConfirmActionModal({ student, busy, onCancel, onConfirm }) {
-  if (!student) return null;
+function ConfirmActionModal({ action, busy, onCancel, onConfirm }) {
+  if (!action) return null;
+
+  const isDelete = action.type === 'deleteStudent';
+  const title = isDelete ? 'Delete student record?' : 'Create VC draft?';
+  const message = isDelete
+    ? `This will delete ${action.student?.studentName || 'this student'} and all imported grade rows linked to this student. This cannot be undone.`
+    : `Create a verifiable credential draft for ${action.student?.studentName || 'this student'}?`;
+  const confirmText = isDelete ? 'Delete Student' : 'Create VC Draft';
+  const buttonClass = isDelete ? 'btn-danger' : 'btn-primary';
 
   return (
     <>
@@ -766,34 +1002,21 @@ function ConfirmActionModal({ student, busy, onCancel, onConfirm }) {
         <div className="modal-dialog modal-dialog-centered">
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
-              <div>
-                <h2 className="h5 mb-1">Create VC Draft</h2>
-                <p className="text-muted mb-0 small">
-                  {student.studentNo} — {student.studentName}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn-close"
-                onClick={onCancel}
-                disabled={busy}
-                aria-label="Close"
-              />
+              <h2 className="h5 mb-0">{title}</h2>
+              <button type="button" className="btn-close" onClick={onCancel} disabled={busy} aria-label="Close" />
             </div>
-
             <div className="modal-body">
-              <div className="alert alert-warning mb-0">
-                This will create a verifiable credential draft from the selected student profile
-                and imported grades. Continue only after confirming the record is correct.
-              </div>
+              <p className="mb-2">{message}</p>
+              {action.student?.studentNo ? (
+                <div className="alert alert-light border mb-0 small">
+                  Student No: <strong>{action.student.studentNo}</strong>
+                </div>
+              ) : null}
             </div>
-
             <div className="modal-footer">
-              <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
-                Cancel
-              </button>
-              <button className="btn btn-success" onClick={onConfirm} disabled={busy}>
-                {busy ? 'Creating...' : 'Create Draft'}
+              <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
+              <button className={`btn ${buttonClass}`} onClick={onConfirm} disabled={busy}>
+                {busy ? 'Processing...' : confirmText}
               </button>
             </div>
           </div>
@@ -804,78 +1027,185 @@ function ConfirmActionModal({ student, busy, onCancel, onConfirm }) {
   );
 }
 
-function ImportPanel({
-  title,
-  description,
-  warning,
-  fileName,
-  sheetName,
-  rows,
-  loading,
-  buttonText,
-  onFileChange,
-  onImport,
-  helperText,
+function FilterModal({
+  open,
+  draft,
+  setDraft,
+  curricula,
+  onCancel,
+  onApply,
+  onClear,
 }) {
-  const columns = Object.keys(rows[0] || {});
+  const programCodes = uniqueValues(curricula.map((item) => item.program));
+  const curriculumYears = uniqueValues(curricula.map((item) => item.curriculumYear));
+
+  if (!open) return null;
+
+  function updateField(field, value) {
+    setDraft({
+      ...draft,
+      [field]: value,
+    });
+  }
 
   return (
-    <div className="card border-0 shadow-sm">
-      <div className="card-body p-4 d-flex flex-column gap-4">
-        <div>
-          <h2 className="h5 mb-1">{title}</h2>
-          <p className="text-muted mb-0">{description}</p>
-        </div>
-
-        {warning ? <div className="alert alert-warning mb-0">{warning}</div> : null}
-
-        <div className="border rounded-3 p-3 bg-light">
-          <label className="form-label fw-semibold">Select Excel / CSV file</label>
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="form-control"
-            onChange={onFileChange}
-          />
-
-          {helperText ? (
-            <div className="small text-muted mt-2">{helperText}</div>
-          ) : null}
-        </div>
-
-        {fileName ? (
-          <div className="border rounded-3 p-3">
-            <div className="fw-semibold">{fileName}</div>
-            <div className="small text-muted">
-              Sheet: {sheetName || '—'} | Rows: {rows.length}
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">Filter Students</h2>
+                <p className="text-muted mb-0 small">Apply simple registrar filters without cluttering the main table.</p>
+              </div>
+              <button type="button" className="btn-close" onClick={onCancel} aria-label="Close" />
             </div>
-            <div className="small text-muted mt-2">
-              Columns: {columns.join(', ') || '—'}
+            <div className="modal-body">
+              <div className="row g-3">
+                <div className="col-12">
+                  <label className="form-label fw-semibold">Name contains</label>
+                  <input
+                    className="form-control"
+                    value={draft.studentName}
+                    onChange={(event) => updateField('studentName', event.target.value)}
+                    placeholder="Student name"
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label fw-semibold">Program Code</label>
+                  <select
+                    className="form-select"
+                    value={draft.programCode}
+                    onChange={(event) => updateField('programCode', event.target.value)}
+                  >
+                    <option value="">All programs</option>
+                    {programCodes.map((program) => (
+                      <option key={program} value={program}>{program}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label fw-semibold">Curriculum Year</label>
+                  <select
+                    className="form-select"
+                    value={draft.curriculumYear}
+                    onChange={(event) => updateField('curriculumYear', event.target.value)}
+                  >
+                    <option value="">All curriculum years</option>
+                    {curriculumYears.map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label fw-semibold">Year Graduated</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={draft.graduationYear}
+                    onChange={(event) => updateField('graduationYear', event.target.value)}
+                    placeholder="2026"
+                    min="1900"
+                    max="2100"
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label className="form-label fw-semibold">Graduated</label>
+                  <select
+                    className="form-select"
+                    value={draft.graduated}
+                    onChange={(event) => updateField('graduated', event.target.value)}
+                  >
+                    <option value="">All</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline-danger me-auto" onClick={onClear}>Clear Filters</button>
+              <button className="btn btn-outline-secondary" onClick={onCancel}>Cancel</button>
+              <button className="btn btn-primary" onClick={onApply}>Apply Filters</button>
             </div>
           </div>
-        ) : null}
-
-        <div className="d-flex justify-content-end">
-          <button
-            className="btn btn-primary"
-            onClick={onImport}
-            disabled={loading || !rows.length}
-          >
-            {loading ? 'Importing...' : buttonText}
-          </button>
         </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </>
+  );
+}
 
-        <DataPreview rows={rows} />
+function PaginationControls({ pagination, onPageChange, disabled }) {
+  const page = pagination.page || 1;
+  const totalPages = pagination.totalPages || 1;
+
+  if (totalPages <= 1) return null;
+
+  const pages = [];
+  const start = Math.max(1, page - 2);
+  const end = Math.min(totalPages, page + 2);
+
+  for (let number = start; number <= end; number += 1) {
+    pages.push(number);
+  }
+
+  return (
+    <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+      <div className="small text-muted">
+        Page {page} of {totalPages}
+      </div>
+      <div className="btn-group">
+        <button
+          type="button"
+          className="btn btn-outline-secondary btn-sm"
+          onClick={() => onPageChange(page - 1)}
+          disabled={disabled || page <= 1}
+        >
+          <FaChevronLeft className="me-1" />
+          Previous
+        </button>
+        {pages.map((number) => (
+          <button
+            type="button"
+            key={number}
+            className={`btn btn-sm ${number === page ? 'btn-primary' : 'btn-outline-secondary'}`}
+            onClick={() => onPageChange(number)}
+            disabled={disabled || number === page}
+          >
+            {number}
+          </button>
+        ))}
+        <button
+          type="button"
+          className="btn btn-outline-secondary btn-sm"
+          onClick={() => onPageChange(page + 1)}
+          disabled={disabled || page >= totalPages}
+        >
+          Next
+          <FaChevronRight className="ms-1" />
+        </button>
       </div>
     </div>
   );
 }
 
 export default function StudentImportManagerPage() {
-  const [activeTab, setActiveTab] = useState('students');
   const [students, setStudents] = useState([]);
+  const [pagination, setPagination] = useState(EMPTY_PAGINATION);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [refreshingStudents, setRefreshingStudents] = useState(false);
+  const [curricula, setCurricula] = useState([]);
+  const [loadingCurricula, setLoadingCurricula] = useState(false);
+
+  const [searchText, setSearchText] = useState('');
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filterDraft, setFilterDraft] = useState(EMPTY_FILTERS);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
 
   const [feedback, setFeedback] = useState({
     type: '',
@@ -883,19 +1213,14 @@ export default function StudentImportManagerPage() {
     issues: [],
   });
 
-  const [studentImport, setStudentImport] = useState({
-    fileName: '',
-    sheetName: '',
-    rows: [],
-    loading: false,
-  });
+  const [studentDataModalOpen, setStudentDataModalOpen] = useState(false);
+  const [studentDataTab, setStudentDataTab] = useState('manual');
+  const [studentForm, setStudentForm] = useState(createStudentForm());
+  const [creatingStudent, setCreatingStudent] = useState(false);
 
-  const [gradeImport, setGradeImport] = useState({
-    fileName: '',
-    sheetName: '',
-    rows: [],
-    loading: false,
-  });
+  const [studentImport, setStudentImport] = useState(EMPTY_IMPORT_STATE);
+  const [gradeImport, setGradeImport] = useState(EMPTY_IMPORT_STATE);
+  const [gradeImportModalOpen, setGradeImportModalOpen] = useState(false);
 
   const [profileLoading, setProfileLoading] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -903,19 +1228,73 @@ export default function StudentImportManagerPage() {
   const [gradesLoadingId, setGradesLoadingId] = useState('');
   const [selectedGradesData, setSelectedGradesData] = useState(null);
   const [actionMenuOpenId, setActionMenuOpenId] = useState('');
-  const [vcDraftTarget, setVcDraftTarget] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [busyAction, setBusyAction] = useState(false);
   const [creatingVcDraftId, setCreatingVcDraftId] = useState('');
 
-  async function loadStudents(showBusy = false) {
+  const activeFilterCount = useMemo(
+    () => Object.values(filters).filter((value) => String(value || '').trim() !== '').length,
+    [filters]
+  );
+
+  const countLabel = useMemo(() => {
+    const total = pagination.total || 0;
+    if (total === 0) return '0 students';
+
+    const start = (pagination.page - 1) * pagination.limit + 1;
+    const end = Math.min(total, pagination.page * pagination.limit);
+    return `Showing ${start}-${end} of ${total} students`;
+  }, [pagination]);
+
+  async function loadCurricula() {
     try {
-      if (showBusy) {
-        setRefreshingStudents(true);
-      } else {
-        setLoadingStudents(true);
+      setLoadingCurricula(true);
+      const data = await listCurricula();
+      setCurricula(Array.isArray(data) ? data : data?.rows || []);
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to load curricula.'),
+        issues: [],
+      });
+    } finally {
+      setLoadingCurricula(false);
+    }
+  }
+
+  async function loadStudents({ page = pagination.page, showBusy = false, search = searchText, filterValues = filters } = {}) {
+    try {
+      if (showBusy) setRefreshingStudents(true);
+      else setLoadingStudents(true);
+
+      const params = {
+        page,
+        limit: PAGE_SIZE,
+      };
+
+      if (search.trim()) params.search = search.trim();
+
+      for (const [key, value] of Object.entries(filterValues)) {
+        if (String(value || '').trim()) {
+          params[key] = String(value).trim();
+        }
       }
 
-      const data = await listStudents();
-      setStudents(data || []);
+      const data = await listStudents(params);
+
+      if (Array.isArray(data)) {
+        setStudents(data);
+        setPagination({
+          ...EMPTY_PAGINATION,
+          page,
+          total: data.length,
+          totalPages: 1,
+        });
+        return;
+      }
+
+      setStudents(data?.rows || []);
+      setPagination(data?.pagination || EMPTY_PAGINATION);
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -929,29 +1308,41 @@ export default function StudentImportManagerPage() {
   }
 
   useEffect(() => {
-    loadStudents(false);
+    loadCurricula();
+    loadStudents({ page: 1 });
   }, []);
+
+  function openStudentDataModal() {
+    setStudentForm(createStudentForm());
+    setStudentImport(EMPTY_IMPORT_STATE);
+    setStudentDataTab('manual');
+    setStudentDataModalOpen(true);
+  }
 
   async function handleStudentFileChange(event) {
     const file = event.target.files?.[0];
-    if (!file) return;
+
+    if (!file) {
+      setStudentImport(EMPTY_IMPORT_STATE);
+      return;
+    }
 
     try {
-      const parsed = await readSpreadsheet(file);
+      setStudentImport((prev) => ({
+        ...prev,
+        fileName: file.name,
+        loading: true,
+      }));
 
+      const parsed = await readSpreadsheet(file);
       setStudentImport({
         fileName: file.name,
         sheetName: parsed.sheetName,
         rows: parsed.rows,
         loading: false,
       });
-
-      setFeedback({
-        type: 'success',
-        text: `Loaded ${parsed.rows.length} student row(s) from ${file.name}.`,
-        issues: [],
-      });
     } catch (error) {
+      setStudentImport(EMPTY_IMPORT_STATE);
       setFeedback({
         type: 'danger',
         text: getErrorMessage(error, 'Failed to read student import file.'),
@@ -964,24 +1355,28 @@ export default function StudentImportManagerPage() {
 
   async function handleGradeFileChange(event) {
     const file = event.target.files?.[0];
-    if (!file) return;
+
+    if (!file) {
+      setGradeImport(EMPTY_IMPORT_STATE);
+      return;
+    }
 
     try {
-      const parsed = await readSpreadsheet(file);
+      setGradeImport((prev) => ({
+        ...prev,
+        fileName: file.name,
+        loading: true,
+      }));
 
+      const parsed = await readSpreadsheet(file);
       setGradeImport({
         fileName: file.name,
         sheetName: parsed.sheetName,
         rows: parsed.rows,
         loading: false,
       });
-
-      setFeedback({
-        type: 'success',
-        text: `Loaded ${parsed.rows.length} grade row(s) from ${file.name}.`,
-        issues: [],
-      });
     } catch (error) {
+      setGradeImport(EMPTY_IMPORT_STATE);
       setFeedback({
         type: 'danger',
         text: getErrorMessage(error, 'Failed to read grade import file.'),
@@ -992,11 +1387,49 @@ export default function StudentImportManagerPage() {
     }
   }
 
+  async function handleCreateStudent() {
+    if (!studentForm.studentNo.trim()) {
+      setFeedback({ type: 'warning', text: 'Student number is required.', issues: [] });
+      return;
+    }
+
+    if (!studentForm.studentName.trim()) {
+      setFeedback({ type: 'warning', text: 'Student name is required.', issues: [] });
+      return;
+    }
+
+    if (!studentForm.curriculumId) {
+      setFeedback({ type: 'warning', text: 'Select a program/curriculum before saving.', issues: [] });
+      return;
+    }
+
+    try {
+      setCreatingStudent(true);
+      const created = await createStudentProfile(studentForm);
+      setStudentDataModalOpen(false);
+      setStudentForm(createStudentForm());
+      await loadStudents({ page: 1, showBusy: true });
+      setFeedback({
+        type: 'success',
+        text: `Student record created for ${created.studentName}.`,
+        issues: [],
+      });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to create student record.'),
+        issues: [],
+      });
+    } finally {
+      setCreatingStudent(false);
+    }
+  }
+
   async function handleImportStudents() {
     if (!studentImport.rows.length) {
       setFeedback({
-        type: 'danger',
-        text: 'Choose a student spreadsheet first.',
+        type: 'warning',
+        text: 'Choose a student data file before importing.',
         issues: [],
       });
       return;
@@ -1004,21 +1437,21 @@ export default function StudentImportManagerPage() {
 
     try {
       setStudentImport((prev) => ({ ...prev, loading: true }));
-
       const result = await bulkImportStudents(studentImport.rows);
+
+      setStudentDataModalOpen(false);
+      setStudentImport(EMPTY_IMPORT_STATE);
+      await loadStudents({ page: 1, showBusy: true });
 
       setFeedback({
         type: 'success',
         text: buildSummaryText('Student import', result.summary),
         issues: result.issues || [],
       });
-
-      await loadStudents(true);
-      setActiveTab('students');
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text: getErrorMessage(error, 'Failed to import student data.'),
+        text: getErrorMessage(error, 'Failed to import students.'),
         issues: [],
       });
     } finally {
@@ -1029,8 +1462,8 @@ export default function StudentImportManagerPage() {
   async function handleImportGrades() {
     if (!gradeImport.rows.length) {
       setFeedback({
-        type: 'danger',
-        text: 'Choose a grades spreadsheet first.',
+        type: 'warning',
+        text: 'Choose a grade file before importing.',
         issues: [],
       });
       return;
@@ -1038,17 +1471,17 @@ export default function StudentImportManagerPage() {
 
     try {
       setGradeImport((prev) => ({ ...prev, loading: true }));
-
       const result = await bulkImportStudentGrades(gradeImport.rows);
+
+      setGradeImportModalOpen(false);
+      setGradeImport(EMPTY_IMPORT_STATE);
+      await loadStudents({ page: pagination.page, showBusy: true });
 
       setFeedback({
         type: 'success',
         text: buildSummaryText('Grade import', result.summary),
         issues: result.issues || [],
       });
-
-      await loadStudents(true);
-      setActiveTab('students');
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -1080,16 +1513,13 @@ export default function StudentImportManagerPage() {
   async function handleSaveStudentProfile(studentId, payload) {
     try {
       const updated = await updateStudentProfile(studentId, payload);
-
       setSelectedStudent(updated);
-      await loadStudents(true);
-
+      await loadStudents({ page: pagination.page, showBusy: true });
       setFeedback({
         type: 'success',
         text: 'Student profile updated successfully.',
         issues: [],
       });
-
       return updated;
     } catch (error) {
       setFeedback({
@@ -1119,23 +1549,43 @@ export default function StudentImportManagerPage() {
   }
 
   function requestCreateVcDraft(student) {
-    setActionMenuOpenId('');
-    setVcDraftTarget(student);
+    setConfirmAction({ type: 'createVcDraft', student });
   }
 
-  async function handleCreateVcDraft() {
-    if (!vcDraftTarget?._id) return;
+  function requestDeleteStudent(student) {
+    setConfirmAction({ type: 'deleteStudent', student });
+  }
+
+  async function runConfirmedAction() {
+    if (!confirmAction?.student?._id) return;
 
     try {
-      setCreatingVcDraftId(vcDraftTarget._id);
+      setBusyAction(true);
 
-      const data = await createCredentialDraftFromStudent(vcDraftTarget._id, {
+      if (confirmAction.type === 'deleteStudent') {
+        const deleted = await deleteStudentProfile(confirmAction.student._id);
+        setConfirmAction(null);
+
+        const nextPage = students.length === 1 && pagination.page > 1
+          ? pagination.page - 1
+          : pagination.page;
+
+        await loadStudents({ page: nextPage, showBusy: true });
+        setFeedback({
+          type: 'success',
+          text: `Deleted ${deleted.studentName}. ${deleted.deletedGrades || 0} grade row(s) were also removed.`,
+          issues: [],
+        });
+        return;
+      }
+
+      setCreatingVcDraftId(confirmAction.student._id);
+      const data = await createCredentialDraftFromStudent(confirmAction.student._id, {
         credentialType: 'student_record',
         notes: '',
       });
 
-      setVcDraftTarget(null);
-
+      setConfirmAction(null);
       setFeedback({
         type: 'success',
         text: `VC draft created for ${data.studentName}.`,
@@ -1144,75 +1594,121 @@ export default function StudentImportManagerPage() {
     } catch (error) {
       setFeedback({
         type: 'danger',
-        text:
-          error?.response?.data?.message ||
-          error?.message ||
-          'Failed to create VC draft.',
+        text: getErrorMessage(error, 'Action failed.'),
         issues: [],
       });
     } finally {
+      setBusyAction(false);
       setCreatingVcDraftId('');
     }
+  }
+
+  function handleSearchSubmit(event) {
+    event.preventDefault();
+    loadStudents({ page: 1, search: searchText, filterValues: filters });
+  }
+
+  function handleClearSearch() {
+    setSearchText('');
+    loadStudents({ page: 1, search: '', filterValues: filters });
+  }
+
+  function openFilterModal() {
+    setFilterDraft(filters);
+    setFilterModalOpen(true);
+  }
+
+  function applyFilters() {
+    setFilters(filterDraft);
+    setFilterModalOpen(false);
+    loadStudents({ page: 1, search: searchText, filterValues: filterDraft });
+  }
+
+  function clearFilters() {
+    setFilters(EMPTY_FILTERS);
+    setFilterDraft(EMPTY_FILTERS);
+    setFilterModalOpen(false);
+    loadStudents({ page: 1, search: searchText, filterValues: EMPTY_FILTERS });
+  }
+
+  function changePage(page) {
+    if (page < 1 || page > pagination.totalPages || page === pagination.page) return;
+    loadStudents({ page, showBusy: true });
   }
 
   return (
     <>
       <div className="d-flex flex-column gap-4">
-        <div>
-          <h1 className="h3 mb-1">Student Records</h1>
-          <p className="text-muted mb-0">
-            Clean student import first, then grade import, with profile and grade viewing in one page.
-          </p>
-        </div>
+        <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+          <div>
+            <h1 className="h3 mb-1">Student Records</h1>
+            <p className="text-muted mb-0">
+              Create individual registrar records, optionally import CSV data, and manage student profile actions from one table.
+            </p>
+          </div>
 
-        <div className="d-flex flex-wrap gap-2">
-          <button
-            className={`btn ${activeTab === 'students' ? 'btn-primary' : 'btn-outline-primary'}`}
-            onClick={() => setActiveTab('students')}
-          >
-            Students
-          </button>
-          <button
-            className={`btn ${activeTab === 'importStudents' ? 'btn-primary' : 'btn-outline-primary'}`}
-            onClick={() => setActiveTab('importStudents')}
-          >
-            Import Student Data
-          </button>
-          <button
-            className={`btn ${activeTab === 'importGrades' ? 'btn-primary' : 'btn-outline-primary'}`}
-            onClick={() => setActiveTab('importGrades')}
-          >
-            Import Grades
-          </button>
+          <div className="d-flex flex-wrap gap-2">
+            <button className="btn btn-primary" onClick={openStudentDataModal} disabled={loadingCurricula}>
+              <FaPlus className="me-2" />
+              Import Student Data
+            </button>
+            <button className="btn btn-outline-primary" onClick={() => setGradeImportModalOpen(true)}>
+              <FaUpload className="me-2" />
+              Import Grades
+            </button>
+            <button className="btn btn-outline-secondary" onClick={() => loadStudents({ page: pagination.page, showBusy: true })} disabled={refreshingStudents}>
+              {refreshingStudents ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
 
         <FeedbackAlert feedback={feedback} />
 
-        {activeTab === 'students' ? (
-          <div className="card border-0 shadow-sm">
-            <div className="card-body p-4">
-              <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-                <div>
-                  <h2 className="h5 mb-1">Saved Students</h2>
-                  <p className="text-muted mb-0">
-                    Table stays minimal: student no, name, program, graduated.
-                  </p>
-                </div>
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+              <div>
+                <h2 className="h5 mb-1">Saved Students</h2>
+                <p className="text-muted mb-0">
+                  The table is limited to 10 records per page for cleaner registrar use.
+                </p>
+              </div>
+              <div className="text-muted small">{countLabel}</div>
+            </div>
 
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={() => loadStudents(true)}
-                  disabled={refreshingStudents}
-                >
-                  {refreshingStudents ? 'Refreshing...' : 'Refresh'}
+            <form className="row g-2 align-items-end mb-3" onSubmit={handleSearchSubmit}>
+              <div className="col-lg-6">
+                <label className="form-label fw-semibold">Search student</label>
+                <div className="input-group">
+                  <span className="input-group-text"><FaSearch /></span>
+                  <input
+                    className="form-control"
+                    value={searchText}
+                    onChange={(event) => setSearchText(event.target.value)}
+                    placeholder="Student number, name, or program"
+                  />
+                </div>
+              </div>
+              <div className="col-lg-6 d-flex flex-wrap gap-2">
+                <button className="btn btn-primary" type="submit" disabled={loadingStudents || refreshingStudents}>
+                  Search
+                </button>
+                <button className="btn btn-outline-secondary" type="button" onClick={handleClearSearch}>
+                  Clear Search
+                </button>
+                <button className="btn btn-outline-primary" type="button" onClick={openFilterModal}>
+                  <FaFilter className="me-2" />
+                  Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
                 </button>
               </div>
+            </form>
 
-              {loadingStudents ? (
-                <div className="text-muted">Loading students...</div>
-              ) : students.length === 0 ? (
-                <div className="alert alert-light border mb-0">No student records yet.</div>
-              ) : (
+            {loadingStudents ? (
+              <div className="text-muted">Loading students...</div>
+            ) : students.length === 0 ? (
+              <div className="alert alert-light border mb-0">No student records found.</div>
+            ) : (
+              <>
                 <div className="table-responsive">
                   <table className="table align-middle mb-0">
                     <thead>
@@ -1220,8 +1716,9 @@ export default function StudentImportManagerPage() {
                         <th>Student No.</th>
                         <th>Name</th>
                         <th>Program</th>
+                        <th>Year Graduated</th>
                         <th>Graduated</th>
-                        <th className="text-end" style={{ minWidth: 150 }}>Actions</th>
+                        <th className="text-end" style={{ minWidth: 170 }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1230,19 +1727,15 @@ export default function StudentImportManagerPage() {
                           <td className="fw-semibold">{student.studentNo}</td>
                           <td>{student.studentName}</td>
                           <td>
-                            <div className="fw-semibold">{student.program || '—'}</div>
-                            {student.curriculumYear ? (
-                              <div className="small text-muted">
-                                Curriculum {student.curriculumYear}
-                              </div>
-                            ) : null}
+                            <div className="fw-semibold">{student.programCode || student.program || '—'}</div>
+                            <div className="small text-muted">
+                              {student.programName || '—'}
+                              {student.curriculumYear ? ` · Curriculum ${student.curriculumYear}` : ''}
+                            </div>
                           </td>
+                          <td>{formatYear(student.dateGraduated || student.dateGraduation)}</td>
                           <td>
-                            <span
-                              className={`badge ${
-                                student.graduated ? 'text-bg-success' : 'text-bg-secondary'
-                              }`}
-                            >
+                            <span className={`badge ${student.graduated ? 'text-bg-success' : 'text-bg-secondary'}`}>
                               {student.graduated ? 'Yes' : 'No'}
                             </span>
                           </td>
@@ -1259,6 +1752,7 @@ export default function StudentImportManagerPage() {
                               onOpenProfile={handleOpenProfile}
                               onOpenGrades={handleOpenGrades}
                               onConfirmVcDraft={requestCreateVcDraft}
+                              onDeleteStudent={requestDeleteStudent}
                               profileLoading={profileLoading}
                               gradesLoadingId={gradesLoadingId}
                               creatingVcDraftId={creatingVcDraftId}
@@ -1269,54 +1763,67 @@ export default function StudentImportManagerPage() {
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
+
+                <PaginationControls
+                  pagination={pagination}
+                  onPageChange={changePage}
+                  disabled={loadingStudents || refreshingStudents}
+                />
+              </>
+            )}
           </div>
-        ) : null}
-
-        {activeTab === 'importStudents' ? (
-          <ImportPanel
-            title="Import Student Data"
-            description="Upload student records first."
-            fileName={studentImport.fileName}
-            sheetName={studentImport.sheetName}
-            rows={studentImport.rows}
-            loading={studentImport.loading}
-            buttonText="Import Student Data"
-            onFileChange={handleStudentFileChange}
-            onImport={handleImportStudents}
-            helperText={
-              <>
-                Recognized student columns include <strong>StudentNo, StudentName, ProgramCode, ProgramName, CurriculumYear, DegreeTitle, Gender, DateAdmission, Graduated</strong>. Student imports are linked only when <strong>ProgramCode</strong> and <strong>CurriculumYear</strong> match an existing curriculum.
-              </>
-            }
-          />
-        ) : null}
-
-        {activeTab === 'importGrades' ? (
-          <ImportPanel
-            title="Import Grades"
-            description="Grades can only be imported after the student already exists."
-            warning="Grade import will skip any row where the student does not exist yet or the student has no linked curriculum."
-            fileName={gradeImport.fileName}
-            sheetName={gradeImport.sheetName}
-            rows={gradeImport.rows}
-            loading={gradeImport.loading}
-            buttonText="Import Grades"
-            onFileChange={handleGradeFileChange}
-            onImport={handleImportGrades}
-            helperText={
-              <>
-                Recognized grade columns include <strong>StudentNo, StudentName, ProgramCode, ProgramName, CurriculumYear, YearLevel, Semester, SubjectCode, SubjectTitle, Units, FinalGrade, Remarks, SchoolYear, TermName</strong>. Grades are skipped when the student is missing or has no linked curriculum.
-              </>
-            }
-          />
-        ) : null}
+        </div>
       </div>
+
+      <StudentDataModal
+        open={studentDataModalOpen}
+        activeTab={studentDataTab}
+        setActiveTab={setStudentDataTab}
+        form={studentForm}
+        setForm={setStudentForm}
+        curricula={curricula}
+        creating={creatingStudent}
+        studentImport={studentImport}
+        onClose={() => setStudentDataModalOpen(false)}
+        onCreate={handleCreateStudent}
+        onFileChange={handleStudentFileChange}
+        onImport={handleImportStudents}
+      />
+
+      <ImportModal
+        open={gradeImportModalOpen}
+        title="Import Grades"
+        description="Grades can only be imported after the student already exists."
+        warning="Grade import will skip any row where the student does not exist yet or the student has no linked curriculum."
+        fileName={gradeImport.fileName}
+        sheetName={gradeImport.sheetName}
+        rows={gradeImport.rows}
+        loading={gradeImport.loading}
+        buttonText="Import Grades"
+        onClose={() => setGradeImportModalOpen(false)}
+        onFileChange={handleGradeFileChange}
+        onImport={handleImportGrades}
+        helperText={
+          <>
+            Recognized grade columns include <strong>StudentNo, YearLevel, Semester, SubjectCode, SubjectTitle, Units, FinalGrade, Remarks, SchoolYear, TermName</strong>.
+          </>
+        }
+      />
+
+      <FilterModal
+        open={filterModalOpen}
+        draft={filterDraft}
+        setDraft={setFilterDraft}
+        curricula={curricula}
+        onCancel={() => setFilterModalOpen(false)}
+        onApply={applyFilters}
+        onClear={clearFilters}
+      />
 
       <StudentProfileModal
         student={selectedStudent}
         initialEditing={profileMode === 'edit'}
+        curricula={curricula}
         onClose={() => {
           setSelectedStudent(null);
           setProfileMode('view');
@@ -1325,20 +1832,14 @@ export default function StudentImportManagerPage() {
         onSave={handleSaveStudentProfile}
       />
 
-      <StudentGradesModal
-        data={selectedGradesData}
-        onClose={() => setSelectedGradesData(null)}
-      />
+      <StudentGradesModal data={selectedGradesData} onClose={() => setSelectedGradesData(null)} />
 
       <ConfirmActionModal
-        student={vcDraftTarget}
-        busy={Boolean(creatingVcDraftId)}
-        onCancel={() => setVcDraftTarget(null)}
-        onConfirm={handleCreateVcDraft}
+        action={confirmAction}
+        busy={busyAction}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={runConfirmedAction}
       />
     </>
   );
 }
-
-
-

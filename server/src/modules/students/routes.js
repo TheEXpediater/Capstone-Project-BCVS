@@ -1,6 +1,8 @@
 import express from 'express';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import {
+  createStudent,
+  deleteStudentById,
   getStudentById,
   getStudentGrades,
   importStudentGrades,
@@ -33,6 +35,13 @@ router.get(
   listStudents
 );
 
+router.post(
+  '/',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  createStudent
+);
+
 router.get(
   '/search',
   protect({ kind: 'web' }),
@@ -52,6 +61,13 @@ router.put(
   protect({ kind: 'web' }),
   allowRoles('admin', 'super_admin', 'developer'),
   updateStudentById
+);
+
+router.delete(
+  '/:id',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  deleteStudentById
 );
 
 router.get(

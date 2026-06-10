@@ -5,7 +5,7 @@ import { getStudentGradeModel, getStudentModel } from './model.js';
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
-  return String(value).trim();  
+  return String(value).trim();
 }
 
 function normalizeKey(key) {
@@ -70,15 +70,40 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function toPositiveInt(value, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1) return fallback;
+  return Math.floor(number);
+}
+
+function normalizeGraduatedFilter(value) {
+  const normalized = cleanString(value).toLowerCase();
+
+  if (['yes', 'y', 'true', '1', 'graduated'].includes(normalized)) {
+    return true;
+  }
+
+  if (['no', 'n', 'false', '0', 'not_graduated', 'not graduated'].includes(normalized)) {
+    return false;
+  }
+
+  return null;
+}
 
 function escapeRegex(value) {
   return cleanString(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function readField(source, keys, fallback = '') {
+  for (const key of keys) {
+    if (source?.[key] !== undefined) return source[key];
+  }
+
+  return fallback;
+}
+
 function buildStudentName(row) {
-  const direct =
-    cleanString(row?.studentname) ||
-    cleanString(row?.fullname);
+  const direct = cleanString(row?.studentname) || cleanString(row?.fullname);
 
   if (direct) return direct;
 
@@ -92,16 +117,32 @@ function buildStudentName(row) {
 async function resolveCurriculum(row) {
   const Curriculum = getCurriculumModel();
 
+  const explicitCurriculumId = cleanString(
+    row?.curriculumId || row?.curriculumid || row?._curriculumId
+  );
+
+  if (explicitCurriculumId) {
+    if (!Types.ObjectId.isValid(explicitCurriculumId)) {
+      return null;
+    }
+
+    const byId = await Curriculum.findById(explicitCurriculumId).lean();
+    if (byId) return byId;
+  }
+
   const explicitProgramCode = normalizeProgramCode(
-    row?.programcode ||
+    row?.programCode ||
+      row?.programcode ||
       row?.program ||
       row?.curriculumcode
   );
 
-  const explicitCurriculumYear = cleanString(row?.curriculumyear);
+  const explicitCurriculumYear = cleanString(
+    row?.curriculumYear || row?.curriculumyear
+  );
 
   const degreeTitle = cleanString(
-    row?.degreetitle || row?.programname
+    row?.degreeTitle || row?.degreetitle || row?.programName || row?.programname
   );
 
   if (explicitProgramCode && explicitCurriculumYear) {
@@ -164,6 +205,61 @@ async function resolveExactCurriculumForImport(row) {
   }).lean();
 }
 
+function buildStudentFilter(options = {}) {
+  const clauses = [];
+  const search = cleanString(options.search || options.query || '');
+
+  if (search) {
+    const regex = new RegExp(escapeRegex(search), 'i');
+    clauses.push({
+      $or: [
+        { studentNo: regex },
+        { studentName: regex },
+        { programCode: regex },
+        { programName: regex },
+        { curriculumYear: regex },
+      ],
+    });
+  }
+
+  const name = cleanString(options.studentName || options.name || '');
+  if (name) {
+    clauses.push({ studentName: new RegExp(escapeRegex(name), 'i') });
+  }
+
+  const programCode = normalizeProgramCode(options.programCode || options.program || '');
+  if (programCode) {
+    clauses.push({ programCode });
+  }
+
+  const curriculumYear = cleanString(options.curriculumYear || '');
+  if (curriculumYear) {
+    clauses.push({ curriculumYear });
+  }
+
+  const graduationYear = cleanString(
+    options.graduationYear || options.yearGraduated || options.yeargraduated || ''
+  );
+  if (/^\d{4}$/.test(graduationYear)) {
+    const start = new Date(`${graduationYear}-01-01T00:00:00.000Z`);
+    const end = new Date(`${Number(graduationYear) + 1}-01-01T00:00:00.000Z`);
+    clauses.push({
+      $or: [
+        { dateGraduated: { $gte: start, $lt: end } },
+        { dateGraduation: { $gte: start, $lt: end } },
+      ],
+    });
+  }
+
+  const graduated = normalizeGraduatedFilter(options.graduated || '');
+  if (graduated !== null) {
+    clauses.push({ graduated });
+  }
+
+  if (!clauses.length) return {};
+  return { $and: clauses };
+}
+
 function mapStudentListRow(row) {
   return {
     _id: row._id,
@@ -183,6 +279,8 @@ function mapStudentListRow(row) {
       row.curriculumId && typeof row.curriculumId === 'object'
         ? row.curriculumId._id
         : row.curriculumId || null,
+    dateGraduated: row.dateGraduated,
+    dateGraduation: row.dateGraduation,
     updatedAt: row.updatedAt,
   };
 }
@@ -207,6 +305,7 @@ function mapStudentDetailRow(row) {
     graduated: Boolean(row.graduated),
     programCode: row.programCode,
     programName: row.programName,
+    curriculumYear: row.curriculumYear,
     curriculum: row.curriculumId
       ? {
           _id: row.curriculumId._id,
@@ -421,28 +520,51 @@ export async function syncGraduationStatusForStudents(studentIds = []) {
   };
 }
 
-export async function listStudents() {
+export async function listStudents(options = {}) {
   const Student = getStudentModel();
 
-  const rows = await Student.find(
-    {},
-    {
-      studentNo: 1,
-      studentName: 1,
-      programCode: 1,
-      programName: 1,
-      degreeTitle: 1,
-      major: 1,
-      graduated: 1,
-      curriculumId: 1,
-      curriculumYear: 1,
-      updatedAt: 1,
-    }
-  )
-    .sort({ studentNo: 1 })
-    .lean();
+  const page = toPositiveInt(options.page, 1);
+  const limit = Math.min(toPositiveInt(options.limit, 10), 100);
+  const skip = (page - 1) * limit;
+  const filter = buildStudentFilter(options);
 
-  return rows.map(mapStudentListRow);
+  const projection = {
+    studentNo: 1,
+    studentName: 1,
+    programCode: 1,
+    programName: 1,
+    degreeTitle: 1,
+    major: 1,
+    graduated: 1,
+    curriculumId: 1,
+    curriculumYear: 1,
+    dateGraduated: 1,
+    dateGraduation: 1,
+    updatedAt: 1,
+  };
+
+  const [total, rows] = await Promise.all([
+    Student.countDocuments(filter),
+    Student.find(filter, projection)
+      .sort({ studentNo: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  const totalPages = Math.max(Math.ceil(total / limit), 1);
+
+  return {
+    rows: rows.map(mapStudentListRow),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasPrevPage: page > 1,
+      hasNextPage: page < totalPages,
+    },
+  };
 }
 
 export async function searchStudents(query = '') {
@@ -536,9 +658,63 @@ export async function getStudentGrades(id) {
 
   return {
     student: mapStudentDetailRow(student),
-    grades: grades.map(mapGradeRow),
+    grades: grades.map(mapGradeRow).sort(sortGrades),
   };
 }
+
+export async function createStudent(payload = {}, actor) {
+  const Student = getStudentModel();
+
+  const studentNo = normalizeStudentNo(
+    payload.studentNo || payload.studentno || payload.studentNumber || payload.studentnumber
+  );
+  const studentName = cleanString(payload.studentName || payload.studentname || payload.fullName || payload.fullname);
+
+  if (!studentNo) {
+    throw new ApiError(400, 'Student number is required.');
+  }
+
+  if (!studentName) {
+    throw new ApiError(400, 'Student name is required.');
+  }
+
+  const existing = await Student.findOne({ studentNo }).lean();
+  if (existing) {
+    throw new ApiError(409, 'A student with this student number already exists.');
+  }
+
+  const curriculum = await resolveCurriculum(payload);
+  if (!curriculum) {
+    throw new ApiError(400, 'Select a valid curriculum/program before saving the student.');
+  }
+
+  const created = await Student.create({
+    studentNo,
+    studentName,
+    extensionName: cleanString(payload.extensionName || payload.extensionname),
+    gender: cleanString(payload.gender),
+    permanentAddress: cleanString(payload.permanentAddress || payload.permAddress || payload.permanentaddress),
+    residentialAddress: cleanString(payload.residentialAddress || payload.resAddress || payload.residentialaddress),
+    entranceCredentials: cleanString(payload.entranceCredentials || payload.entrancecredentials),
+    highSchool: cleanString(payload.highSchool || payload.highschool),
+    degreeTitle: cleanString(payload.degreeTitle || payload.degreetitle || curriculum.programName || ''),
+    major: cleanString(payload.major),
+    dateAdmission: toDateOrNull(payload.dateAdmission || payload.dateadmission),
+    placeBirth: cleanString(payload.placeBirth || payload.placebirth),
+    dateGraduated: toDateOrNull(payload.dateGraduated || payload.dategraduated),
+    dateGraduation: toDateOrNull(payload.dateGraduation || payload.dategraduation),
+    graduated: false,
+    programCode: curriculum.program,
+    programName: cleanString(payload.programName || payload.programname || curriculum.programName || ''),
+    curriculumId: curriculum._id,
+    curriculumYear: curriculum.curriculumYear || '',
+    importedBy: actor?._id || null,
+    updatedBy: actor?._id || null,
+  });
+
+  return getStudentById(created._id);
+}
+
 export async function importStudents(rows, actor) {
   const Student = getStudentModel();
   const importRows = normalizeImportRows(rows);
@@ -556,6 +732,7 @@ export async function importStudents(rows, actor) {
   let withoutCurriculum = 0;
 
   const issues = [];
+  const touchedStudentIds = new Set();
 
   for (const raw of importRows) {
     const studentNo = normalizeStudentNo(
@@ -597,9 +774,6 @@ export async function importStudents(rows, actor) {
     const dateGraduated = toDateOrNull(raw?.dategraduated);
     const dateGraduation = toDateOrNull(raw?.dategraduation);
 
-    // Graduation is computed from imported grade remarks, not manually from profile dates.
-    const graduated = false;
-
     const payload = {
       studentNo,
       studentName,
@@ -615,7 +789,7 @@ export async function importStudents(rows, actor) {
       placeBirth: cleanString(raw?.placebirth),
       dateGraduated,
       dateGraduation,
-      graduated,
+      graduated: false,
       programCode: curriculum?.program || normalizeProgramCode(raw?.programcode || raw?.program || ''),
       programName: cleanString(
         raw?.programname ||
@@ -631,7 +805,7 @@ export async function importStudents(rows, actor) {
 
     const existing = await Student.findOne({ studentNo }).lean();
 
-    await Student.findOneAndUpdate(
+    const saved = await Student.findOneAndUpdate(
       { studentNo },
       {
         $set: payload,
@@ -644,11 +818,17 @@ export async function importStudents(rows, actor) {
         upsert: true,
         runValidators: true,
       }
-    );
+    ).lean();
+
+    touchedStudentIds.add(String(saved._id));
 
     if (existing) updated += 1;
     else inserted += 1;
   }
+
+  const graduationSummary = await syncGraduationStatusForStudents([
+    ...touchedStudentIds,
+  ]);
 
   return {
     summary: {
@@ -657,6 +837,10 @@ export async function importStudents(rows, actor) {
       updated,
       skipped,
       withoutCurriculum,
+      graduationChecked: graduationSummary.checked,
+      graduationUpdated: graduationSummary.updated,
+      graduatedYes: graduationSummary.graduated,
+      graduatedNo: graduationSummary.notGraduated,
     },
     issues: issues.slice(0, 30),
   };
@@ -804,6 +988,7 @@ export async function importStudentGrades(rows, actor) {
     issues: issues.slice(0, 30),
   };
 }
+
 export async function updateStudentById(id, payload, actor) {
   const Student = getStudentModel();
   const Curriculum = getCurriculumModel();
@@ -907,6 +1092,7 @@ export async function updateStudentById(id, payload, actor) {
   }
 
   const curriculumFieldsTouched =
+    payload.curriculumId !== undefined ||
     payload.programCode !== undefined ||
     payload.programName !== undefined ||
     payload.degreeTitle !== undefined ||
@@ -917,6 +1103,7 @@ export async function updateStudentById(id, payload, actor) {
 
   if (curriculumFieldsTouched) {
     const matchedCurriculum = await resolveCurriculum({
+      curriculumId: payload.curriculumId,
       programcode: next.programCode,
       program: next.programCode,
       curriculumyear: next.curriculumYear,
@@ -924,15 +1111,22 @@ export async function updateStudentById(id, payload, actor) {
       programname: next.programName,
     });
 
+    if (payload.curriculumId && !matchedCurriculum) {
+      throw new ApiError(400, 'Selected curriculum was not found.');
+    }
+
     nextCurriculumId = matchedCurriculum?._id || null;
     nextCurriculumYear = matchedCurriculum?.curriculumYear || next.curriculumYear || '';
 
-    if (matchedCurriculum?.program && !next.programCode) {
+    if (matchedCurriculum?.program) {
       next.programCode = matchedCurriculum.program;
     }
 
-    if (matchedCurriculum?.programName && !next.programName) {
+    if (matchedCurriculum?.programName) {
       next.programName = matchedCurriculum.programName;
+      if (!next.degreeTitle) {
+        next.degreeTitle = matchedCurriculum.programName;
+      }
     }
   }
 
@@ -973,8 +1167,31 @@ export async function updateStudentById(id, payload, actor) {
     })
     .lean();
 
-  return mapStudentDetailRow(updated);
+  await syncGraduationStatusForStudents([updated._id]);
+  return getStudentById(updated._id);
 }
 
+export async function deleteStudentById(id) {
+  const Student = getStudentModel();
+  const StudentGrade = getStudentGradeModel();
 
+  if (!Types.ObjectId.isValid(id)) {
+    throw new ApiError(400, 'Invalid student id.');
+  }
 
+  const student = await Student.findById(id).lean();
+
+  if (!student) {
+    throw new ApiError(404, 'Student not found.');
+  }
+
+  const gradeResult = await StudentGrade.deleteMany({ student: student._id });
+  await Student.deleteOne({ _id: student._id });
+
+  return {
+    _id: student._id,
+    studentNo: student.studentNo,
+    studentName: student.studentName,
+    deletedGrades: gradeResult.deletedCount || 0,
+  };
+}
