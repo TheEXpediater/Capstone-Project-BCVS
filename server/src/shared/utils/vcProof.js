@@ -37,6 +37,8 @@ const TOP_LEVEL_METADATA_KEYS = new Set([
   'anchoredAt',
   'anchoredBy',
   'anchorTxHash',
+  'anchorBatchId',
+  'batchId',
   'anchorBlockNumber',
   'anchorContractAddress',
   'anchorNetwork',

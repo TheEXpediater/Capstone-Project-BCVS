@@ -306,6 +306,13 @@ const credentialDraftSchema = new mongoose.Schema(
       trim: true,
     },
 
+    anchorBatchId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
     contractAddress: {
       type: String,
       default: '',
@@ -468,6 +475,7 @@ const credentialDraftSchema = new mongoose.Schema(
       status: { type: String, default: 'not_requested', trim: true },
       anchoredAt: { type: Date, default: null },
       txHash: { type: String, default: '', trim: true },
+      batchId: { type: String, default: '', trim: true },
       blockNumber: { type: Number, default: null },
       contractAddress: { type: String, default: '', trim: true },
       contractId: { type: String, default: '', trim: true },

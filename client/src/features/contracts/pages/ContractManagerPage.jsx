@@ -18,15 +18,19 @@ function contractTypeLabel(value) {
 }
 
 function capabilityClass(capabilities) {
-  return capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot
-    ? 'text-bg-success'
-    : 'text-bg-warning';
+  if (capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot) return 'text-bg-success';
+  if (capabilities?.canAnchorMerkleRoot) return 'text-bg-warning';
+  return 'text-bg-danger';
 }
 
 function capabilityLabel(capabilities) {
-  return capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot
-    ? 'Merkle Anchoring Supported'
-    : 'Merkle Anchoring Not Supported';
+  if (capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot) {
+    return 'Merkle Anchoring Supported';
+  }
+  if (capabilities?.canAnchorMerkleRoot) {
+    return 'Legacy Anchoring Supported';
+  }
+  return 'Merkle Anchoring Not Supported';
 }
 
 function explorerBase(url) {

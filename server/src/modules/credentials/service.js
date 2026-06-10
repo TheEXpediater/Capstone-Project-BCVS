@@ -22,7 +22,6 @@ import { getContractModel } from '../contracts/model.js';
 import {
   anchorMerkleRoot,
   getActiveContractRecord,
-  getCapabilitiesForContract,
   getExplorerBaseUrl,
 } from '../contracts/service.js';
 import { notifyStudentByStudentNo, notifyUser } from '../notifications/service.js';
@@ -451,6 +450,7 @@ async function buildBlockchainMetadata(draft) {
     chainId,
     network: draft?.anchorNetwork || contract?.network || '',
     blockNumber: draft?.anchorBlockNumber ?? null,
+    batchId: draft?.anchorBatchId || draft?.anchoring?.batchId || '',
     eventName: draft?.anchorEventName || '',
     eventArgs: draft?.anchorEventArgs || null,
     failureReason: draft?.anchorFailureReason || '',
@@ -1677,6 +1677,7 @@ function clearAnchorTransactionFields(draft) {
   draft.anchoredAt = null;
   draft.anchoredBy = null;
   draft.anchorTxHash = '';
+  draft.anchorBatchId = '';
   draft.anchorBlockNumber = null;
   draft.anchorEventName = '';
   draft.anchorEventArgs = null;
@@ -1689,6 +1690,7 @@ function syncAnchoringMetadata(draft, { isAnchored = false, proof = null, reason
     status: draft.anchorStatus || 'not_requested',
     anchoredAt: draft.anchoredAt || null,
     txHash: draft.anchorTxHash || '',
+    batchId: draft.anchorBatchId || '',
     blockNumber: draft.anchorBlockNumber ?? null,
     contractAddress: draft.anchorContractAddress || draft.contractAddress || '',
     contractId: draft.anchoring?.contractId || '',
@@ -1740,6 +1742,7 @@ function markAnchorSucceeded(draft, anchorResult, proof, tree) {
   draft.anchoredAt = anchorResult.anchoredAt;
   draft.anchoredBy = anchorResult.anchoredBy;
   draft.anchorTxHash = anchorResult.anchorTxHash || '';
+  draft.anchorBatchId = anchorResult.anchorBatchId || '';
   draft.anchorBlockNumber = anchorResult.anchorBlockNumber ?? null;
   draft.anchorContractAddress = anchorResult.anchorContractAddress || anchorResult.contractAddress || '';
   draft.contractAddress = anchorResult.contractAddress || anchorResult.anchorContractAddress || '';
@@ -1861,9 +1864,6 @@ export async function processTodaysAnchorQueue(actor) {
   };
 
   const activeContract = await getActiveContractRecord(settings);
-  const activeCapabilities = activeContract
-    ? getCapabilitiesForContract(activeContract)
-    : null;
   const eligibleRows = [];
   const proofFailures = new Map();
 
@@ -1924,12 +1924,6 @@ export async function processTodaysAnchorQueue(actor) {
   if (!activeContract) {
     batchState.status = 'contract_missing';
     batchState.reason = 'No active contract selected.';
-  } else if (
-    !activeCapabilities?.canAnchorMerkleRoot ||
-    !activeCapabilities?.canVerifyMerkleRoot
-  ) {
-    batchState.status = 'contract_unsupported';
-    batchState.reason = 'Active contract does not support Merkle root anchoring.';
   } else if (tree.root) {
     try {
       batchState.anchorResult = await anchorMerkleRoot({
@@ -2003,6 +1997,7 @@ export async function processTodaysAnchorQueue(actor) {
           anchorStatus: draft.anchorStatus,
           merkleRoot: draft.merkleRoot,
           anchorTxHash: draft.anchorTxHash || '',
+          anchorBatchId: draft.anchorBatchId || '',
           reason: draft.anchorFailureReason || draft.anchoringUnavailableReason || '',
         });
       }

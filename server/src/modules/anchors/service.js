@@ -158,7 +158,7 @@ async function getActiveAnchorContext() {
   }
 
   const capabilities = getCapabilitiesForContract(contract);
-  if (!capabilities.canAnchorMerkleRoot || !capabilities.canVerifyMerkleRoot) {
+  if (!capabilities.canAnchorMerkleRoot) {
     throw new ApiError(409, 'Active contract does not support Merkle root anchoring.');
   }
 
@@ -184,12 +184,18 @@ function buildAnchorCredentials(plan) {
   });
 }
 
+function makeAnchorBatchId(anchorType = 'batch') {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  return `bcvs-${anchorType}-${stamp}-${Date.now().toString(36)}`;
+}
+
 function buildAnchorResultFromRecord(anchorRecord, contract) {
   return {
     anchorStatus: anchorRecord.status,
     anchoredAt: anchorRecord.anchoredAt || new Date(),
     anchoredBy: anchorRecord.anchoredBy || null,
     anchorTxHash: anchorRecord.txHash || '',
+    anchorBatchId: anchorRecord.batchId || '',
     anchorBlockNumber: anchorRecord.blockNumber ?? null,
     anchorContractAddress: anchorRecord.contractAddress,
     contractAddress: anchorRecord.contractAddress,
@@ -220,6 +226,7 @@ async function createOrReuseAnchorRecord({ plan, contract, actor, anchorType }) 
   if (!anchorRecord) {
     anchorRecord = await Anchor.create({
       anchorType,
+      batchId: makeAnchorBatchId(anchorType),
       merkleRoot,
       merkleAlgorithm: MERKLE_ALGORITHM,
       merkleTreeSize: plan.tree.size,
@@ -233,6 +240,7 @@ async function createOrReuseAnchorRecord({ plan, contract, actor, anchorType }) 
     });
   } else {
     anchorRecord.anchorType = anchorType;
+    anchorRecord.batchId = anchorRecord.batchId || makeAnchorBatchId(anchorType);
     anchorRecord.merkleAlgorithm = MERKLE_ALGORITHM;
     anchorRecord.merkleTreeSize = plan.tree.size;
     anchorRecord.contractId = String(contract._id || '');
@@ -267,11 +275,13 @@ async function createOrReuseAnchorRecord({ plan, contract, actor, anchorType }) 
     const anchorResult = await anchorMerkleRoot({
       merkleRoot,
       contractRecord: contract,
+      batchId: anchorRecord.batchId,
       actor,
     });
 
     anchorRecord.status = 'anchored';
     anchorRecord.txHash = anchorResult.anchorTxHash || '';
+    anchorRecord.batchId = anchorResult.anchorBatchId || anchorRecord.batchId || '';
     anchorRecord.blockNumber = anchorResult.anchorBlockNumber ?? null;
     anchorRecord.explorerUrl = anchorResult.anchorExplorerUrl || '';
     anchorRecord.eventName = anchorResult.anchorEventName || '';
@@ -306,6 +316,7 @@ function applyAnchorToDraft(draft, { anchorRecord, anchorResult, proof, tree }) 
   draft.anchoredAt = anchorResult.anchoredAt || new Date();
   draft.anchoredBy = anchorResult.anchoredBy || null;
   draft.anchorTxHash = anchorResult.anchorTxHash || '';
+  draft.anchorBatchId = anchorResult.anchorBatchId || anchorRecord.batchId || '';
   draft.anchorBlockNumber = anchorResult.anchorBlockNumber ?? null;
   draft.anchorContractAddress = anchorResult.anchorContractAddress || anchorResult.contractAddress || '';
   draft.contractAddress = anchorResult.contractAddress || anchorResult.anchorContractAddress || '';
@@ -324,6 +335,7 @@ function applyAnchorToDraft(draft, { anchorRecord, anchorResult, proof, tree }) 
     status: 'anchored',
     anchoredAt: draft.anchoredAt,
     txHash: draft.anchorTxHash,
+    batchId: draft.anchorBatchId,
     blockNumber: draft.anchorBlockNumber,
     contractAddress: draft.anchorContractAddress || draft.contractAddress,
     contractId: String(anchorRecord.contractId || ''),
@@ -384,6 +396,7 @@ function buildIdempotentCredentialResponse(draft) {
       anchorId: cleanString(draft?.anchoring?.anchorId || ''),
       merkleRoot: draft.merkleRoot || draft?.anchoring?.merkleRoot || '',
       txHash: draft.anchorTxHash || draft?.anchoring?.txHash || '',
+      batchId: draft.anchorBatchId || draft?.anchoring?.batchId || '',
       blockNumber: draft.anchorBlockNumber ?? draft?.anchoring?.blockNumber ?? null,
       contractAddress:
         draft.anchorContractAddress ||
@@ -609,12 +622,18 @@ export async function verifyAnchoredCredential(credentialId) {
     hashMatchesRecord;
   const blockchainAnchorValid = Boolean(chainCheck.verified);
   const overallValid = signatureValid && merkleProofValid && blockchainAnchorValid;
+  const verificationStatus = overallValid
+    ? 'VALID'
+    : signatureValid && merkleProofValid
+      ? 'NOT_ANCHORED'
+      : 'INVALID';
 
   return {
     signatureValid,
     merkleProofValid,
     blockchainAnchorValid,
     overallValid,
+    verificationStatus,
     vcHash,
     proofHash: proofHash || '',
     merkleLeaf,
@@ -622,6 +641,7 @@ export async function verifyAnchoredCredential(credentialId) {
     merkleProof,
     merkleAlgorithm: credential.merkleAlgorithm || MERKLE_ALGORITHM,
     txHash: credential.anchorTxHash || credential?.anchoring?.txHash || '',
+    batchId: credential.anchorBatchId || credential?.anchoring?.batchId || '',
     blockNumber: credential.anchorBlockNumber ?? credential?.anchoring?.blockNumber ?? null,
     contractAddress:
       credential.anchorContractAddress ||

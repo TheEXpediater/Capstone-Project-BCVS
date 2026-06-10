@@ -24,9 +24,34 @@ export const CONTRACT_TYPES = {
   },
 };
 
-const ANCHOR_FUNCTION_NAMES = ['anchorRoot', 'storeRoot', 'addRoot'];
+export const LEGACY_MERKLE_ANCHOR_ADDRESS = '0x0ac96734b9a2a368D8EE3f6CF9BC27EC373f195f';
+const LEGACY_MERKLE_ABI_VERSION = 'legacy_anchor_v1';
+const LEGACY_MERKLE_ANCHOR_ABI = [
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'bytes32', name: 'root', type: 'bytes32' },
+      { indexed: false, internalType: 'string', name: 'batchId', type: 'string' },
+      { indexed: true, internalType: 'address', name: 'sender', type: 'address' },
+    ],
+    name: 'Anchored',
+    type: 'event',
+  },
+  {
+    inputs: [
+      { internalType: 'bytes32', name: 'root', type: 'bytes32' },
+      { internalType: 'string', name: 'batchId', type: 'string' },
+    ],
+    name: 'anchor',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+];
+
+const ANCHOR_FUNCTION_NAMES = ['anchorRoot', 'anchor', 'storeRoot', 'addRoot'];
 const VERIFY_FUNCTION_NAMES = ['isRootAnchored', 'rootExists', 'verifyRoot'];
-const ROOT_EVENT_NAMES = ['RootAnchored', 'MerkleRootAnchored', 'CredentialRootAnchored'];
+const ROOT_EVENT_NAMES = ['RootAnchored', 'Anchored', 'MerkleRootAnchored', 'CredentialRootAnchored'];
 
 export const EMPTY_MERKLE_CAPABILITIES = {
   canAnchorMerkleRoot: false,
@@ -39,6 +64,41 @@ export const EMPTY_MERKLE_CAPABILITIES = {
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
   return String(value).trim();
+}
+
+function isLegacyMerkleAnchorAddress(value) {
+  return cleanString(value).toLowerCase() === LEGACY_MERKLE_ANCHOR_ADDRESS.toLowerCase();
+}
+
+function isLegacyMerkleAnchorContract(contract = {}) {
+  return (
+    isLegacyMerkleAnchorAddress(contract?.address || contract) ||
+    cleanString(contract?.abiVersion).toLowerCase() === LEGACY_MERKLE_ABI_VERSION
+  );
+}
+
+function buildLegacyMerkleAnchorRecord(overrides = {}) {
+  const chainId = overrides.chainId ?? env.blockchain.chainId ?? 80002;
+  return {
+    _id: cleanString(overrides._id || LEGACY_MERKLE_ANCHOR_ADDRESS),
+    contractType: 'merkle_anchor',
+    contractName: overrides.contractName || 'LegacyMerkleAnchor',
+    address: LEGACY_MERKLE_ANCHOR_ADDRESS,
+    deployerAddress: overrides.deployerAddress || '',
+    ownerAddress: overrides.ownerAddress || '',
+    txHash: overrides.txHash || null,
+    chainId,
+    network: overrides.network || (Number(chainId) === 80002 ? 'matic-amoy' : `chain-${chainId}`),
+    gasToken: overrides.gasToken || 'POL',
+    status: 'success',
+    explorerUrl: overrides.explorerUrl || getExplorerBaseUrl(chainId) || null,
+    abiVersion: LEGACY_MERKLE_ABI_VERSION,
+    capabilities: detectContractCapabilities(LEGACY_MERKLE_ANCHOR_ABI),
+    verified: true,
+    isActive: true,
+    active: true,
+    errorMessage: null,
+  };
 }
 
 export function normalizeContractType(value = 'admin') {
@@ -98,8 +158,32 @@ function hasSingleBytes32Input(item) {
   return item?.inputs?.length === 1 && item.inputs[0]?.type === 'bytes32';
 }
 
+function hasAnchorInputs(item) {
+  return (
+    item?.inputs?.length === 1 &&
+    item.inputs[0]?.type === 'bytes32'
+  ) || (
+    item?.inputs?.length === 2 &&
+    item.inputs[0]?.type === 'bytes32' &&
+    item.inputs[1]?.type === 'string'
+  );
+}
+
 function hasBoolOutput(item) {
   return item?.outputs?.length >= 1 && item.outputs[0]?.type === 'bool';
+}
+
+function findAnchorFunction(abi = [], names = []) {
+  return (
+    names.find((name) =>
+      abi.some(
+        (item) =>
+          item?.type === 'function' &&
+          item?.name === name &&
+          hasAnchorInputs(item)
+      )
+    ) || ''
+  );
 }
 
 function findFunction(abi = [], names = [], { requireBoolOutput = false } = {}) {
@@ -121,7 +205,7 @@ function findEvent(abi = [], names = []) {
 }
 
 export function detectContractCapabilities(abi = []) {
-  const anchorFunctionName = findFunction(abi, ANCHOR_FUNCTION_NAMES);
+  const anchorFunctionName = findAnchorFunction(abi, ANCHOR_FUNCTION_NAMES);
   const verifyFunctionName = findFunction(abi, VERIFY_FUNCTION_NAMES, {
     requireBoolOutput: true,
   });
@@ -145,14 +229,17 @@ function normalizeCapabilities(value = {}) {
 
 export function getCapabilitiesForContract(contract = {}) {
   try {
-    const artifact = loadArtifact(inferContractType(contract));
-    return detectContractCapabilities(artifact.abi);
+    return detectContractCapabilities(getAbiForContract(contract));
   } catch {
     return normalizeCapabilities(contract?.capabilities);
   }
 }
 
 export function getAbiForContract(contract = {}) {
+  if (isLegacyMerkleAnchorContract(contract)) {
+    return LEGACY_MERKLE_ANCHOR_ABI;
+  }
+
   return loadArtifact(inferContractType(contract)).abi;
 }
 
@@ -316,21 +403,34 @@ export async function getContractsDashboard() {
     settings?.blockchain?.activeAnchorContractId ||
       settings?.blockchain?.activeAnchorContractAddress
   );
-
-  return {
-    ...overview,
-    activeAnchorContractId,
-    activeAnchorContractAddress: cleanString(settings?.blockchain?.activeAnchorContractAddress),
-    activeAnchorContract: activeAnchorContractId
-      ? contracts.map(serializeContract).find(
+  const serializedContracts = contracts.map(serializeContract);
+  const activeAnchorContract =
+    activeAnchorContractId
+      ? serializedContracts.find(
           (contract) =>
             contract.contractType === 'merkle_anchor' &&
             (String(contract._id) === activeAnchorContractId ||
               contract.address === activeAnchorContractId ||
               contract.address === settings?.blockchain?.activeAnchorContractAddress)
-        ) || null
-      : null,
-    contracts: contracts.map(serializeContract),
+        ) ||
+        (isLegacyMerkleAnchorAddress(activeAnchorContractId)
+          ? buildLegacyMerkleAnchorRecord({
+              chainId: settings?.blockchain?.activeAnchorContractChainId || overview.health.chainId,
+              network: settings?.blockchain?.activeAnchorContractNetwork || overview.health.network,
+              explorerUrl: settings?.blockchain?.activeAnchorContractExplorerUrl || '',
+            })
+          : null)
+      : buildLegacyMerkleAnchorRecord({
+          chainId: overview.health.chainId,
+          network: overview.health.network,
+        });
+
+  return {
+    ...overview,
+    activeAnchorContractId,
+    activeAnchorContractAddress: cleanString(settings?.blockchain?.activeAnchorContractAddress),
+    activeAnchorContract,
+    contracts: serializedContracts,
   };
 }
 
@@ -498,14 +598,22 @@ export async function registerExistingContract(
     throw new ApiError(404, 'No contract code was found at this address on the configured network.');
   }
 
-  const artifact = loadArtifact(config.contractType);
-  const capabilities = detectContractCapabilities(artifact.abi);
-  const contract = new ethers.Contract(checksumAddress, artifact.abi, provider);
-  const readableCheck = await verifyReadableContractCall({
-    contract,
-    abi: artifact.abi,
-    capabilities,
-  });
+  const isLegacyAnchor =
+    config.contractType === 'merkle_anchor' && isLegacyMerkleAnchorAddress(checksumAddress);
+  const abi = isLegacyAnchor ? LEGACY_MERKLE_ANCHOR_ABI : loadArtifact(config.contractType).abi;
+  const capabilities = detectContractCapabilities(abi);
+  const contract = new ethers.Contract(checksumAddress, abi, provider);
+  const readableCheck = isLegacyAnchor
+    ? {
+        ok: true,
+        method: 'legacy_anchor_write_only',
+        value: '',
+      }
+    : await verifyReadableContractCall({
+        contract,
+        abi,
+        capabilities,
+      });
 
   if (!readableCheck.ok) {
     throw new ApiError(
@@ -515,7 +623,7 @@ export async function registerExistingContract(
   }
 
   if (config.contractType === 'merkle_anchor') {
-    if (!capabilities.canAnchorMerkleRoot || !capabilities.canVerifyMerkleRoot) {
+    if (!capabilities.canAnchorMerkleRoot) {
       throw new ApiError(409, 'Contract does not support Merkle root anchoring.');
     }
   }
@@ -546,6 +654,7 @@ export async function registerExistingContract(
     verified: true,
     capabilities,
     explorerUrl: explorerBaseUrl || null,
+    abiVersion: isLegacyAnchor ? LEGACY_MERKLE_ABI_VERSION : '',
     errorMessage: null,
   };
 
@@ -594,7 +703,9 @@ export async function findContractByIdOrAddress(value) {
     .sort({ createdAt: -1 })
     .lean();
 
-  return contract ? serializeContract(contract) : null;
+  if (contract) return serializeContract(contract);
+  if (isLegacyMerkleAnchorAddress(normalized)) return buildLegacyMerkleAnchorRecord();
+  return null;
 }
 
 export async function getActiveContractRecord(settings) {
@@ -609,8 +720,15 @@ export async function getActiveContractRecord(settings) {
   }
 
   const configured = cleanString(settings?.blockchain?.selectedContractId);
-  if (!configured) return null;
-  return findContractByIdOrAddress(configured);
+  if (configured) {
+    return findContractByIdOrAddress(configured);
+  }
+
+  return buildLegacyMerkleAnchorRecord({
+    chainId: settings?.blockchain?.activeAnchorContractChainId || env.blockchain.chainId,
+    network: settings?.blockchain?.activeAnchorContractNetwork || '',
+    explorerUrl: settings?.blockchain?.activeAnchorContractExplorerUrl || '',
+  });
 }
 
 export async function getContractCapabilitiesByAddress(address) {
@@ -649,7 +767,7 @@ export async function selectActiveAnchorContract({ contractId = '', contractAddr
   }
 
   const capabilities = getCapabilitiesForContract(contract);
-  if (!capabilities.canAnchorMerkleRoot || !capabilities.canVerifyMerkleRoot) {
+  if (!capabilities.canAnchorMerkleRoot) {
     throw new ApiError(409, 'Selected contract does not support Merkle root anchoring.');
   }
 
@@ -674,22 +792,29 @@ export async function selectActiveAnchorContract({ contractId = '', contractAddr
   settings.blockchain.selectedContractCapabilities = capabilities;
   settings.updatedBy = actor?._id || null;
 
+  const contractId = cleanString(contract._id);
+  const hasStoredContractRecord = /^[0-9a-fA-F]{24}$/.test(contractId);
+
   await Contract.updateMany(
-    { contractType: 'merkle_anchor', _id: { $ne: contract._id } },
+    hasStoredContractRecord
+      ? { contractType: 'merkle_anchor', _id: { $ne: contract._id } }
+      : { contractType: 'merkle_anchor' },
     { $set: { isActive: false, active: false } }
   );
 
-  await Contract.updateOne(
-    { _id: contract._id },
-    {
-      $set: {
-        isActive: true,
-        active: true,
-        verified: true,
-        capabilities,
-      },
-    }
-  );
+  if (hasStoredContractRecord) {
+    await Contract.updateOne(
+      { _id: contract._id },
+      {
+        $set: {
+          isActive: true,
+          active: true,
+          verified: true,
+          capabilities,
+        },
+      }
+    );
+  }
 
   await settings.save();
 
@@ -716,6 +841,41 @@ function requireBytes32Root(root) {
   }
 
   return normalized;
+}
+
+function makeAnchorBatchId(prefix = 'bcvs') {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  return `${prefix}-${stamp}`;
+}
+
+function getFunctionFragment(abi = [], functionName = '') {
+  return abi.find((item) => item?.type === 'function' && item?.name === functionName) || null;
+}
+
+function buildAnchorFunctionCall({ abi, functionName, root, batchId = '' } = {}) {
+  const fragment = getFunctionFragment(abi, functionName);
+  const inputs = fragment?.inputs || [];
+
+  if (inputs.length === 1 && inputs[0]?.type === 'bytes32') {
+    return {
+      args: [root],
+      batchId: cleanString(batchId),
+    };
+  }
+
+  if (
+    inputs.length === 2 &&
+    inputs[0]?.type === 'bytes32' &&
+    inputs[1]?.type === 'string'
+  ) {
+    const resolvedBatchId = cleanString(batchId) || makeAnchorBatchId();
+    return {
+      args: [root, resolvedBatchId],
+      batchId: resolvedBatchId,
+    };
+  }
+
+  throw new ApiError(409, 'Active contract does not support Merkle root anchoring.');
 }
 
 function serializeEventValue(value) {
@@ -745,14 +905,26 @@ function serializeParsedEvent(parsed) {
   };
 }
 
-function findRootAnchoredEvent(contract, receipt, eventName) {
+function parsedEventMatchesRoot(parsed, root) {
+  const normalizedRoot = normalizeHex(root);
+  if (!normalizedRoot || !parsed?.fragment?.inputs?.length) return true;
+
+  return parsed.fragment.inputs.some((input, index) => {
+    if (input?.type !== 'bytes32') return false;
+    return normalizeHex(parsed.args[index]) === normalizedRoot;
+  });
+}
+
+function findRootAnchoredEvent(contract, receipt, eventName, root = '') {
   const expectedName = cleanString(eventName);
   if (!expectedName) return null;
 
   for (const log of receipt?.logs || []) {
     try {
       const parsed = contract.interface.parseLog(log);
-      if (parsed?.name === expectedName) return serializeParsedEvent(parsed);
+      if (parsed?.name === expectedName && parsedEventMatchesRoot(parsed, root)) {
+        return serializeParsedEvent(parsed);
+      }
     } catch {
       continue;
     }
@@ -764,6 +936,102 @@ function findRootAnchoredEvent(contract, receipt, eventName) {
 async function callVerifyFunction(contract, functionName, root) {
   const result = await contract[functionName](root);
   return Boolean(result);
+}
+
+async function verifyRootByTransaction({
+  provider,
+  abi,
+  address,
+  root,
+  txHash = '',
+  blockNumber = null,
+  eventName = '',
+  capabilities = null,
+} = {}) {
+  const hash = cleanString(txHash);
+  if (!hash) {
+    return {
+      verified: false,
+      reason: 'on_chain_anchor_tx_missing',
+      contractAddress: address,
+      capabilities,
+    };
+  }
+
+  try {
+    const receipt = await provider.getTransactionReceipt(hash);
+    if (!receipt) {
+      return {
+        verified: false,
+        reason: 'anchor_transaction_not_found',
+        contractAddress: address,
+        capabilities,
+      };
+    }
+
+    const expectedAddress = cleanString(address).toLowerCase();
+    const receiptTo = cleanString(receipt.to).toLowerCase();
+    if (expectedAddress && receiptTo && receiptTo !== expectedAddress) {
+      return {
+        verified: false,
+        reason: 'anchor_transaction_contract_mismatch',
+        contractAddress: address,
+        capabilities,
+      };
+    }
+
+    if (Number(receipt.status) !== 1) {
+      return {
+        verified: false,
+        reason: 'anchor_transaction_failed',
+        contractAddress: address,
+        capabilities,
+      };
+    }
+
+    const expectedBlock = Number(blockNumber || 0);
+    if (Number.isFinite(expectedBlock) && expectedBlock > 0 && Number(receipt.blockNumber) !== expectedBlock) {
+      return {
+        verified: false,
+        reason: 'anchor_transaction_block_mismatch',
+        contractAddress: address,
+        capabilities,
+      };
+    }
+
+    const eventContract = new ethers.Contract(address, abi, provider);
+    const parsedEvent = findRootAnchoredEvent(eventContract, receipt, eventName, root);
+
+    return {
+      verified: true,
+      rootVerified: false,
+      eventVerified: Boolean(parsedEvent),
+      eventCheck: {
+        checked: Boolean(eventName),
+        found: Boolean(parsedEvent),
+        logs: parsedEvent
+          ? [
+              {
+                transactionHash: receipt.hash || receipt.transactionHash || hash,
+                blockNumber: Number(receipt.blockNumber || 0) || null,
+                index: null,
+              },
+            ]
+          : [],
+        reason: parsedEvent ? '' : 'anchor_transaction_confirmed_without_read_method',
+      },
+      reason: '',
+      contractAddress: address,
+      capabilities,
+    };
+  } catch {
+    return {
+      verified: false,
+      reason: 'anchor_transaction_lookup_failed',
+      contractAddress: address,
+      capabilities,
+    };
+  }
 }
 
 async function findRootAnchoredLogs({
@@ -809,7 +1077,7 @@ async function findRootAnchoredLogs({
       checked: true,
       found: false,
       logs: [],
-      reason: error.message || 'root_anchored_event_lookup_failed',
+      reason: 'root_anchored_event_lookup_failed',
     };
   }
 }
@@ -843,19 +1111,28 @@ export async function verifyMerkleRootOnChain({
   }
 
   const capabilities = getCapabilitiesForContract(record);
-  if (!capabilities.canVerifyMerkleRoot || !capabilities.verifyFunctionName) {
-    return {
-      verified: false,
-      reason: 'contract_unsupported',
-      contractAddress: address,
-      contractType: record.contractType,
-      capabilities,
-    };
-  }
-
   try {
     const provider = getProvider();
     const abi = getAbiForContract(record);
+
+    if (!capabilities.canVerifyMerkleRoot || !capabilities.verifyFunctionName) {
+      const txCheck = await verifyRootByTransaction({
+        provider,
+        abi,
+        address,
+        root,
+        txHash,
+        blockNumber,
+        eventName: capabilities.rootAnchoredEventName,
+        capabilities,
+      });
+
+      return {
+        ...txCheck,
+        contractType: record.contractType,
+      };
+    }
+
     const contract = new ethers.Contract(address, abi, provider);
     const rootVerified = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
     const eventCheck = rootVerified
@@ -872,8 +1149,7 @@ export async function verifyMerkleRootOnChain({
           logs: [],
           reason: 'merkle_root_not_anchored_on_chain',
         };
-    const eventRequired = Boolean(capabilities.rootAnchoredEventName);
-    const verified = rootVerified && (!eventRequired || eventCheck.found);
+    const verified = rootVerified;
 
     return {
       verified,
@@ -882,9 +1158,7 @@ export async function verifyMerkleRootOnChain({
       eventCheck,
       reason: verified
         ? ''
-        : rootVerified
-          ? eventCheck.reason || 'root_anchored_event_not_found'
-          : 'merkle_root_not_anchored_on_chain',
+        : 'merkle_root_not_anchored_on_chain',
       contractAddress: address,
       contractType: record.contractType,
       capabilities,
@@ -892,7 +1166,7 @@ export async function verifyMerkleRootOnChain({
   } catch (error) {
     return {
       verified: false,
-      reason: error.message || 'chain_root_verification_failed',
+      reason: 'chain_root_verification_failed',
       contractAddress: address,
       contractType: record.contractType,
       capabilities,
@@ -903,6 +1177,7 @@ export async function verifyMerkleRootOnChain({
 export async function anchorMerkleRoot({
   merkleRoot,
   contractRecord,
+  batchId = '',
   actor = null,
 } = {}) {
   const root = requireBytes32Root(merkleRoot);
@@ -918,18 +1193,20 @@ export async function anchorMerkleRoot({
     throw new ApiError(409, 'Active contract does not support Merkle root anchoring.');
   }
 
-  if (!capabilities.canVerifyMerkleRoot || !capabilities.verifyFunctionName) {
-    throw new ApiError(409, 'Active contract cannot verify anchored Merkle roots.');
-  }
-
   const provider = getProvider();
   const wallet = getWallet();
   const abi = getAbiForContract(record);
   const contract = new ethers.Contract(address, abi, wallet);
   const network = await provider.getNetwork();
   const chainId = Number(network.chainId || record.chainId || env.blockchain.chainId);
+  const anchorCall = buildAnchorFunctionCall({
+    abi,
+    functionName: capabilities.anchorFunctionName,
+    root,
+    batchId,
+  });
 
-  const tx = await contract[capabilities.anchorFunctionName](root);
+  const tx = await contract[capabilities.anchorFunctionName](...anchorCall.args);
   const confirmations = Math.max(1, Number(env.blockchain.confirmations || 1));
   const receipt = await tx.wait(confirmations);
 
@@ -937,15 +1214,18 @@ export async function anchorMerkleRoot({
     throw new ApiError(500, 'Anchor transaction failed.');
   }
 
-  const anchored = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
-  if (!anchored) {
-    throw new ApiError(500, 'Anchor transaction succeeded, but the contract did not confirm the root.');
+  if (capabilities.canVerifyMerkleRoot && capabilities.verifyFunctionName) {
+    const anchored = await callVerifyFunction(contract, capabilities.verifyFunctionName, root);
+    if (!anchored) {
+      throw new ApiError(500, 'Anchor transaction succeeded, but the contract did not confirm the root.');
+    }
   }
 
   const parsedEvent = findRootAnchoredEvent(
     contract,
     receipt,
-    capabilities.rootAnchoredEventName
+    capabilities.rootAnchoredEventName,
+    root
   );
   const timestamp = Number(parsedEvent?.args?.timestamp || 0);
   const anchoredAt =
@@ -957,13 +1237,14 @@ export async function anchorMerkleRoot({
     anchorStatus: 'anchored',
     anchoredAt,
     anchoredBy: actor?._id || null,
-    anchorTxHash: receipt.hash || tx.hash || '',
+    anchorTxHash: receipt.hash || receipt.transactionHash || tx.hash || '',
     anchorBlockNumber: Number(receipt.blockNumber || 0) || null,
+    anchorBatchId: anchorCall.batchId || '',
     anchorContractAddress: address,
     contractAddress: address,
     anchorNetwork: record.network || network.name || '',
     anchorChainId: chainId,
-    anchorExplorerUrl: buildExplorerTxUrl(chainId, receipt.hash || tx.hash),
+    anchorExplorerUrl: buildExplorerTxUrl(chainId, receipt.hash || receipt.transactionHash || tx.hash),
     anchorEventName: parsedEvent?.name || capabilities.rootAnchoredEventName || '',
     anchorEventArgs: parsedEvent?.args || null,
     capabilities,

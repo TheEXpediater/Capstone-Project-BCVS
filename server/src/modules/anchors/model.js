@@ -49,6 +49,12 @@ const anchorSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    batchId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
     merkleRoot: {
       type: String,
       required: true,

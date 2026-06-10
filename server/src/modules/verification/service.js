@@ -809,6 +809,7 @@ async function buildAnchorCheck(credential = {}, merkleValid = false) {
         network: cleanString(credential?.anchorNetwork),
         contractAddress,
         txHash,
+        batchId: cleanString(credential?.anchorBatchId || credential?.anchoring?.batchId),
         blockNumber: credential?.anchorBlockNumber ?? null,
         anchoredAt: credential?.anchoredAt || credential?.anchoring?.anchoredAt || null,
         explorerUrl,
@@ -830,6 +831,7 @@ async function buildAnchorCheck(credential = {}, merkleValid = false) {
     network: cleanString(credential?.anchorNetwork),
     contractAddress,
     txHash,
+    batchId: cleanString(credential?.anchorBatchId || credential?.anchoring?.batchId),
     blockNumber: credential?.anchorBlockNumber ?? null,
     anchoredAt: credential?.anchoredAt || credential?.anchoring?.anchoredAt || null,
     explorerUrl,
@@ -917,10 +919,16 @@ async function verifyPresentedCredentialPayload({
   }
 
   const partiallyVerified = !fullyVerified && payloadVerified && merkleValid;
+  const verificationStatus = fullyVerified
+    ? 'VALID'
+    : payloadVerified && merkleValid
+      ? 'NOT_ANCHORED'
+      : 'INVALID';
   const verifiedAt = new Date().toISOString();
 
   return {
     valid: fullyVerified,
+    verificationStatus,
     partiallyVerified,
     signatureValid: Boolean(signature.valid),
     vcHashMatches,
@@ -943,6 +951,7 @@ async function verifyPresentedCredentialPayload({
     merkleProof,
     merkleAlgorithm: credential?.merkleAlgorithm || MERKLE_ALGORITHM,
     anchorTxHash: cleanString(credential?.anchorTxHash),
+    anchorBatchId: cleanString(credential?.anchorBatchId || credential?.anchoring?.batchId),
     anchorContractAddress: cleanString(credential?.anchorContractAddress || credential?.contractAddress),
     anchorExplorerUrl: blockchain.explorerUrl || '',
     anchorBlockNumber: blockchain.blockNumber ?? null,
