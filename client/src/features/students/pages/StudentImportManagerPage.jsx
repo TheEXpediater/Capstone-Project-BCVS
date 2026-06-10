@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FaCog, FaEdit, FaFileSignature, FaIdCard, FaListAlt } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import {
   bulkImportStudentGrades,
@@ -33,6 +34,22 @@ function buildSummaryText(label, summary) {
 
   if (typeof summary.withoutCurriculum === 'number' && summary.withoutCurriculum > 0) {
     parts.push(`without curriculum: ${summary.withoutCurriculum}`);
+  }
+
+  if (typeof summary.graduationChecked === 'number') {
+    parts.push(`graduation checked: ${summary.graduationChecked}`);
+  }
+
+  if (typeof summary.graduationUpdated === 'number') {
+    parts.push(`graduation updated: ${summary.graduationUpdated}`);
+  }
+
+  if (typeof summary.graduatedYes === 'number') {
+    parts.push(`graduated yes: ${summary.graduatedYes}`);
+  }
+
+  if (typeof summary.graduatedNo === 'number') {
+    parts.push(`graduated no: ${summary.graduatedNo}`);
   }
 
   return `${label} finished (${parts.join(', ')}).`;
@@ -331,18 +348,12 @@ function StudentProfileModal({
 
                 <div className="col-md-4">
                   <div className="small text-muted">Graduated</div>
+                  <div className="fw-semibold">{form.graduated ? 'Yes' : 'No'}</div>
                   {isEditing ? (
-                    <select
-                      className="form-select"
-                      value={form.graduated ? 'yes' : 'no'}
-                      onChange={(e) => updateField('graduated', e.target.value === 'yes')}
-                    >
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </select>
-                  ) : (
-                    <div className="fw-semibold">{form.graduated ? 'Yes' : 'No'}</div>
-                  )}
+                    <div className="small text-muted">
+                      Auto-computed from imported grade remarks.
+                    </div>
+                  ) : null}
                 </div>
 
                 {renderValue(
@@ -660,6 +671,139 @@ function StudentGradesModal({ data, onClose }) {
   );
 }
 
+
+function StudentActionMenu({
+  student,
+  isOpen,
+  onToggle,
+  onClose,
+  onOpenProfile,
+  onOpenGrades,
+  onConfirmVcDraft,
+  profileLoading,
+  gradesLoadingId,
+  creatingVcDraftId,
+}) {
+  const gradesBusy = gradesLoadingId === student._id;
+  const vcBusy = creatingVcDraftId === student._id;
+
+  return (
+    <div className="d-flex justify-content-end gap-2 position-relative">
+      <button
+        className="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-1"
+        type="button"
+        onClick={() => onOpenProfile(student._id, 'view')}
+        disabled={profileLoading}
+      >
+        <FaIdCard />
+        Profile
+      </button>
+
+      <button
+        className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1"
+        type="button"
+        onClick={onToggle}
+        aria-label={`Open actions for ${student.studentName}`}
+        aria-expanded={isOpen}
+      >
+        <FaCog />
+      </button>
+
+      {isOpen ? (
+        <div
+          className="dropdown-menu show shadow-sm"
+          style={{ right: 0, left: 'auto', minWidth: 220, zIndex: 1050 }}
+        >
+          <button
+            className="dropdown-item d-flex align-items-center gap-2"
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenProfile(student._id, 'edit');
+            }}
+            disabled={profileLoading}
+          >
+            <FaEdit />
+            Edit Profile
+          </button>
+
+          <button
+            className="dropdown-item d-flex align-items-center gap-2"
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenGrades(student._id);
+            }}
+            disabled={gradesBusy}
+          >
+            <FaListAlt />
+            {gradesBusy ? 'Loading Grades...' : 'View Grades'}
+          </button>
+
+          <div className="dropdown-divider" />
+
+          <button
+            className="dropdown-item d-flex align-items-center gap-2 text-success"
+            type="button"
+            onClick={() => onConfirmVcDraft(student)}
+            disabled={vcBusy}
+          >
+            <FaFileSignature />
+            {vcBusy ? 'Creating...' : 'Create VC Draft'}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConfirmActionModal({ student, busy, onCancel, onConfirm }) {
+  if (!student) return null;
+
+  return (
+    <>
+      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content border-0 shadow">
+            <div className="modal-header">
+              <div>
+                <h2 className="h5 mb-1">Create VC Draft</h2>
+                <p className="text-muted mb-0 small">
+                  {student.studentNo} — {student.studentName}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={onCancel}
+                disabled={busy}
+                aria-label="Close"
+              />
+            </div>
+
+            <div className="modal-body">
+              <div className="alert alert-warning mb-0">
+                This will create a verifiable credential draft from the selected student profile
+                and imported grades. Continue only after confirming the record is correct.
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
+                Cancel
+              </button>
+              <button className="btn btn-success" onClick={onConfirm} disabled={busy}>
+                {busy ? 'Creating...' : 'Create Draft'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </>
+  );
+}
+
 function ImportPanel({
   title,
   description,
@@ -758,6 +902,9 @@ export default function StudentImportManagerPage() {
   const [profileMode, setProfileMode] = useState('view');
   const [gradesLoadingId, setGradesLoadingId] = useState('');
   const [selectedGradesData, setSelectedGradesData] = useState(null);
+  const [actionMenuOpenId, setActionMenuOpenId] = useState('');
+  const [vcDraftTarget, setVcDraftTarget] = useState(null);
+  const [creatingVcDraftId, setCreatingVcDraftId] = useState('');
 
   async function loadStudents(showBusy = false) {
     try {
@@ -971,18 +1118,23 @@ export default function StudentImportManagerPage() {
     }
   }
 
-  async function handleCreateVcDraft(studentId) {
-    const approved = window.confirm(
-      'Create a VC draft from this student profile and current grades?'
-    );
+  function requestCreateVcDraft(student) {
+    setActionMenuOpenId('');
+    setVcDraftTarget(student);
+  }
 
-    if (!approved) return;
+  async function handleCreateVcDraft() {
+    if (!vcDraftTarget?._id) return;
 
     try {
-      const data = await createCredentialDraftFromStudent(studentId, {
+      setCreatingVcDraftId(vcDraftTarget._id);
+
+      const data = await createCredentialDraftFromStudent(vcDraftTarget._id, {
         credentialType: 'student_record',
         notes: '',
       });
+
+      setVcDraftTarget(null);
 
       setFeedback({
         type: 'success',
@@ -998,6 +1150,8 @@ export default function StudentImportManagerPage() {
           'Failed to create VC draft.',
         issues: [],
       });
+    } finally {
+      setCreatingVcDraftId('');
     }
   }
 
@@ -1067,7 +1221,7 @@ export default function StudentImportManagerPage() {
                         <th>Name</th>
                         <th>Program</th>
                         <th>Graduated</th>
-                        <th style={{ minWidth: 180 }}>Actions</th>
+                        <th className="text-end" style={{ minWidth: 150 }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1075,7 +1229,14 @@ export default function StudentImportManagerPage() {
                         <tr key={student._id}>
                           <td className="fw-semibold">{student.studentNo}</td>
                           <td>{student.studentName}</td>
-                          <td>{student.program || '—'}</td>
+                          <td>
+                            <div className="fw-semibold">{student.program || '—'}</div>
+                            {student.curriculumYear ? (
+                              <div className="small text-muted">
+                                Curriculum {student.curriculumYear}
+                              </div>
+                            ) : null}
+                          </td>
                           <td>
                             <span
                               className={`badge ${
@@ -1085,39 +1246,23 @@ export default function StudentImportManagerPage() {
                               {student.graduated ? 'Yes' : 'No'}
                             </span>
                           </td>
-                          <td>
-                            <div className="d-flex flex-wrap gap-2">
-                              <button
-                                className="btn btn-outline-primary btn-sm"
-                                onClick={() => handleOpenProfile(student._id, 'view')}
-                                disabled={profileLoading}
-                              >
-                                Profile
-                              </button>
-
-                              <button
-                                className="btn btn-outline-warning btn-sm"
-                                onClick={() => handleOpenProfile(student._id, 'edit')}
-                                disabled={profileLoading}
-                              >
-                                Edit
-                              </button>
-
-                              <button
-                                className="btn btn-outline-secondary btn-sm"
-                                onClick={() => handleOpenGrades(student._id)}
-                                disabled={gradesLoadingId === student._id}
-                              >
-                                {gradesLoadingId === student._id ? 'Loading...' : 'Grades'}
-                              </button>
-
-                              <button
-                                className="btn btn-outline-success btn-sm"
-                                onClick={() => handleCreateVcDraft(student._id)}
-                              >
-                                Create VC Draft
-                              </button>
-                            </div>
+                          <td className="text-end">
+                            <StudentActionMenu
+                              student={student}
+                              isOpen={actionMenuOpenId === student._id}
+                              onToggle={() =>
+                                setActionMenuOpenId((prev) =>
+                                  prev === student._id ? '' : student._id
+                                )
+                              }
+                              onClose={() => setActionMenuOpenId('')}
+                              onOpenProfile={handleOpenProfile}
+                              onOpenGrades={handleOpenGrades}
+                              onConfirmVcDraft={requestCreateVcDraft}
+                              profileLoading={profileLoading}
+                              gradesLoadingId={gradesLoadingId}
+                              creatingVcDraftId={creatingVcDraftId}
+                            />
                           </td>
                         </tr>
                       ))}
@@ -1184,6 +1329,16 @@ export default function StudentImportManagerPage() {
         data={selectedGradesData}
         onClose={() => setSelectedGradesData(null)}
       />
+
+      <ConfirmActionModal
+        student={vcDraftTarget}
+        busy={Boolean(creatingVcDraftId)}
+        onCancel={() => setVcDraftTarget(null)}
+        onConfirm={handleCreateVcDraft}
+      />
     </>
   );
 }
+
+
+

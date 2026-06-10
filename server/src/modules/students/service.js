@@ -5,7 +5,7 @@ import { getStudentGradeModel, getStudentModel } from './model.js';
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
-  return String(value).trim();
+  return String(value).trim();  
 }
 
 function normalizeKey(key) {
@@ -70,10 +70,6 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
-function toBooleanYesNo(value) {
-  const normalized = cleanString(value).toLowerCase();
-  return ['yes', 'y', 'true', '1'].includes(normalized);
-}
 
 function escapeRegex(value) {
   return cleanString(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -180,6 +176,9 @@ function mapStudentListRow(row) {
       row.major ||
       '—',
     graduated: Boolean(row.graduated),
+    programCode: row.programCode || '',
+    programName: row.programName || '',
+    curriculumYear: row.curriculumYear || '',
     curriculumId:
       row.curriculumId && typeof row.curriculumId === 'object'
         ? row.curriculumId._id
@@ -247,6 +246,181 @@ function sortGrades(a, b) {
   );
 }
 
+function normalizeSubjectCode(value) {
+  return cleanString(value).toUpperCase();
+}
+
+function buildGradeCompletionKey({ yearLevel, semester, subjectCode }) {
+  return [
+    cleanString(yearLevel).toLowerCase(),
+    cleanString(semester).toLowerCase(),
+    normalizeSubjectCode(subjectCode),
+  ].join('::');
+}
+
+function flattenCurriculumSubjects(curriculum) {
+  const subjects = [];
+  const structure = curriculum?.structure || {};
+
+  const pushSubject = (yearLevel, semester, subject) => {
+    const subjectCode = normalizeSubjectCode(subject?.code || subject?.subjectCode);
+    if (!subjectCode) return;
+
+    subjects.push({
+      yearLevel: cleanString(yearLevel || subject?.yearLevel),
+      semester: cleanString(semester || subject?.semester),
+      subjectCode,
+    });
+  };
+
+  if (Array.isArray(structure)) {
+    for (const subject of structure) {
+      pushSubject(subject?.yearLevel, subject?.semester, subject);
+    }
+    return subjects;
+  }
+
+  for (const [yearLevel, semesterValue] of Object.entries(structure)) {
+    if (Array.isArray(semesterValue)) {
+      for (const subject of semesterValue) {
+        pushSubject(yearLevel, subject?.semester, subject);
+      }
+      continue;
+    }
+
+    for (const [semester, subjectList] of Object.entries(semesterValue || {})) {
+      const list = Array.isArray(subjectList)
+        ? subjectList
+        : Array.isArray(subjectList?.subjects)
+          ? subjectList.subjects
+          : Array.isArray(subjectList?.items)
+            ? subjectList.items
+            : [];
+
+      for (const subject of list) {
+        pushSubject(yearLevel, semester, subject);
+      }
+    }
+  }
+
+  return subjects;
+}
+
+function isPassingRemark(remarks, finalGrade) {
+  const normalizedRemark = cleanString(remarks).toUpperCase().replace(/[\s_-]+/g, ' ');
+
+  if (['PASSED', 'PASS', 'P'].includes(normalizedRemark)) {
+    return true;
+  }
+
+  if (
+    [
+      'FAILED',
+      'FAIL',
+      'F',
+      'INC',
+      'INCOMPLETE',
+      'DRP',
+      'DROPPED',
+      'NO GRADE',
+      'NG',
+    ].includes(normalizedRemark)
+  ) {
+    return false;
+  }
+
+  const numericGrade = Number(cleanString(finalGrade).replace(/,/g, '.'));
+  return Number.isFinite(numericGrade) && numericGrade > 0 && numericGrade <= 3;
+}
+
+async function computeStudentGraduationStatus(student, { StudentGrade, Curriculum }) {
+  if (!student?.curriculumId) {
+    return false;
+  }
+
+  const curriculum = await Curriculum.findById(student.curriculumId).lean();
+  const requiredSubjects = flattenCurriculumSubjects(curriculum);
+
+  if (!requiredSubjects.length) {
+    return false;
+  }
+
+  const grades = await StudentGrade.find({
+    student: student._id,
+    curriculumId: student.curriculumId,
+  }).lean();
+
+  const gradeByCompletionKey = new Map();
+
+  for (const grade of grades) {
+    gradeByCompletionKey.set(
+      buildGradeCompletionKey({
+        yearLevel: grade.yearLevel,
+        semester: grade.semester,
+        subjectCode: grade.subjectCode,
+      }),
+      grade
+    );
+  }
+
+  return requiredSubjects.every((subject) => {
+    const grade = gradeByCompletionKey.get(buildGradeCompletionKey(subject));
+    return Boolean(grade) && isPassingRemark(grade.remarks, grade.finalGrade);
+  });
+}
+
+export async function syncGraduationStatusForStudents(studentIds = []) {
+  const Student = getStudentModel();
+  const StudentGrade = getStudentGradeModel();
+  const Curriculum = getCurriculumModel();
+
+  const uniqueIds = [...new Set(studentIds.map((id) => cleanString(id)).filter(Boolean))]
+    .filter((id) => Types.ObjectId.isValid(id));
+
+  if (!uniqueIds.length) {
+    return {
+      checked: 0,
+      updated: 0,
+      graduated: 0,
+      notGraduated: 0,
+    };
+  }
+
+  const students = await Student.find({ _id: { $in: uniqueIds } }).lean();
+  let updated = 0;
+  let graduated = 0;
+  let notGraduated = 0;
+
+  for (const student of students) {
+    const nextGraduated = await computeStudentGraduationStatus(student, {
+      StudentGrade,
+      Curriculum,
+    });
+
+    if (nextGraduated) graduated += 1;
+    else notGraduated += 1;
+
+    if (Boolean(student.graduated) !== nextGraduated) {
+      await Student.updateOne(
+        { _id: student._id },
+        {
+          $set: {
+            graduated: nextGraduated,
+          },
+        }
+      );
+      updated += 1;
+    }
+  }
+
+  return {
+    checked: students.length,
+    updated,
+    graduated,
+    notGraduated,
+  };
+}
+
 export async function listStudents() {
   const Student = getStudentModel();
 
@@ -261,6 +435,7 @@ export async function listStudents() {
       major: 1,
       graduated: 1,
       curriculumId: 1,
+      curriculumYear: 1,
       updatedAt: 1,
     }
   )
@@ -422,9 +597,8 @@ export async function importStudents(rows, actor) {
     const dateGraduated = toDateOrNull(raw?.dategraduated);
     const dateGraduation = toDateOrNull(raw?.dategraduation);
 
-    const graduated =
-      Boolean(dateGraduated || dateGraduation) ||
-      toBooleanYesNo(raw?.graduated);
+    // Graduation is computed from imported grade remarks, not manually from profile dates.
+    const graduated = false;
 
     const payload = {
       studentNo,
@@ -505,6 +679,7 @@ export async function importStudentGrades(rows, actor) {
   let skipped = 0;
 
   const issues = [];
+  const touchedStudentIds = new Set();
 
   for (const raw of importRows) {
     const studentNo = normalizeStudentNo(
@@ -559,6 +734,8 @@ export async function importStudentGrades(rows, actor) {
       continue;
     }
 
+    touchedStudentIds.add(String(student._id));
+
     const filter = {
       student: student._id,
       curriculumId: student.curriculumId,
@@ -609,12 +786,20 @@ export async function importStudentGrades(rows, actor) {
     else inserted += 1;
   }
 
+  const graduationSummary = await syncGraduationStatusForStudents([
+    ...touchedStudentIds,
+  ]);
+
   return {
     summary: {
       total: importRows.length,
       inserted,
       updated,
       skipped,
+      graduationChecked: graduationSummary.checked,
+      graduationUpdated: graduationSummary.updated,
+      graduatedYes: graduationSummary.graduated,
+      graduatedNo: graduationSummary.notGraduated,
     },
     issues: issues.slice(0, 30),
   };
@@ -699,10 +884,7 @@ export async function updateStudentById(id, payload, actor) {
         ? toDateOrNull(payload.dateGraduation)
         : existing.dateGraduation,
 
-    graduated:
-      payload.graduated !== undefined
-        ? Boolean(payload.graduated)
-        : Boolean(existing.graduated),
+    graduated: Boolean(existing.graduated),
 
     programCode:
       payload.programCode !== undefined
@@ -793,3 +975,6 @@ export async function updateStudentById(id, payload, actor) {
 
   return mapStudentDetailRow(updated);
 }
+
+
+
