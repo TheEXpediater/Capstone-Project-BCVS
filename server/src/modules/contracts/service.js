@@ -792,8 +792,9 @@ export async function selectActiveAnchorContract({ contractId = '', contractAddr
   settings.blockchain.selectedContractCapabilities = capabilities;
   settings.updatedBy = actor?._id || null;
 
-  const contractId = cleanString(contract._id);
-  const hasStoredContractRecord = /^[0-9a-fA-F]{24}$/.test(contractId);
+const storedContractId = cleanString(contract._id);
+  const hasStoredContractRecord =
+  /^[0-9a-fA-F]{24}$/.test(storedContractId);
 
   await Contract.updateMany(
     hasStoredContractRecord
