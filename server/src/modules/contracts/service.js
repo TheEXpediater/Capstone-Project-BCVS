@@ -263,6 +263,7 @@ function getProvider() {
 }
 
 function getWallet() {
+  requireBlockchainEnv();
   const provider = getProvider();
   return new ethers.Wallet(env.blockchain.contractOperatorPrivateKey, provider);
 }
@@ -709,25 +710,67 @@ export async function findContractByIdOrAddress(value) {
 }
 
 export async function getActiveContractRecord(settings) {
-  const configuredAnchor = cleanString(
-    settings?.blockchain?.activeAnchorContractId ||
-      settings?.blockchain?.activeAnchorContractAddress
+  const configuredAnchorAddress = cleanString(
+    settings?.blockchain?.activeAnchorContractAddress
   );
+
+  const configuredAnchorId = cleanString(
+    settings?.blockchain?.activeAnchorContractId
+  );
+
+  const configuredAnchor = configuredAnchorAddress || configuredAnchorId;
 
   if (configuredAnchor) {
     const anchorContract = await findContractByIdOrAddress(configuredAnchor);
-    if (anchorContract?.contractType === 'merkle_anchor') return anchorContract;
+
+    if (!anchorContract) {
+      throw new ApiError(
+        409,
+        'The configured active anchor contract was not found. Please select a MerkleAnchor contract again.'
+      );
+    }
+
+    if (anchorContract.contractType !== 'merkle_anchor') {
+      throw new ApiError(
+        409,
+        'The configured active anchor contract is not a MerkleAnchor contract.'
+      );
+    }
+
+    return anchorContract;
   }
 
-  const configured = cleanString(settings?.blockchain?.selectedContractId);
-  if (configured) {
-    return findContractByIdOrAddress(configured);
+  const selected = cleanString(
+    settings?.blockchain?.selectedContractAddress ||
+      settings?.blockchain?.selectedContractId
+  );
+
+  if (selected) {
+    const selectedContract = await findContractByIdOrAddress(selected);
+
+    if (selectedContract?.contractType === 'merkle_anchor') {
+      return selectedContract;
+    }
+
+    throw new ApiError(
+      409,
+      'No active MerkleAnchor contract is configured. The selected contract is not valid for anchoring.'
+    );
   }
 
   return buildLegacyMerkleAnchorRecord({
-    chainId: settings?.blockchain?.activeAnchorContractChainId || env.blockchain.chainId,
-    network: settings?.blockchain?.activeAnchorContractNetwork || '',
-    explorerUrl: settings?.blockchain?.activeAnchorContractExplorerUrl || '',
+    chainId:
+      settings?.blockchain?.activeAnchorContractChainId ||
+      settings?.blockchain?.selectedContractChainId ||
+      env.blockchain.chainId,
+    network:
+      settings?.blockchain?.activeAnchorContractNetwork ||
+      settings?.blockchain?.selectedContractNetwork ||
+      '',
+    explorerUrl:
+      settings?.blockchain?.activeAnchorContractExplorerUrl ||
+      settings?.blockchain?.selectedContractExplorerUrl ||
+      '',
   });
 }
 
@@ -824,7 +867,7 @@ export async function checkAnchorReadinessWithDependencies(
 
       if (canAnchor) {
         const abi = getAbiForContract(contract || { address: contractAddress, contractType: 'merkle_anchor' });
-        const contractInstance = createContract(contractAddress, abi, provider);
+        const contractInstance = createContract(contractAddress, abi, wallet);
         const functionName = capabilities?.anchorFunctionName || findAnchorFunction(abi, ANCHOR_FUNCTION_NAMES);
 
         if (!functionName) {
