@@ -548,6 +548,13 @@ export async function updateActiveContract(contractId, actor) {
   const settings = await ensureMainSettings();
   const capabilities = getCapabilitiesForContract(contract);
 
+  if (contract.contractType !== 'merkle_anchor' || !capabilities?.canAnchorMerkleRoot) {
+    throw new ApiError(
+      409,
+      'Only MerkleAnchor contracts can be selected for VC anchoring. The admin contract cannot anchor Merkle roots.'
+    );
+  }
+
   settings.blockchain.selectedContractId = contract.address || String(contract._id);
   settings.blockchain.selectedContractName = contract.contractName || 'AdminContract';
   settings.blockchain.selectedContractType = contract.contractType || 'admin';

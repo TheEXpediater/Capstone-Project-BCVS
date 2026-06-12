@@ -263,21 +263,30 @@ export default function SystemSettingsPage() {
     rotationReason: '',
   });
 
+  const selectableContracts = useMemo(
+    () =>
+      (availableContracts || []).filter(
+        (item) =>
+          item?.contractType === 'merkle_anchor' &&
+          Boolean(item?.capabilities?.canAnchorMerkleRoot)
+      ),
+    [availableContracts]
+  );
   const selectedContractOption = useMemo(
     () =>
-      availableContracts.find(
+      selectableContracts.find(
         (item) => item._id === selectedContractId || item.address === selectedContractId
       ),
-    [availableContracts, selectedContractId]
+    [selectableContracts, selectedContractId]
   );
   const activeContract = useMemo(() => {
     const selectedId = settings.blockchain?.selectedContractId || '';
     return (
-      availableContracts.find(
+      selectableContracts.find(
         (item) => item._id === selectedId || item.address === selectedId
       ) || wallet?.activeContract || null
     );
-  }, [availableContracts, settings.blockchain?.selectedContractId, wallet?.activeContract]);
+  }, [selectableContracts, settings.blockchain?.selectedContractId, wallet?.activeContract]);
   const activeCapabilities =
     activeContract?.capabilities ||
     settings.blockchain?.selectedContractCapabilities ||
@@ -998,8 +1007,8 @@ export default function SystemSettingsPage() {
                 disabled={!access.canManageActiveContract}
                 onChange={(event) => setSelectedContractId(event.target.value)}
               >
-                <option value="">Select a deployed contract</option>
-                {availableContracts
+                <option value="">Select a deployed MerkleAnchor contract</option>
+                {selectableContracts
                   .filter((item) => item.address)
                   .map((item) => (
                     <option key={item._id || item.address} value={item.address || item._id}>
@@ -1007,6 +1016,9 @@ export default function SystemSettingsPage() {
                     </option>
                   ))}
               </select>
+              <div className="form-text text-muted mt-2">
+                Only MerkleAnchor contracts can be used for VC anchoring. Admin contracts are not valid for Merkle root anchoring.
+              </div>
             </div>
             <div className="col-md-3 d-grid gap-2">
               <button
