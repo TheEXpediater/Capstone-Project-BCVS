@@ -11,6 +11,33 @@ export const getCredentialDraftById = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+export const updateCredentialDraft = asyncHandler(async (req, res) => {
+  const data = await credentialService.updateCredentialDraft(
+    req.params.id,
+    req.body || {},
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Credential draft updated successfully.',
+  });
+});
+
+export const deleteCredentialDraft = asyncHandler(async (req, res) => {
+  const data = await credentialService.deleteCredentialDraft(
+    req.params.id,
+    req.user
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Credential draft deleted successfully.',
+  });
+});
+
 export const createCredentialDraftFromStudent = asyncHandler(async (req, res) => {
   const data = await credentialService.createCredentialDraftFromStudent(
     req.params.studentId,
@@ -68,6 +95,7 @@ export const rejectCredentialDraft = asyncHandler(async (req, res) => {
 export const signCredentialDraft = asyncHandler(async (req, res) => {
   const data = await credentialService.signCredentialDraft(
     req.params.id,
+    req.body || {},
     req.user
   );
 

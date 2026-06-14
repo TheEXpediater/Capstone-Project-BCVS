@@ -95,7 +95,7 @@ export function parseQrPayload(rawValue) {
 
     const verificationTarget = `${url.hostname || ''}${url.pathname || ''}`;
     const sessionMatch = verificationTarget.match(
-      /(?:^|\/)verification(?:\/session)?\/([^/?#]+)/i
+      /(?:^|\/)(?:verification(?:\/session)?|verify)\/([^/?#]+)/i
     );
     if (sessionId || sessionMatch?.[1]) {
       return {

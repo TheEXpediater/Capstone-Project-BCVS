@@ -223,13 +223,6 @@ export default function UserManagementPage() {
 
   return (
     <div className="d-flex flex-column gap-4">
-      <div>
-        <h1 className="h3 mb-1">User Management</h1>
-        <p className="text-muted mb-0">
-          Unified view of web admin users and mobile student accounts.
-        </p>
-      </div>
-
       {feedback.text ? <div className={`alert alert-${feedback.type}`}>{feedback.text}</div> : null}
 
       <div className="d-flex flex-wrap gap-2">

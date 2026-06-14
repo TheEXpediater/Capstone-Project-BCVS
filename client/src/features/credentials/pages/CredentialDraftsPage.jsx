@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import {
+  FaBan,
+  FaCalendarAlt,
+  FaCalendarDay,
+  FaCog,
+  FaEdit,
+  FaEye,
+  FaPaperPlane,
+  FaQrcode,
+  FaSignature,
+  FaTrash,
+} from 'react-icons/fa';
+import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
   createCredentialClaimOverrideToken,
   createCredentialClaimToken,
+  deleteCredentialDraft,
   getCredentialDraftById,
   getTodaysAnchorQueueSummary,
   listCredentialDrafts,
@@ -14,10 +28,11 @@ import {
   scheduleCredentialAnchor,
   signCredentialDraft,
   submitCredentialDraft,
+  updateCredentialDraft,
 } from '../credentialsAPI';
 
 const CLAIMABLE_STATUSES = new Set(['signed', 'claim_ready', 'queued_for_anchor', 'anchored']);
-const PAYMENT_TAB_ROLES = new Set(['cashier', 'admin', 'super_admin', 'developer']);
+const PAYMENT_TAB_ROLES = new Set(['cashier']);
 const MANAGE_CREDENTIAL_ROLES = new Set(['admin', 'super_admin', 'developer']);
 const OVERRIDE_QR_ROLES = new Set(['admin', 'super_admin', 'developer']);
 
@@ -26,6 +41,13 @@ function formatDate(value) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'Not available';
   return parsed.toLocaleString();
+}
+
+function formatDateInput(value) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
 }
 
 function formatCurrency(value) {
@@ -120,6 +142,29 @@ function canQueueAnchor(draft, currentUser) {
   return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(
     String(draft?.status || '')
   );
+}
+
+function hasIssuedCredentialArtifacts(draft) {
+  return Boolean(
+    draft?.signedCredential ||
+      draft?.vcPayload ||
+      cleanText(draft?.credentialHash) ||
+      cleanText(draft?.vcHash) ||
+      draft?.signedAt ||
+      ['signed', 'claim_ready', 'claimed', 'shared', 'queued_for_anchor', 'anchored', 'revoked'].includes(
+        cleanText(draft?.status).toLowerCase()
+      )
+  );
+}
+
+function canEditCredentialDraft(draft) {
+  if (!draft || hasIssuedCredentialArtifacts(draft)) return false;
+  return ['draft', 'for_signature'].includes(cleanText(draft.status).toLowerCase());
+}
+
+function canDeleteCredentialDraft(draft) {
+  if (!draft || hasIssuedCredentialArtifacts(draft)) return false;
+  return ['draft', 'for_signature', 'rejected'].includes(cleanText(draft.status).toLowerCase());
 }
 
 function getStatusBadge(status) {
@@ -220,15 +265,240 @@ function matchesAnchorStatus(draft, status) {
   return value === selected;
 }
 
+function matchesAnchorSearch(draft, search) {
+  const query = cleanText(search).toLowerCase();
+  if (!query) return true;
+  return [
+    draft?.studentName,
+    draft?.studentNo,
+    draft?.credentialType,
+    draft?.anchorStatus,
+    draft?.paymentCode,
+    draft?.receiptNo,
+    draft?.credentialHash,
+    draft?.vcHash,
+    draft?.anchorTxHash,
+    draft?.anchorBatchId,
+    draft?.contractAddress,
+    draft?.anchorContractAddress,
+  ]
+    .map((value) => cleanText(value).toLowerCase())
+    .some((value) => value.includes(query));
+}
+
 function isAnchored(draft) {
   return cleanText(draft?.anchorStatus).toLowerCase() === 'anchored';
 }
 
-function ModalShell({ title, subtitle, children, footer, onClose, size = '' }) {
+function getDraftId(item) {
+  return item?._id || item?.id || item?.credentialId || item?.draftId || '';
+}
+
+function isMeaningful(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === null || value === undefined) return false;
+  return String(value).trim() !== '';
+}
+
+function hasAnyValue(...values) {
+  return values.some(isMeaningful);
+}
+
+function extractQueueRows(summary) {
+  const candidates = [
+    summary?.rows,
+    summary?.items,
+    summary?.credentials,
+    summary?.pending,
+    summary?.pendingRows,
+  ];
+  const rows = candidates.find(Array.isArray);
+  return rows || [];
+}
+
+function isDueForAnchorQueue(item, dueAtValue) {
+  const anchorStatus = cleanText(item?.anchorStatus).toLowerCase();
+  if (anchorStatus !== 'queued') return false;
+  if (!isCredentialPaid(item) || !hasSignedCredential(item) || isCredentialRejectedOrRevoked(item)) {
+    return false;
+  }
+
+  let dueAt = dueAtValue ? new Date(dueAtValue) : new Date();
+  const hasInvalidDueAt = Number.isNaN(dueAt.getTime());
+  if (hasInvalidDueAt) dueAt = new Date();
+  if (hasInvalidDueAt || !dueAtValue) {
+    dueAt.setHours(23, 59, 59, 999);
+  }
+  const scheduledAt = item?.scheduledAnchorAt || item?.anchorScheduledAt || item?.anchorDueAt;
+
+  if (!scheduledAt) return anchorScheduleLabel(item) === 'Today';
+
+  const scheduledDate = new Date(scheduledAt);
+  if (Number.isNaN(scheduledDate.getTime())) return anchorScheduleLabel(item) === 'Today';
+
+  return scheduledDate.getTime() <= dueAt.getTime();
+}
+
+function getAnchorQueueRows(summary, rows) {
+  const apiRows = extractQueueRows(summary);
+  if (apiRows.length) return apiRows;
+
+  return (rows || []).filter((item) => isDueForAnchorQueue(item, summary?.dueAt));
+}
+
+function FieldValue({ label, children, className = '' }) {
+  return (
+    <div className={className}>
+      <div className="small text-muted">{label}</div>
+      <div className="fw-semibold text-break">{children || 'Not available'}</div>
+    </div>
+  );
+}
+
+function SummaryTile({ label, children }) {
+  return (
+    <div className="col-md-3">
+      <div className="border rounded-3 bg-light p-3 h-100">
+        <div className="small text-muted mb-1">{label}</div>
+        <div className="fw-semibold">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ children }) {
+  return <div className="alert alert-light border mb-0">{children}</div>;
+}
+
+function GradesTable({ grades }) {
+  if (!grades?.length) {
+    return <EmptyState>No grades are attached to this draft yet.</EmptyState>;
+  }
+
+  return (
+    <div className="table-responsive border rounded-3">
+      <table className="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Year</th>
+            <th>Semester</th>
+            <th>Subject Code</th>
+            <th>Subject Title</th>
+            <th>Units</th>
+            <th>Grade</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {grades.map((grade, index) => (
+            <tr key={grade._id || `${grade.subjectCode}-${index}`}>
+              <td>{grade.yearLevel || 'Not available'}</td>
+              <td>{grade.semester || 'Not available'}</td>
+              <td className="fw-semibold">{grade.subjectCode || 'Not available'}</td>
+              <td>{grade.subjectTitle || 'Not available'}</td>
+              <td>{grade.units ?? 0}</td>
+              <td>{grade.finalGrade || 'Not available'}</td>
+              <td>{grade.remarks || 'Not available'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function createDraftEditForm(draft) {
+  const profile = draft?.profileSnapshot || {};
+
+  return {
+    credentialType: draft?.credentialType || 'tor',
+    notes: draft?.notes || '',
+    profile: {
+      studentNo: profile.studentNo || draft?.studentNo || '',
+      studentName: profile.studentName || draft?.studentName || '',
+      programCode: profile.programCode || '',
+      programName: profile.programName || '',
+      curriculumYear: profile.curriculumYear || '',
+      major: profile.major || '',
+      gender: profile.gender || '',
+      dateAdmission: formatDateInput(profile.dateAdmission),
+      dateGraduated: formatDateInput(profile.dateGraduated || profile.dateGraduation),
+      placeBirth: profile.placeBirth || '',
+      permanentAddress: profile.permanentAddress || '',
+      residentialAddress: profile.residentialAddress || '',
+      entranceCredentials: profile.entranceCredentials || '',
+      highSchool: profile.highSchool || '',
+    },
+    grades: (draft?.gradesSnapshot || []).map((grade) => ({
+      yearLevel: grade.yearLevel || '',
+      semester: grade.semester || '',
+      subjectCode: grade.subjectCode || '',
+      subjectTitle: grade.subjectTitle || '',
+      units: grade.units ?? '',
+      finalGrade: grade.finalGrade || '',
+      remarks: grade.remarks || '',
+      schoolYear: grade.schoolYear || '',
+    })),
+  };
+}
+
+function DraftEditField({ label, value, onChange, type = 'text', disabled, className = 'col-md-4', required = false }) {
+  return (
+    <div className={className}>
+      <label className="form-label small fw-semibold">{label}</label>
+      <input
+        type={type}
+        className="form-control form-control-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        required={required}
+      />
+    </div>
+  );
+}
+
+function DraftActionMenu({ actions, isOpen, onToggle, onClose }) {
+  if (!actions?.length) return null;
+
+  return (
+    <FloatingActionMenu
+      isOpen={isOpen}
+      onToggle={onToggle}
+      onClose={onClose}
+      buttonContent={<FaCog />}
+      ariaLabel="Credential actions"
+      menuWidth={230}
+    >
+      <div className="list-group list-group-flush">
+        {actions.map((action) => (
+          <button
+            key={action.key}
+            type="button"
+            className={`list-group-item list-group-item-action ${
+              action.variant === 'danger' ? 'text-danger' : ''
+            }`}
+            onClick={() => {
+              onClose();
+              action.onClick();
+            }}
+            disabled={action.disabled}
+            title={action.title || ''}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+    </FloatingActionMenu>
+  );
+}
+
+function ModalShell({ title, subtitle, children, footer, onClose, size = '', scrollable = false }) {
   return (
     <>
       <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-        <div className={`modal-dialog modal-dialog-centered ${size}`}>
+        <div className={`modal-dialog modal-dialog-centered ${scrollable ? 'modal-dialog-scrollable' : ''} ${size}`}>
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
               <div>
@@ -316,78 +586,200 @@ function ReasonModal({ action, busy, onCancel, onConfirm }) {
   );
 }
 
-function QueueResultModal({ result, onClose }) {
-  if (!result) return null;
+function QueueProcessModal({
+  open,
+  summary,
+  rows,
+  result,
+  error,
+  busy,
+  onClose,
+  onProcess,
+  onView,
+}) {
+  if (!open) return null;
+
+  const queueRows = getAnchorQueueRows(summary, rows);
+  const pendingCount = summary?.pendingCount ?? queueRows.length;
 
   return (
     <ModalShell
-      title="Anchor queue result"
-      subtitle="Production summary for today's queue run."
-      onClose={onClose}
-      size="modal-lg"
+      title="Process Today's Anchor Queue"
+      subtitle="Review credentials scheduled for anchoring today or earlier."
+      onClose={busy ? () => {} : onClose}
+      size="modal-xl"
+      scrollable
       footer={
-        <button className="btn btn-primary" onClick={onClose}>
-          Close
-        </button>
+        <>
+          <button className="btn btn-outline-secondary" onClick={onClose} disabled={busy}>
+            Close
+          </button>
+          <button
+            className="btn btn-warning"
+            onClick={onProcess}
+            disabled={busy || pendingCount <= 0}
+          >
+            {busy ? 'Processing...' : 'Process Queue'}
+          </button>
+        </>
       }
     >
-      <div className="row g-3 mb-3">
-        <div className="col-md-4">
-          <div className="border rounded-3 p-3">
-            <div className="small text-muted">Processed</div>
-            <div className="h4 mb-0">{result.processedCount || 0}</div>
-          </div>
+      <div className="d-flex flex-column gap-3">
+        {error ? <div className="alert alert-danger mb-0">{error}</div> : null}
+
+        <div className="alert alert-light border mb-0">
+          <strong>{pendingCount || 0}</strong> credential(s) are currently due for anchoring.
+          {summary?.dueAt ? (
+            <span className="text-muted"> Queue cutoff: {formatDate(summary.dueAt)}.</span>
+          ) : null}
         </div>
-        <div className="col-md-4">
-          <div className="border rounded-3 p-3">
-            <div className="small text-muted">Failed</div>
-            <div className="h4 mb-0">{result.failedCount || 0}</div>
+
+        {queueRows.length ? (
+          <div className="table-responsive border rounded-3">
+            <table className="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Credential</th>
+                  <th>Scheduled</th>
+                  <th>Status</th>
+                  <th className="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queueRows.map((item) => {
+                  const id = getDraftId(item);
+                  return (
+                    <tr key={id || `${item.studentNo}-${item.scheduledAnchorAt}`}>
+                      <td>
+                        <div className="fw-semibold">{item.studentName || 'Not available'}</div>
+                        <div className="small text-muted">{item.studentNo || 'No student number'}</div>
+                      </td>
+                      <td>{credentialLabel(item.credentialType || 'student_record')}</td>
+                      <td>{formatDate(item.scheduledAnchorAt || item.anchorScheduledAt || item.anchorDueAt)}</td>
+                      <td>
+                        <span className={`badge ${anchorStatusBadge(item)}`}>
+                          {anchorStatusLabel(item)}
+                        </span>
+                      </td>
+                      <td className="text-end">
+                        <button
+                          className="btn btn-outline-primary btn-sm"
+                          onClick={() => id && onView(id)}
+                          disabled={!id || busy}
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
-        <div className="col-md-4">
+        ) : (
+          <EmptyState>
+            The API returned a summary count only. The queue can still be processed from here, and
+            row details will appear automatically when the API provides them or when matching rows
+            are present in the current VC list.
+          </EmptyState>
+        )}
+
+        {result ? (
           <div className="border rounded-3 p-3">
-            <div className="small text-muted">Skipped</div>
-            <div className="h4 mb-0">{result.skippedCount || 0}</div>
+            <h3 className="h6 mb-3">Processing Result</h3>
+            <div className="row g-3 mb-3">
+              <div className="col-md-4">
+                <div className="border rounded-3 p-3 h-100">
+                  <div className="small text-muted">Processed</div>
+                  <div className="h4 mb-0">{result.processedCount || 0}</div>
+                </div>
+              </div>
+              <div className="col-md-4">
+                <div className="border rounded-3 p-3 h-100">
+                  <div className="small text-muted">Failed</div>
+                  <div className="h4 mb-0">{result.failedCount || 0}</div>
+                </div>
+              </div>
+              <div className="col-md-4">
+                <div className="border rounded-3 p-3 h-100">
+                  <div className="small text-muted">Skipped</div>
+                  <div className="h4 mb-0">{result.skippedCount || 0}</div>
+                </div>
+              </div>
+            </div>
+
+            {result.failed?.length ? (
+              <div className="mb-3">
+                <h4 className="h6">Failed items</h4>
+                <ul className="list-group">
+                  {result.failed.map((item) => (
+                    <li className="list-group-item small" key={item.id}>
+                      <strong>{item.id}</strong>: {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {result.skipped?.length ? (
+              <div>
+                <h4 className="h6">Skipped items</h4>
+                <ul className="list-group">
+                  {result.skipped.map((item) => (
+                    <li className="list-group-item small" key={item.id}>
+                      <strong>{item.id}</strong>: {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
-        </div>
+        ) : null}
       </div>
-
-      {result.failed?.length ? (
-        <div className="mb-3">
-          <h3 className="h6">Failed items</h3>
-          <ul className="list-group">
-            {result.failed.map((item) => (
-              <li className="list-group-item small" key={item.id}>
-                <strong>{item.id}</strong>: {item.reason}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {result.skipped?.length ? (
-        <div>
-          <h3 className="h6">Skipped items</h3>
-          <ul className="list-group">
-            {result.skipped.map((item) => (
-              <li className="list-group-item small" key={item.id}>
-                <strong>{item.id}</strong>: {item.reason}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </ModalShell>
   );
 }
 
-function DraftDetailsModal({ draft, actions, onClose }) {
+function DraftDetailsModal({ draft, onClose }) {
+  const [activeTab, setActiveTab] = useState('student');
+
   if (!draft) return null;
 
   const profile = draft.profileSnapshot || {};
   const grades = draft.gradesSnapshot || [];
   const signedProof = draft.signedCredential?.proof || null;
   const lastVerification = draft.lastVerificationResult || null;
+  const hasPaymentData = hasAnyValue(
+    draft.paymentCode,
+    draft.receiptNo,
+    draft.amount,
+    draft.paidAt,
+    draft.paymentStatus
+  );
+  const hasClaimAnchorData =
+    (hasSignedCredential(draft) || isCredentialClaimed(draft) || isAnchored(draft)) &&
+    hasAnyValue(
+      draft.claimedAt,
+      draft.claimTokenExpiresAt,
+      draft.anchorStatus,
+      draft.scheduledAnchorAt,
+      draft.anchoredAt,
+      draft.contractAddress,
+      draft.anchorContractAddress,
+      draft.anchorTxHash,
+      draft.merkleRoot,
+      draft.anchorFailureReason,
+      draft.anchoringUnavailableReason
+    );
+  const tabs = [
+    { key: 'student', label: 'Student Data & Grades' },
+    ...(hasPaymentData ? [{ key: 'payment', label: 'Payment' }] : []),
+    ...(hasClaimAnchorData ? [{ key: 'claimAnchor', label: 'Claim & Anchor' }] : []),
+    ...(signedProof ? [{ key: 'proof', label: 'Proof' }] : []),
+    ...(lastVerification ? [{ key: 'verification', label: 'Verification' }] : []),
+  ];
+  const visibleTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : 'student';
 
   return (
     <ModalShell
@@ -395,239 +787,518 @@ function DraftDetailsModal({ draft, actions, onClose }) {
       subtitle={`${draft.studentNo || 'Student'} - ${draft.studentName || 'Not available'}`}
       onClose={onClose}
       size="modal-xl"
+      scrollable
       footer={
-        <>
-          {actions}
-          <button className="btn btn-outline-secondary" onClick={onClose}>
-            Close
-          </button>
-        </>
+        <button className="btn btn-outline-secondary" onClick={onClose}>
+          Close
+        </button>
       }
     >
       <div className="d-flex flex-column gap-4">
         <div className="row g-3">
-          <div className="col-md-3">
-            <div className="small text-muted">Status</div>
+          <SummaryTile label="Status">
             <span className={`badge ${getStatusBadge(draft.status)}`}>{titleCase(draft.status)}</span>
-          </div>
-          <div className="col-md-3">
-            <div className="small text-muted">Payment</div>
+          </SummaryTile>
+          <SummaryTile label="Payment">
             <span className={`badge ${getPaymentBadge(draft)}`}>
               {isCredentialPaid(draft) ? 'Paid' : 'Unpaid'}
             </span>
-          </div>
-          <div className="col-md-3">
-            <div className="small text-muted">Created</div>
-            <div className="fw-semibold">{formatDate(draft.createdAt)}</div>
-          </div>
-          <div className="col-md-3">
-            <div className="small text-muted">Updated</div>
-            <div className="fw-semibold">{formatDate(draft.updatedAt)}</div>
-          </div>
+          </SummaryTile>
+          <SummaryTile label="Created">{formatDate(draft.createdAt)}</SummaryTile>
+          <SummaryTile label="Updated">{formatDate(draft.updatedAt)}</SummaryTile>
         </div>
 
-        <div className="border rounded-3 p-3 bg-light">
-          <h3 className="h6 mb-3">Payment</h3>
-          <div className="row g-3">
-            <div className="col-md-3">
-              <div className="small text-muted">Payment Code</div>
-              <div className="fw-semibold text-break">{draft.paymentCode || 'Not generated'}</div>
-            </div>
-            <div className="col-md-3">
-              <div className="small text-muted">Receipt No</div>
-              <div className="fw-semibold">{draft.receiptNo || 'Not paid yet'}</div>
-            </div>
-            <div className="col-md-3">
-              <div className="small text-muted">Amount</div>
-              <div className="fw-semibold">{formatCurrency(draft.amount)}</div>
-            </div>
-            <div className="col-md-3">
-              <div className="small text-muted">Paid At</div>
-              <div className="fw-semibold">{formatDate(draft.paidAt)}</div>
-            </div>
-          </div>
-        </div>
+        <div>
+          <ul className="nav nav-tabs">
+            {tabs.map((tab) => (
+              <li className="nav-item" key={tab.key}>
+                <button
+                  type="button"
+                  className={`nav-link ${visibleTab === tab.key ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.key)}
+                >
+                  {tab.label}
+                </button>
+              </li>
+            ))}
+          </ul>
 
-        <div className="border rounded-3 p-3 bg-light">
-          <h3 className="h6 mb-3">Claim and Anchor</h3>
-          <div className="row g-3">
-            <div className="col-md-3">
-              <div className="small text-muted">Claimed At</div>
-              <div className="fw-semibold">{formatDate(draft.claimedAt)}</div>
-            </div>
-            <div className="col-md-3">
-              <div className="small text-muted">Claim Token Expires</div>
-              <div className="fw-semibold">{formatDate(draft.claimTokenExpiresAt)}</div>
-            </div>
-            <div className="col-md-3">
-              <div className="small text-muted">Anchor Status</div>
-              <div className="fw-semibold">{titleCase(draft.anchorStatus || 'not_requested')}</div>
-            </div>
-            <div className="col-md-3">
-              <div className="small text-muted">Anchored At</div>
-              <div className="fw-semibold">{formatDate(draft.anchoredAt)}</div>
-            </div>
-            <div className="col-md-6">
-              <div className="small text-muted">Contract</div>
-              <div className="fw-semibold text-break">{draft.contractAddress || 'Not available'}</div>
-            </div>
-            <div className="col-md-6">
-              <div className="small text-muted">Anchor Hash</div>
-              <div className="fw-semibold text-break">{draft.anchorTxHash || 'Not available'}</div>
-            </div>
-          </div>
-        </div>
+          <div className="border border-top-0 rounded-bottom p-3 bg-white">
+            {visibleTab === 'student' ? (
+              <div className="d-flex flex-column gap-3">
+                <div className="row g-3">
+                  <FieldValue label="Student No" className="col-md-4">
+                    {profile.studentNo || draft.studentNo}
+                  </FieldValue>
+                  <FieldValue label="Student Name" className="col-md-4">
+                    {profile.studentName || draft.studentName}
+                  </FieldValue>
+                  <FieldValue label="Credential" className="col-md-4">
+                    {credentialLabel(draft.credentialType || 'student_record')}
+                  </FieldValue>
+                  <FieldValue label="Program" className="col-md-4">
+                    {[profile.programCode, profile.programName].filter(Boolean).join(' - ')}
+                  </FieldValue>
+                  <FieldValue label="Curriculum Year" className="col-md-4">
+                    {profile.curriculumYear}
+                  </FieldValue>
+                  <FieldValue label="Major" className="col-md-4">
+                    {profile.major}
+                  </FieldValue>
+                  <FieldValue label="Date Admitted" className="col-md-4">
+                    {formatDate(profile.dateAdmission)}
+                  </FieldValue>
+                  <FieldValue label="Date Graduated" className="col-md-4">
+                    {formatDate(profile.dateGraduated || profile.dateGraduation)}
+                  </FieldValue>
+                  <FieldValue label="Gender" className="col-md-4">
+                    {profile.gender}
+                  </FieldValue>
+                  <FieldValue label="Permanent Address" className="col-md-6">
+                    {profile.permanentAddress}
+                  </FieldValue>
+                  <FieldValue label="Residential Address" className="col-md-6">
+                    {profile.residentialAddress}
+                  </FieldValue>
+                </div>
 
-        <div className="border rounded-3 p-3 bg-light">
-          <h3 className="h6 mb-3">Student Snapshot</h3>
-          <div className="row g-3">
-            <div className="col-md-4">
-              <div className="small text-muted">Student No</div>
-              <div className="fw-semibold">{profile.studentNo || draft.studentNo || 'Not available'}</div>
-            </div>
-            <div className="col-md-4">
-              <div className="small text-muted">Student Name</div>
-              <div className="fw-semibold">{profile.studentName || draft.studentName || 'Not available'}</div>
-            </div>
-            <div className="col-md-4">
-              <div className="small text-muted">Program</div>
-              <div className="fw-semibold">
-                {profile.programCode || 'Not available'} {profile.programName || ''}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {grades.length ? (
-          <div className="table-responsive border rounded-3">
-            <table className="table table-sm align-middle mb-0">
-              <thead>
-                <tr>
-                  <th>Year</th>
-                  <th>Semester</th>
-                  <th>Subject Code</th>
-                  <th>Subject Title</th>
-                  <th>Units</th>
-                  <th>Grade</th>
-                  <th>Remarks</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grades.map((grade, index) => (
-                  <tr key={grade._id || `${grade.subjectCode}-${index}`}>
-                    <td>{grade.yearLevel || 'Not available'}</td>
-                    <td>{grade.semester || 'Not available'}</td>
-                    <td className="fw-semibold">{grade.subjectCode || 'Not available'}</td>
-                    <td>{grade.subjectTitle || 'Not available'}</td>
-                    <td>{grade.units ?? 0}</td>
-                    <td>{grade.finalGrade || 'Not available'}</td>
-                    <td>{grade.remarks || 'Not available'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        {signedProof ? (
-          <div className="border rounded-3 p-3 bg-light">
-            <h3 className="h6 mb-3">Proof Metadata</h3>
-            <div className="row g-3">
-              <div className="col-md-4">
-                <div className="small text-muted">Proof Type</div>
-                <div className="fw-semibold">{signedProof.type || 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Signature Algorithm</div>
-                <div className="fw-semibold">{draft.signatureAlgorithm || signedProof.signatureAlgorithm || 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Canonicalization</div>
-                <div className="fw-semibold">{draft.canonicalizationAlgorithm || signedProof.canonicalizationAlgorithm || 'Not available'}</div>
-              </div>
-              <div className="col-md-6">
-                <div className="small text-muted">Verification Method</div>
-                <div className="fw-semibold text-break">{draft.verificationMethod || signedProof.verificationMethod || 'Not available'}</div>
-              </div>
-              <div className="col-md-6">
-                <div className="small text-muted">Issuer Key ID</div>
-                <div className="fw-semibold text-break">{draft.issuerKeyId || signedProof.issuerKeyId || 'Not available'}</div>
-              </div>
-              <div className="col-12">
-                <div className="small text-muted">VC Hash</div>
-                <div className="fw-semibold text-break">{draft.vcHash || signedProof.vcHash || draft.credentialHash || 'Not available'}</div>
-              </div>
-              <div className="col-md-6">
-                <div className="small text-muted">Merkle Leaf</div>
-                <div className="fw-semibold text-break">{draft.merkleLeaf || 'Not available'}</div>
-              </div>
-              <div className="col-md-6">
-                <div className="small text-muted">Merkle Root</div>
-                <div className="fw-semibold text-break">{draft.merkleRoot || 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Merkle Index</div>
-                <div className="fw-semibold">{draft.merkleLeafIndex ?? 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Tree Size</div>
-                <div className="fw-semibold">{draft.merkleTreeSize || 0}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Merkle Algorithm</div>
-                <div className="fw-semibold">{draft.merkleAlgorithm || 'Not available'}</div>
-              </div>
-              <div className="col-12">
-                <div className="small text-muted">Merkle Proof</div>
-                <div className="fw-semibold text-break">
-                  {draft.merkleProof?.length ? draft.merkleProof.join(' | ') : 'Not available'}
+                <div>
+                  <h3 className="h6 mb-2">Grades</h3>
+                  <GradesTable grades={grades} />
                 </div>
               </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Anchor Chain</div>
-                <div className="fw-semibold">{draft.anchorChainId || 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Anchor Block</div>
-                <div className="fw-semibold">{draft.anchorBlockNumber || 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Anchor Event</div>
-                <div className="fw-semibold">{draft.anchorEventName || 'Not available'}</div>
-              </div>
-              <div className="col-12">
-                <div className="small text-muted">Anchor Availability</div>
-                <div className="fw-semibold text-break">{draft.anchoringUnavailableReason || 'Not available'}</div>
-              </div>
-            </div>
-          </div>
-        ) : null}
+            ) : null}
 
-        {lastVerification ? (
-          <div className="border rounded-3 p-3 bg-light">
-            <h3 className="h6 mb-3">Last Verification Result</h3>
-            <div className="row g-3">
-              <div className="col-md-3">
-                <div className="small text-muted">Status</div>
-                <span className={`badge ${lastVerification.verified ? 'bg-success' : 'bg-warning text-dark'}`}>
-                  {titleCase(lastVerification.status || 'unknown')}
-                </span>
+            {visibleTab === 'payment' ? (
+              <div className="row g-3">
+                <FieldValue label="Payment Code" className="col-md-3">
+                  {draft.paymentCode || 'Not generated'}
+                </FieldValue>
+                <FieldValue label="Receipt No" className="col-md-3">
+                  {draft.receiptNo || 'Not paid yet'}
+                </FieldValue>
+                <FieldValue label="Amount" className="col-md-3">
+                  {formatCurrency(draft.amount)}
+                </FieldValue>
+                <FieldValue label="Paid At" className="col-md-3">
+                  {formatDate(draft.paidAt)}
+                </FieldValue>
               </div>
-              <div className="col-md-3">
-                <div className="small text-muted">Payload Verified</div>
-                <div className="fw-semibold">{lastVerification.payloadVerified ? 'Yes' : 'No'}</div>
+            ) : null}
+
+            {visibleTab === 'claimAnchor' ? (
+              <div className="row g-3">
+                <FieldValue label="Claimed At" className="col-md-3">
+                  {formatDate(draft.claimedAt)}
+                </FieldValue>
+                <FieldValue label="Claim Token Expires" className="col-md-3">
+                  {formatDate(draft.claimTokenExpiresAt)}
+                </FieldValue>
+                <FieldValue label="Anchor Status" className="col-md-3">
+                  {titleCase(draft.anchorStatus || 'not_requested')}
+                </FieldValue>
+                <FieldValue label="Scheduled Anchor" className="col-md-3">
+                  {formatDate(draft.scheduledAnchorAt)}
+                </FieldValue>
+                <FieldValue label="Anchored At" className="col-md-3">
+                  {formatDate(draft.anchoredAt)}
+                </FieldValue>
+                <FieldValue label="Contract" className="col-md-5">
+                  {draft.anchorContractAddress || draft.contractAddress}
+                </FieldValue>
+                <FieldValue label="Anchor Hash" className="col-md-4">
+                  {draft.anchorTxHash}
+                </FieldValue>
+                <FieldValue label="Merkle Root" className="col-md-6">
+                  {draft.merkleRoot}
+                </FieldValue>
+                <FieldValue label="Anchor Availability" className="col-md-6">
+                  {draft.anchorFailureReason || draft.anchoringUnavailableReason}
+                </FieldValue>
               </div>
-              <div className="col-md-6">
-                <div className="small text-muted">Blockchain</div>
-                <div className="fw-semibold text-break">
-                  {lastVerification.checks?.blockchain?.verified
+            ) : null}
+
+            {visibleTab === 'proof' ? (
+              <div className="row g-3">
+                <FieldValue label="Proof Type" className="col-md-4">
+                  {signedProof?.type}
+                </FieldValue>
+                <FieldValue label="Signature Algorithm" className="col-md-4">
+                  {draft.signatureAlgorithm || signedProof?.signatureAlgorithm}
+                </FieldValue>
+                <FieldValue label="Canonicalization" className="col-md-4">
+                  {draft.canonicalizationAlgorithm || signedProof?.canonicalizationAlgorithm}
+                </FieldValue>
+                <FieldValue label="Verification Method" className="col-md-6">
+                  {draft.verificationMethod || signedProof?.verificationMethod}
+                </FieldValue>
+                <FieldValue label="Issuer Key ID" className="col-md-6">
+                  {draft.issuerKeyId || signedProof?.issuerKeyId}
+                </FieldValue>
+                <FieldValue label="VC Hash" className="col-12">
+                  {draft.vcHash || signedProof?.vcHash || draft.credentialHash}
+                </FieldValue>
+                <FieldValue label="Merkle Leaf" className="col-md-6">
+                  {draft.merkleLeaf}
+                </FieldValue>
+                <FieldValue label="Merkle Proof" className="col-md-6">
+                  {draft.merkleProof?.length ? draft.merkleProof.join(' | ') : ''}
+                </FieldValue>
+              </div>
+            ) : null}
+
+            {visibleTab === 'verification' ? (
+              <div className="row g-3">
+                <FieldValue label="Status" className="col-md-3">
+                  <span className={`badge ${lastVerification?.verified ? 'bg-success' : 'bg-warning text-dark'}`}>
+                    {titleCase(lastVerification?.status || 'unknown')}
+                  </span>
+                </FieldValue>
+                <FieldValue label="Payload Verified" className="col-md-3">
+                  {lastVerification?.payloadVerified ? 'Yes' : 'No'}
+                </FieldValue>
+                <FieldValue label="Blockchain" className="col-md-6">
+                  {lastVerification?.checks?.blockchain?.verified
                     ? 'Verified'
-                    : lastVerification.checks?.blockchain?.reason || 'Unavailable'}
+                    : lastVerification?.checks?.blockchain?.reason || 'Unavailable'}
+                </FieldValue>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function DraftEditModal({ draft, onClose, onSave, saving }) {
+  const [activeTab, setActiveTab] = useState('student');
+  const [form, setForm] = useState(() => createDraftEditForm(draft));
+  const [localError, setLocalError] = useState('');
+
+  if (!draft) return null;
+
+  function updateProfile(field, value) {
+    setForm((prev) => ({
+      ...prev,
+      profile: {
+        ...prev.profile,
+        [field]: value,
+      },
+    }));
+  }
+
+  function updateGrade(index, field, value) {
+    setForm((prev) => ({
+      ...prev,
+      grades: prev.grades.map((grade, gradeIndex) =>
+        gradeIndex === index ? { ...grade, [field]: value } : grade
+      ),
+    }));
+  }
+
+  function addGrade() {
+    setForm((prev) => ({
+      ...prev,
+      grades: [
+        ...prev.grades,
+        {
+          yearLevel: '',
+          semester: '',
+          subjectCode: '',
+          subjectTitle: '',
+          units: '',
+          finalGrade: '',
+          remarks: '',
+          schoolYear: '',
+        },
+      ],
+    }));
+  }
+
+  function removeGrade(index) {
+    setForm((prev) => ({
+      ...prev,
+      grades: prev.grades.filter((_, gradeIndex) => gradeIndex !== index),
+    }));
+  }
+
+  function save() {
+    const studentNo = cleanText(form.profile.studentNo);
+    const studentName = cleanText(form.profile.studentName);
+
+    if (!studentNo || !studentName) {
+      setLocalError('Student number and student name are required.');
+      return;
+    }
+
+    const grades = form.grades.filter((grade) =>
+      Object.values(grade).some((value) => cleanText(value))
+    );
+    const incompleteGrade = grades.find(
+      (grade) =>
+        !cleanText(grade.subjectCode) ||
+        !cleanText(grade.subjectTitle) ||
+        !cleanText(grade.finalGrade)
+    );
+
+    if (incompleteGrade) {
+      setLocalError('Each grade row needs a subject code, subject title, and final grade.');
+      setActiveTab('grades');
+      return;
+    }
+
+    setLocalError('');
+    onSave({
+      credentialType: form.credentialType,
+      notes: form.notes,
+      profileSnapshot: {
+        ...form.profile,
+        studentNo,
+        studentName,
+      },
+      gradesSnapshot: grades,
+    });
+  }
+
+  return (
+    <ModalShell
+      title="Edit Credential Draft"
+      subtitle={`${draft.studentNo || 'Student'} - ${draft.studentName || 'Not available'}`}
+      onClose={onClose}
+      size="modal-xl"
+      scrollable
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onClose}>
+            Close
+          </button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Draft'}
+          </button>
+        </>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        {localError ? <div className="alert alert-danger mb-0">{localError}</div> : null}
+
+        <ul className="nav nav-tabs">
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'student' ? 'active' : ''}`}
+              onClick={() => setActiveTab('student')}
+            >
+              Profile
+            </button>
+          </li>
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'grades' ? 'active' : ''}`}
+              onClick={() => setActiveTab('grades')}
+            >
+              Grades
+            </button>
+          </li>
+        </ul>
+
+        <div className="border border-top-0 rounded-bottom p-3 bg-white">
+          {activeTab === 'student' ? (
+            <div className="d-flex flex-column gap-3">
+              <div className="row g-3">
+                <div className="col-md-4">
+                  <label className="form-label small fw-semibold">Credential Type</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={form.credentialType}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, credentialType: event.target.value }))
+                    }
+                    disabled={saving}
+                  >
+                    <option value="tor">TOR</option>
+                    <option value="diploma">Diploma</option>
+                  </select>
+                </div>
+                <DraftEditField
+                  label="Student No"
+                  value={form.profile.studentNo}
+                  onChange={(value) => updateProfile('studentNo', value)}
+                  disabled={saving}
+                  required
+                />
+                <DraftEditField
+                  label="Student Name"
+                  value={form.profile.studentName}
+                  onChange={(value) => updateProfile('studentName', value)}
+                  disabled={saving}
+                  className="col-md-4"
+                  required
+                />
+                <DraftEditField
+                  label="Program Code"
+                  value={form.profile.programCode}
+                  onChange={(value) => updateProfile('programCode', value)}
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Program Name"
+                  value={form.profile.programName}
+                  onChange={(value) => updateProfile('programName', value)}
+                  disabled={saving}
+                  className="col-md-8"
+                />
+                <DraftEditField
+                  label="Curriculum Year"
+                  value={form.profile.curriculumYear}
+                  onChange={(value) => updateProfile('curriculumYear', value)}
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Major"
+                  value={form.profile.major}
+                  onChange={(value) => updateProfile('major', value)}
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Gender"
+                  value={form.profile.gender}
+                  onChange={(value) => updateProfile('gender', value)}
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Date Admission"
+                  value={form.profile.dateAdmission}
+                  onChange={(value) => updateProfile('dateAdmission', value)}
+                  type="date"
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Date Graduated"
+                  value={form.profile.dateGraduated}
+                  onChange={(value) => updateProfile('dateGraduated', value)}
+                  type="date"
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Place of Birth"
+                  value={form.profile.placeBirth}
+                  onChange={(value) => updateProfile('placeBirth', value)}
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="High School"
+                  value={form.profile.highSchool}
+                  onChange={(value) => updateProfile('highSchool', value)}
+                  disabled={saving}
+                />
+                <DraftEditField
+                  label="Entrance Credentials"
+                  value={form.profile.entranceCredentials}
+                  onChange={(value) => updateProfile('entranceCredentials', value)}
+                  disabled={saving}
+                />
+                <div className="col-md-6">
+                  <label className="form-label small fw-semibold">Permanent Address</label>
+                  <textarea
+                    className="form-control form-control-sm"
+                    rows="2"
+                    value={form.profile.permanentAddress}
+                    onChange={(event) => updateProfile('permanentAddress', event.target.value)}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="col-md-6">
+                  <label className="form-label small fw-semibold">Residential Address</label>
+                  <textarea
+                    className="form-control form-control-sm"
+                    rows="2"
+                    value={form.profile.residentialAddress}
+                    onChange={(event) => updateProfile('residentialAddress', event.target.value)}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="col-12">
+                <label className="form-label small fw-semibold">Notes</label>
+                <textarea
+                  className="form-control form-control-sm"
+                  rows="3"
+                  value={form.notes}
+                  onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
+                  disabled={saving}
+                />
                 </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+
+          {activeTab === 'grades' ? (
+            <div className="d-flex flex-column gap-3">
+              <div className="d-flex justify-content-end">
+                <button className="btn btn-outline-primary btn-sm" type="button" onClick={addGrade} disabled={saving}>
+                  Add Grade
+                </button>
+              </div>
+
+              {!form.grades.length ? (
+                <EmptyState>No grades are attached to this draft yet.</EmptyState>
+              ) : (
+                <div className="table-responsive border rounded-3">
+                  <table className="table table-sm align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th style={{ minWidth: 110 }}>Year</th>
+                        <th style={{ minWidth: 120 }}>Semester</th>
+                        <th style={{ minWidth: 130 }}>Code</th>
+                        <th style={{ minWidth: 220 }}>Subject Title</th>
+                        <th style={{ minWidth: 90 }}>Units</th>
+                        <th style={{ minWidth: 100 }}>Grade</th>
+                        <th style={{ minWidth: 140 }}>Remarks</th>
+                        <th className="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {form.grades.map((grade, index) => (
+                        <tr key={`${grade.subjectCode}-${index}`}>
+                          {[
+                            ['yearLevel', 'Year'],
+                            ['semester', 'Semester'],
+                            ['subjectCode', 'Code'],
+                            ['subjectTitle', 'Subject Title'],
+                            ['units', 'Units'],
+                            ['finalGrade', 'Grade'],
+                            ['remarks', 'Remarks'],
+                          ].map(([field, label]) => (
+                            <td key={field}>
+                              <input
+                                className="form-control form-control-sm"
+                                value={grade[field] ?? ''}
+                                onChange={(event) => updateGrade(index, field, event.target.value)}
+                                placeholder={label}
+                                disabled={saving}
+                              />
+                            </td>
+                          ))}
+                          <td className="text-end">
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              type="button"
+                              onClick={() => removeGrade(index)}
+                              disabled={saving}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
     </ModalShell>
   );
@@ -836,15 +1507,49 @@ function CredentialTableShell({ title, loading, hasRows, emptyText, filters, onR
   );
 }
 
+function RowActionCell({
+  item,
+  busyId,
+  detailsLabel = 'More Details',
+  onDetails,
+  actions,
+  isMenuOpen,
+  onToggleMenu,
+  onCloseMenu,
+}) {
+  return (
+    <div className="d-inline-flex flex-wrap justify-content-end gap-2">
+      <button
+        className="btn btn-outline-primary btn-sm text-nowrap"
+        onClick={() => onDetails(item._id)}
+        disabled={busyId === item._id}
+      >
+        {detailsLabel}
+      </button>
+      <DraftActionMenu
+        actions={actions}
+        isOpen={isMenuOpen}
+        onToggle={onToggleMenu}
+        onClose={onCloseMenu}
+      />
+    </div>
+  );
+}
+
 function VcProcessingTable({
   rows,
   loading,
+  busyId,
   paymentStatus,
   search,
   onPaymentStatus,
   onSearch,
   onRefresh,
   onDetails,
+  getActions,
+  actionMenuOpenId,
+  onToggleActionMenu,
+  onCloseActionMenu,
 }) {
   return (
     <CredentialTableShell
@@ -901,12 +1606,15 @@ function VcProcessingTable({
               <td>{credentialLabel(item.credentialType)}</td>
               <td>{anchorScheduleLabel(item)}</td>
               <td className="text-end">
-                <button
-                  className="btn btn-outline-primary btn-sm text-nowrap"
-                  onClick={() => onDetails(item._id)}
-                >
-                  More Details
-                </button>
+                <RowActionCell
+                  item={item}
+                  busyId={busyId}
+                  onDetails={onDetails}
+                  actions={getActions(item)}
+                  isMenuOpen={actionMenuOpenId === item._id}
+                  onToggleMenu={() => onToggleActionMenu(item._id)}
+                  onCloseMenu={onCloseActionMenu}
+                />
               </td>
             </tr>
           ))}
@@ -920,22 +1628,41 @@ function SigningTable({
   rows,
   loading,
   busyId,
+  paymentStatus,
   search,
-  canManage,
+  onPaymentStatus,
   onSearch,
   onRefresh,
-  onSign,
   onDetails,
+  getActions,
+  actionMenuOpenId,
+  onToggleActionMenu,
+  onCloseActionMenu,
 }) {
   return (
     <CredentialTableShell
       title="Signing"
       loading={loading}
       hasRows={rows.length > 0}
-      emptyText="No paid credentials are ready for signing."
+      emptyText="No credentials are ready for signing."
       onRefresh={onRefresh}
       filters={
         <div className="row g-2 align-items-end mb-3">
+          <div className="col-md-3 col-lg-2">
+            <label className="form-label small fw-semibold" htmlFor="signing-payment-status">
+              Payment Status
+            </label>
+            <select
+              id="signing-payment-status"
+              className="form-select form-select-sm"
+              value={paymentStatus}
+              onChange={(event) => onPaymentStatus(event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="paid">Paid</option>
+              <option value="unpaid">Unpaid</option>
+            </select>
+          </div>
           <div className="col-md-5 col-lg-4">
             <label className="form-label small fw-semibold" htmlFor="signing-student-search">
               Student Name
@@ -956,6 +1683,7 @@ function SigningTable({
           <tr>
             <th>Student Name</th>
             <th>Credential</th>
+            <th>Payment</th>
             <th>Signature Status</th>
             <th className="text-end">Actions</th>
           </tr>
@@ -966,27 +1694,25 @@ function SigningTable({
               <td className="fw-semibold">{item.studentName || 'Not available'}</td>
               <td>{credentialLabel(item.credentialType)}</td>
               <td>
+                <span className={`badge ${getPaymentBadge(item)}`}>
+                  {isCredentialPaid(item) ? 'Paid' : 'Unpaid'}
+                </span>
+              </td>
+              <td>
                 <span className={`badge ${signatureStatusBadge(item)}`}>
                   {signatureStatusLabel(item)}
                 </span>
               </td>
               <td className="text-end">
-                <div className="d-inline-flex flex-wrap justify-content-end gap-2">
-                  <button
-                    className="btn btn-success btn-sm text-nowrap"
-                    onClick={() => onSign(item)}
-                    disabled={!canManage || busyId === item._id || hasSignedCredential(item)}
-                  >
-                    Sign
-                  </button>
-                  <button
-                    className="btn btn-outline-primary btn-sm text-nowrap"
-                    onClick={() => onDetails(item._id)}
-                    disabled={busyId === item._id}
-                  >
-                    More Details
-                  </button>
-                </div>
+                <RowActionCell
+                  item={item}
+                  busyId={busyId}
+                  onDetails={onDetails}
+                  actions={getActions(item)}
+                  isMenuOpen={actionMenuOpenId === item._id}
+                  onToggleMenu={() => onToggleActionMenu(item._id)}
+                  onCloseMenu={onCloseActionMenu}
+                />
               </td>
             </tr>
           ))}
@@ -999,12 +1725,19 @@ function SigningTable({
 function AnchorProgressTable({
   rows,
   loading,
+  busyId,
   schedule,
   status,
+  search,
   onSchedule,
   onStatus,
+  onSearch,
   onRefresh,
   onDetails,
+  getActions,
+  actionMenuOpenId,
+  onToggleActionMenu,
+  onCloseActionMenu,
 }) {
   return (
     <CredentialTableShell
@@ -1044,6 +1777,18 @@ function AnchorProgressTable({
               <option value="failed">Failed</option>
             </select>
           </div>
+          <div className="col-md-5 col-lg-4">
+            <label className="form-label small fw-semibold" htmlFor="anchor-search">
+              Search
+            </label>
+            <input
+              id="anchor-search"
+              className="form-control form-control-sm"
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+              placeholder="Student, hash, batch, tx, or contract"
+            />
+          </div>
         </div>
       }
     >
@@ -1067,12 +1812,16 @@ function AnchorProgressTable({
                 </span>
               </td>
               <td className="text-end">
-                <button
-                  className="btn btn-outline-primary btn-sm text-nowrap"
-                  onClick={() => onDetails(item._id)}
-                >
-                  View Details
-                </button>
+                <RowActionCell
+                  item={item}
+                  busyId={busyId}
+                  detailsLabel="More Details"
+                  onDetails={onDetails}
+                  actions={getActions(item)}
+                  isMenuOpen={actionMenuOpenId === item._id}
+                  onToggleMenu={() => onToggleActionMenu(item._id)}
+                  onCloseMenu={onCloseActionMenu}
+                />
               </td>
             </tr>
           ))}
@@ -1088,12 +1837,14 @@ function ClaimedCredentialsTable({
   busyId,
   anchorStatus,
   search,
-  currentUser,
   onAnchorStatus,
   onSearch,
   onRefresh,
   onDetails,
-  onRegenerateQr,
+  getActions,
+  actionMenuOpenId,
+  onToggleActionMenu,
+  onCloseActionMenu,
 }) {
   return (
     <CredentialTableShell
@@ -1143,34 +1894,25 @@ function ClaimedCredentialsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((item) => {
-            const canRegenerate = canShowClaimOverrideQr(item, currentUser);
-            return (
+          {rows.map((item) => (
               <tr key={item._id}>
                 <td className="fw-semibold">{item.studentName || 'Not available'}</td>
                 <td>{credentialLabel(item.credentialType)}</td>
                 <td>{formatDate(item.claimedAt)}</td>
                 <td className="text-end">
-                  <div className="d-inline-flex flex-wrap justify-content-end gap-2">
-                    <button
-                      className="btn btn-outline-primary btn-sm text-nowrap"
-                      onClick={() => onDetails(item._id)}
-                      disabled={busyId === item._id}
-                    >
-                      View Details
-                    </button>
-                    <button
-                      className="btn btn-warning btn-sm text-nowrap"
-                      onClick={() => onRegenerateQr(item)}
-                      disabled={!canRegenerate || busyId === item._id}
-                    >
-                      Regenerate QR
-                    </button>
-                  </div>
+                  <RowActionCell
+                    item={item}
+                    busyId={busyId}
+                    detailsLabel="More Details"
+                    onDetails={onDetails}
+                    actions={getActions(item)}
+                    isMenuOpen={actionMenuOpenId === item._id}
+                    onToggleMenu={() => onToggleActionMenu(item._id)}
+                    onCloseMenu={onCloseActionMenu}
+                  />
                 </td>
               </tr>
-            );
-          })}
+          ))}
         </tbody>
       </table>
     </CredentialTableShell>
@@ -1190,9 +1932,11 @@ export default function CredentialDraftsPage() {
   const [activeTab, setActiveTab] = useState(cashierOnly ? 'payments' : 'drafts');
   const [vcPaymentFilter, setVcPaymentFilter] = useState('');
   const [vcSearch, setVcSearch] = useState('');
+  const [signingPaymentFilter, setSigningPaymentFilter] = useState('');
   const [signingSearch, setSigningSearch] = useState('');
   const [anchorScheduleFilter, setAnchorScheduleFilter] = useState('today');
   const [anchorStatusFilter, setAnchorStatusFilter] = useState('queued');
+  const [anchorSearch, setAnchorSearch] = useState('');
   const [claimedAnchorFilter, setClaimedAnchorFilter] = useState('anchored');
   const [claimedSearch, setClaimedSearch] = useState('');
   const [paymentSearch, setPaymentSearch] = useState('');
@@ -1201,13 +1945,19 @@ export default function CredentialDraftsPage() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [modalBusy, setModalBusy] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [selectedDraft, setSelectedDraft] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+  const [rowActionMenuOpenId, setRowActionMenuOpenId] = useState('');
   const [claimQr, setClaimQr] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const [reasonAction, setReasonAction] = useState(null);
-  const [queueResult, setQueueResult] = useState(null);
   const [queueSummary, setQueueSummary] = useState(null);
+  const [queueModalOpen, setQueueModalOpen] = useState(false);
+  const [queueProcessing, setQueueProcessing] = useState(false);
+  const [queueProcessResult, setQueueProcessResult] = useState(null);
+  const [queueError, setQueueError] = useState('');
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -1290,6 +2040,14 @@ export default function CredentialDraftsPage() {
     return error?.response?.data?.message || error?.message || fallback;
   }
 
+  function closeRowActionMenu() {
+    setRowActionMenuOpenId('');
+  }
+
+  function toggleRowActionMenu(id) {
+    setRowActionMenuOpenId((prev) => (prev === id ? '' : id));
+  }
+
   async function runConfirmedAction() {
     if (!confirmAction?.run) return;
 
@@ -1332,6 +2090,7 @@ export default function CredentialDraftsPage() {
   async function openDraft(id) {
     try {
       setBusyId(id);
+      closeRowActionMenu();
       const data = await getCredentialDraftById(id);
       setSelectedDraft(data);
     } catch (error) {
@@ -1357,22 +2116,39 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmSign(item) {
-    if (!isCredentialPaid(item)) {
-      setFeedback({ type: 'warning', text: 'Payment is required before signing.' });
-      return;
-    }
+    const unpaid = !isCredentialPaid(item);
 
     setConfirmAction({
-      title: 'Sign credential?',
-      subtitle: 'This signs the VC with the active issuer key. Private key material stays on the server.',
+      title: unpaid ? 'Sign unpaid credential?' : 'Sign credential?',
+      subtitle: unpaid
+        ? 'Payment is still marked unpaid. Continue only if the registrar intentionally approves signing before cashier confirmation.'
+        : 'This signs the VC with the active issuer key. Private key material stays on the server.',
       details: `${item.studentName} (${item.studentNo}) - ${titleCase(item.credentialType)}`,
-      confirmLabel: 'Sign',
-      variant: 'success',
+      confirmLabel: unpaid ? 'Sign Anyway' : 'Sign',
+      variant: unpaid ? 'warning' : 'success',
       run: async () => {
         setBusyId(item._id);
-        await signCredentialDraft(item._id);
+        await signCredentialDraft(item._id, unpaid ? { allowUnpaid: true } : {});
         setBusyId('');
         await refreshAfterAction('Credential signed successfully.');
+      },
+    });
+  }
+
+  function confirmDeleteDraft(item) {
+    setConfirmAction({
+      title: 'Delete draft?',
+      subtitle: 'This removes the unsigned credential draft from the registrar queue.',
+      details: `${item.studentName} (${item.studentNo}) - ${titleCase(item.credentialType)}`,
+      confirmLabel: 'Delete Draft',
+      variant: 'danger',
+      run: async () => {
+        setBusyId(item._id);
+        await deleteCredentialDraft(item._id);
+        setBusyId('');
+        setSelectedDraft(null);
+        setEditDraft(null);
+        await refreshAfterAction('Credential draft deleted.');
       },
     });
   }
@@ -1509,126 +2285,189 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmProcessQueue() {
-    setConfirmAction({
-      title: "Process today's anchor queue?",
-      subtitle: 'This will anchor all eligible credentials scheduled for today or earlier.',
-      details: `${queueSummary?.pendingCount || 0} eligible item(s) are currently due.`,
-      confirmLabel: 'Process Queue',
-      variant: 'warning',
-      run: async () => {
-        const result = await processTodaysAnchorQueue();
-        setQueueResult(result);
-        await refreshAfterAction("Today's anchor queue processed.");
-      },
-    });
+    setQueueError('');
+    setQueueProcessResult(null);
+    setQueueModalOpen(true);
+    loadAnchorSummary().catch(() => {});
   }
 
-  function detailsAction(run) {
-    setSelectedDraft(null);
+  async function processQueueFromModal() {
+    try {
+      setQueueProcessing(true);
+      setQueueError('');
+      const result = await processTodaysAnchorQueue();
+      setQueueProcessResult(result);
+      await refreshAfterAction("Today's anchor queue processed.");
+    } catch (error) {
+      setQueueError(actionError(error, "Failed to process today's anchor queue."));
+    } finally {
+      setQueueProcessing(false);
+    }
+  }
+
+  async function saveEditedDraft(payload) {
+    if (!editDraft?._id) return;
+
+    try {
+      setEditSaving(true);
+      const updated = await updateCredentialDraft(editDraft._id, payload);
+      setEditDraft(null);
+      if (selectedDraft?._id === updated?._id) {
+        setSelectedDraft(updated);
+      }
+      await refreshAfterAction('Credential draft updated.');
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Failed to update credential draft.') });
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  function viewQueueCredential(id) {
+    setQueueModalOpen(false);
+    openDraft(id);
+  }
+
+  function runRowAction(run) {
+    closeRowActionMenu();
     run();
   }
 
-  function renderDetailsActions(draft) {
-    if (!draft) return null;
+  function buildDraftActions(draft) {
+    if (!draft) return [];
 
-    return (
-      <div className="me-auto d-flex flex-wrap gap-2">
-        {draft.status === 'draft' && canManageCredentials ? (
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => detailsAction(() => confirmSubmit(draft))}
-            disabled={busyId === draft._id}
-          >
-            Submit
-          </button>
-        ) : null}
+    const actions = [];
 
-        {draft.status === 'for_signature' && canManageCredentials ? (
-          <>
-            <button
-              className="btn btn-success btn-sm"
-              onClick={() => detailsAction(() => confirmSign(draft))}
-              disabled={busyId === draft._id || !isCredentialPaid(draft)}
-            >
-              Sign
-            </button>
-            <button
-              className="btn btn-outline-danger btn-sm"
-              onClick={() => detailsAction(() => confirmReject(draft))}
-              disabled={busyId === draft._id}
-            >
-              Reject
-            </button>
-          </>
-        ) : null}
+    if (canManageCredentials && canEditCredentialDraft(draft)) {
+      actions.push({
+        key: 'edit',
+        label: 'Edit',
+        icon: <FaEdit />,
+        onClick: () => runRowAction(() => {
+          setSelectedDraft(null);
+          setEditDraft(draft);
+        }),
+        disabled: busyId === draft._id,
+      });
+    }
 
-        {canShowClaimQr(draft) && canManageCredentials && hasActiveClaimToken(draft) ? (
-          <button
-            className="btn btn-info btn-sm"
-            onClick={() => detailsAction(() => viewExistingClaimQr(draft))}
-            disabled={busyId === draft._id}
-          >
-            View QR
-          </button>
-        ) : null}
+    if (draft.status === 'draft' && canManageCredentials) {
+      actions.push({
+        key: 'submit',
+        label: 'Submit',
+        icon: <FaPaperPlane />,
+        onClick: () => runRowAction(() => confirmSubmit(draft)),
+        disabled: busyId === draft._id,
+      });
+    }
 
-        {canShowClaimQr(draft) && canManageCredentials && !hasActiveClaimToken(draft) && canGenerateFreshClaimQr(draft) ? (
-          <button
-            className="btn btn-info btn-sm"
-            onClick={() => detailsAction(() => confirmClaimQr(draft, hasExpiredClaimToken(draft)))}
-            disabled={busyId === draft._id}
-          >
-            {hasExpiredClaimToken(draft) ? 'Fresh QR' : 'Claim QR'}
-          </button>
-        ) : null}
+    if (canManageCredentials && canDeleteCredentialDraft(draft)) {
+      actions.push({
+        key: 'delete',
+        label: 'Delete',
+        icon: <FaTrash />,
+        variant: 'danger',
+        onClick: () => runRowAction(() => confirmDeleteDraft(draft)),
+        disabled: busyId === draft._id,
+      });
+    }
 
-        {canShowClaimQr(draft) && canManageCredentials && !hasActiveClaimToken(draft) && !canGenerateFreshClaimQr(draft) ? (
-          <button className="btn btn-outline-info btn-sm" disabled>
-            QR Active
-          </button>
-        ) : null}
+    if (draft.status === 'for_signature' && canManageCredentials) {
+      actions.push({
+        key: 'sign',
+        label: 'Sign',
+        icon: <FaSignature />,
+        onClick: () => runRowAction(() => confirmSign(draft)),
+        disabled: busyId === draft._id || hasSignedCredential(draft),
+      });
+      actions.push({
+        key: 'reject',
+        label: 'Reject',
+        icon: <FaBan />,
+        variant: 'danger',
+        onClick: () => runRowAction(() => confirmReject(draft)),
+        disabled: busyId === draft._id,
+      });
+    }
 
-        {canShowClaimOverrideQr(draft, currentUser) ? (
-          <>
-            {hasActiveClaimToken(draft) ? (
-              <button
-                className="btn btn-warning btn-sm"
-                onClick={() => detailsAction(() => viewExistingClaimQr(draft, true))}
-                disabled={busyId === draft._id}
-              >
-                View QR
-              </button>
-            ) : null}
-            <button
-              className="btn btn-outline-warning btn-sm"
-              onClick={() => detailsAction(() => confirmOverrideQr(draft))}
-              disabled={busyId === draft._id}
-            >
-              Regenerate QR
-            </button>
-          </>
-        ) : null}
+    if (canShowClaimQr(draft) && canManageCredentials && hasActiveClaimToken(draft)) {
+      actions.push({
+        key: 'view-qr',
+        label: 'View QR',
+        icon: <FaEye />,
+        onClick: () => runRowAction(() => viewExistingClaimQr(draft)),
+        disabled: busyId === draft._id,
+      });
+    }
 
-        {canQueueAnchor(draft, currentUser) ? (
-          <>
-            <button
-              className="btn btn-warning btn-sm"
-              onClick={() => detailsAction(() => confirmQueueAnchor(draft, 'same_day'))}
-              disabled={busyId === draft._id}
-            >
-              Anchor Today
-            </button>
-            <button
-              className="btn btn-outline-warning btn-sm"
-              onClick={() => detailsAction(() => confirmQueueAnchor(draft, 'scheduled'))}
-              disabled={busyId === draft._id}
-            >
-              Schedule 7 Days
-            </button>
-          </>
-        ) : null}
-      </div>
-    );
+    if (
+      canShowClaimQr(draft) &&
+      canManageCredentials &&
+      !hasActiveClaimToken(draft) &&
+      canGenerateFreshClaimQr(draft)
+    ) {
+      actions.push({
+        key: 'claim-qr',
+        label: hasExpiredClaimToken(draft) ? 'Fresh QR' : 'Claim QR',
+        icon: <FaQrcode />,
+        onClick: () => runRowAction(() => confirmClaimQr(draft, hasExpiredClaimToken(draft))),
+        disabled: busyId === draft._id,
+      });
+    }
+
+    if (
+      canShowClaimQr(draft) &&
+      canManageCredentials &&
+      !hasActiveClaimToken(draft) &&
+      !canGenerateFreshClaimQr(draft)
+    ) {
+      actions.push({
+        key: 'qr-active',
+        label: 'QR Active',
+        icon: <FaQrcode />,
+        onClick: () => {},
+        disabled: true,
+      });
+    }
+
+    if (canShowClaimOverrideQr(draft, currentUser)) {
+      if (hasActiveClaimToken(draft)) {
+        actions.push({
+          key: 'view-override-qr',
+          label: 'View QR',
+          icon: <FaEye />,
+          onClick: () => runRowAction(() => viewExistingClaimQr(draft, true)),
+          disabled: busyId === draft._id,
+        });
+      }
+
+      actions.push({
+        key: 'regenerate-qr',
+        label: 'Regenerate QR',
+        icon: <FaQrcode />,
+        onClick: () => runRowAction(() => confirmOverrideQr(draft)),
+        disabled: busyId === draft._id,
+      });
+    }
+
+    if (canQueueAnchor(draft, currentUser)) {
+      actions.push({
+        key: 'anchor-today',
+        label: 'Anchor Today',
+        icon: <FaCalendarDay />,
+        onClick: () => runRowAction(() => confirmQueueAnchor(draft, 'same_day')),
+        disabled: busyId === draft._id,
+      });
+      actions.push({
+        key: 'schedule-anchor',
+        label: 'Schedule 7 Days',
+        icon: <FaCalendarAlt />,
+        onClick: () => runRowAction(() => confirmQueueAnchor(draft, 'scheduled')),
+        disabled: busyId === draft._id,
+      });
+    }
+
+    return actions;
   }
 
   const tabs = cashierOnly
@@ -1665,12 +2504,12 @@ export default function CredentialDraftsPage() {
       rows.filter((item) => {
         const status = cleanText(item.status).toLowerCase();
         return (
-          isCredentialPaid(item) &&
           ['for_signature', 'signed'].includes(status) &&
+          matchesPaymentStatus(item, signingPaymentFilter) &&
           matchesStudentName(item, signingSearch)
         );
       }),
-    [rows, signingSearch]
+    [rows, signingPaymentFilter, signingSearch]
   );
 
   const anchorRows = useMemo(
@@ -1689,10 +2528,11 @@ export default function CredentialDraftsPage() {
         return (
           isAnchorTracked &&
           matchesAnchorSchedule(item, anchorScheduleFilter) &&
-          matchesAnchorStatus(item, anchorStatusFilter)
+          matchesAnchorStatus(item, anchorStatusFilter) &&
+          matchesAnchorSearch(item, anchorSearch)
         );
       }),
-    [rows, anchorScheduleFilter, anchorStatusFilter]
+    [rows, anchorScheduleFilter, anchorStatusFilter, anchorSearch]
   );
 
   const claimedRows = useMemo(
@@ -1713,11 +2553,7 @@ export default function CredentialDraftsPage() {
   return (
     <>
       <div className="d-flex flex-column gap-4">
-        <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
-          <div>
-            <h1 className="h3 mb-0">VC</h1>
-          </div>
-
+        <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
           {canManageCredentials ? (
             <button
               className="btn btn-warning"
@@ -1764,12 +2600,17 @@ export default function CredentialDraftsPage() {
           <VcProcessingTable
             rows={vcRows}
             loading={loading}
+            busyId={busyId}
             paymentStatus={vcPaymentFilter}
             search={vcSearch}
             onPaymentStatus={setVcPaymentFilter}
             onSearch={setVcSearch}
             onRefresh={loadDrafts}
             onDetails={openDraft}
+            getActions={buildDraftActions}
+            actionMenuOpenId={rowActionMenuOpenId}
+            onToggleActionMenu={toggleRowActionMenu}
+            onCloseActionMenu={closeRowActionMenu}
           />
         ) : null}
 
@@ -1778,12 +2619,16 @@ export default function CredentialDraftsPage() {
             rows={signingRows}
             loading={loading}
             busyId={busyId}
+            paymentStatus={signingPaymentFilter}
             search={signingSearch}
-            canManage={canManageCredentials}
+            onPaymentStatus={setSigningPaymentFilter}
             onSearch={setSigningSearch}
             onRefresh={loadDrafts}
-            onSign={confirmSign}
             onDetails={openDraft}
+            getActions={buildDraftActions}
+            actionMenuOpenId={rowActionMenuOpenId}
+            onToggleActionMenu={toggleRowActionMenu}
+            onCloseActionMenu={closeRowActionMenu}
           />
         ) : null}
 
@@ -1791,12 +2636,19 @@ export default function CredentialDraftsPage() {
           <AnchorProgressTable
             rows={anchorRows}
             loading={loading}
+            busyId={busyId}
             schedule={anchorScheduleFilter}
             status={anchorStatusFilter}
+            search={anchorSearch}
             onSchedule={setAnchorScheduleFilter}
             onStatus={setAnchorStatusFilter}
+            onSearch={setAnchorSearch}
             onRefresh={loadDrafts}
             onDetails={openDraft}
+            getActions={buildDraftActions}
+            actionMenuOpenId={rowActionMenuOpenId}
+            onToggleActionMenu={toggleRowActionMenu}
+            onCloseActionMenu={closeRowActionMenu}
           />
         ) : null}
 
@@ -1807,20 +2659,29 @@ export default function CredentialDraftsPage() {
             busyId={busyId}
             anchorStatus={claimedAnchorFilter}
             search={claimedSearch}
-            currentUser={currentUser}
             onAnchorStatus={setClaimedAnchorFilter}
             onSearch={setClaimedSearch}
             onRefresh={loadDrafts}
             onDetails={openDraft}
-            onRegenerateQr={confirmOverrideQr}
+            getActions={buildDraftActions}
+            actionMenuOpenId={rowActionMenuOpenId}
+            onToggleActionMenu={toggleRowActionMenu}
+            onCloseActionMenu={closeRowActionMenu}
           />
         ) : null}
       </div>
 
       <DraftDetailsModal
+        key={selectedDraft?._id || 'credential-details'}
         draft={selectedDraft}
-        actions={renderDetailsActions(selectedDraft)}
         onClose={() => setSelectedDraft(null)}
+      />
+      <DraftEditModal
+        key={editDraft?._id || 'credential-edit'}
+        draft={editDraft}
+        onClose={() => setEditDraft(null)}
+        onSave={saveEditedDraft}
+        saving={editSaving}
       />
       <ClaimQrModal
         key={claimQr?.claimUri || 'claim-qr'}
@@ -1843,9 +2704,16 @@ export default function CredentialDraftsPage() {
         onCancel={closeActionModals}
         onConfirm={runReasonAction}
       />
-      <QueueResultModal
-        result={queueResult}
-        onClose={() => setQueueResult(null)}
+      <QueueProcessModal
+        open={queueModalOpen}
+        summary={queueSummary}
+        rows={rows}
+        result={queueProcessResult}
+        error={queueError}
+        busy={queueProcessing}
+        onClose={() => setQueueModalOpen(false)}
+        onProcess={processQueueFromModal}
+        onView={viewQueueCredential}
       />
     </>
   );

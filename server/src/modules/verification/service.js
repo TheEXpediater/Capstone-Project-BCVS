@@ -129,7 +129,7 @@ function isPendingSessionStatus(status) {
 }
 
 function isTerminalSessionStatus(status) {
-  return ['presented', 'denied', 'expired'].includes(cleanString(status));
+  return ['presented', 'denied', 'cancelled', 'expired', 'failed'].includes(cleanString(status));
 }
 
 function generateNonce() {
@@ -1198,6 +1198,30 @@ export async function getVerificationResult(sessionId, nonce = '') {
     ...serializePublicSession(session),
     verificationResult: session.verificationResult || null,
   };
+}
+
+export async function cancelVerificationSession(sessionId, nonce = '') {
+  const session = await findSessionOrThrow(sessionId);
+  assertNonceRequired(session, nonce);
+
+  if (session.status === 'cancelled') {
+    return serializePublicSession(session);
+  }
+
+  if (isTerminalSessionStatus(session.status)) {
+    throw new ApiError(409, 'Verification session has already been processed');
+  }
+
+  session.status = 'cancelled';
+  session.decision = 'cancel';
+  session.cancelledAt = new Date();
+  session.verificationResult = null;
+  session.presentedCredential = null;
+  session.presentedCredentialId = '';
+  session.allowPdfDownload = false;
+  await session.save();
+
+  return serializePublicSession(session);
 }
 
 export async function getVerificationSession(sessionId, nonce = '', actor = null) {

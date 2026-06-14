@@ -44,13 +44,13 @@ const verificationSessionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'pending', 'pending_consent', 'presented', 'denied', 'expired'],
+      enum: ['draft', 'pending', 'pending_consent', 'presented', 'denied', 'cancelled', 'expired', 'failed'],
       default: 'draft',
       index: true,
     },
     decision: {
       type: String,
-      enum: ['approve', 'deny', ''],
+      enum: ['approve', 'deny', 'cancel', ''],
       default: '',
     },
     presentedAt: {
@@ -61,6 +61,10 @@ const verificationSessionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
       index: true,
+    },
+    cancelledAt: {
+      type: Date,
+      default: null,
     },
     presentedCredentialId: {
       type: String,

@@ -5,7 +5,7 @@ import QRCode from 'react-native-qrcode-svg';
 import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
 import { colors, radius, spacing } from '@/constants/theme';
-import { buildVerifierShareUrl } from '@/services/verificationService';
+import { createShareSession } from '@/services/verificationService';
 import { getCredentialTitle, getHolderName } from '@/utils/credentialUtils';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -13,6 +13,7 @@ export default function ShareCredentialScreen() {
   const { id } = useLocalSearchParams();
   const credentials = useAppStore((state) => state.credentials);
   const [shareValue, setShareValue] = useState('');
+  const [sessionInfo, setSessionInfo] = useState(null);
   const [creating, setCreating] = useState(false);
   const credential = useMemo(
     () => credentials.find((item) => String(item.id) === String(id)),
@@ -25,12 +26,16 @@ export default function ShareCredentialScreen() {
       if (!credential) return;
       setCreating(true);
       try {
-        const url = buildVerifierShareUrl(credential);
-        if (mounted) setShareValue(url);
+        const session = await createShareSession({ credential });
+        if (mounted) {
+          setShareValue(session.verifyUrl);
+          setSessionInfo(session);
+        }
       } catch (error) {
         if (mounted) {
           Alert.alert('Share link unavailable', error.message);
           setShareValue('');
+          setSessionInfo(null);
         }
       } finally {
         if (mounted) setCreating(false);
@@ -66,6 +71,9 @@ export default function ShareCredentialScreen() {
       <Text style={styles.help}>
         Show this QR to a verifier only when you intend to share this credential.
       </Text>
+      {sessionInfo?.sessionId ? (
+        <Text style={styles.meta}>Verification session: {sessionInfo.sessionId}</Text>
+      ) : null}
 
       <Button title="Open Share Sheet" onPress={nativeShare} disabled={!shareValue} loading={creating} />
       <Button title="Back" variant="outline" onPress={() => router.back()} />
@@ -111,5 +119,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginVertical: spacing.lg
+  },
+  meta: {
+    color: colors.muted,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+    fontSize: 12
   }
 });

@@ -11,10 +11,6 @@ import {
 
 const ANCHOR_CONTRACT_TYPE = 'merkle_anchor';
 
-function contractTypeLabel() {
-  return 'Merkle Anchor Contract';
-}
-
 function capabilityClass(capabilities) {
   if (capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot) return 'text-bg-success';
   if (capabilities?.canAnchorMerkleRoot) return 'text-bg-warning';
@@ -192,7 +188,6 @@ export default function ContractManagerPage() {
     activeAnchorContractAddress: '',
   });
   const [estimate, setEstimate] = useState(null);
-  const [selectedContractType] = useState(ANCHOR_CONTRACT_TYPE);
   const [existingModalOpen, setExistingModalOpen] = useState(false);
   const [readinessModalOpen, setReadinessModalOpen] = useState(false);
   const [readinessResult, setReadinessResult] = useState(null);
@@ -371,11 +366,7 @@ export default function ContractManagerPage() {
 
   return (
     <div className="container-fluid py-4">
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div>
-          <h1 className="h3 mb-1">Anchor Contracts</h1>
-          <p className="text-muted mb-0">Review and manage MerkleAnchor contracts used by VC anchoring and verification.</p>
-        </div>
+      <div className="d-flex justify-content-end align-items-center mb-4">
         <div className="d-flex flex-wrap gap-2">
           {canDeploy ? (
             <button

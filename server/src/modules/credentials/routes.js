@@ -4,6 +4,7 @@ import {
   createCredentialClaimToken,
   createCredentialClaimOverrideToken,
   createCredentialDraftFromStudent,
+  deleteCredentialDraft,
   getCredentialDraftById,
   getTodaysAnchorQueueSummary,
   listCredentialPayments,
@@ -14,6 +15,7 @@ import {
   scheduleCredentialAnchor,
   signCredentialDraft,
   submitCredentialDraft,
+  updateCredentialDraft,
 } from './controller.js';
 
 const router = express.Router();
@@ -100,6 +102,20 @@ router.put(
   protect({ kind: 'web' }),
   allowRoles('admin', 'super_admin', 'developer'),
   scheduleCredentialAnchor
+);
+
+router.put(
+  '/:id',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  updateCredentialDraft
+);
+
+router.delete(
+  '/:id',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  deleteCredentialDraft
 );
 
 router.get(

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { login, resetAuthMessage } from '../authSlice';
 
 export default function LoginPage() {
@@ -77,6 +77,10 @@ export default function LoginPage() {
             <button className="btn btn-success w-100" type="submit" disabled={isLoading}>
               {isLoading ? 'Signing in...' : 'Sign in'}
             </button>
+
+            <Link className="btn btn-outline-secondary w-100 mt-2" to="/verify">
+              Open Verification Portal
+            </Link>
           </form>
         </div>
       </div>

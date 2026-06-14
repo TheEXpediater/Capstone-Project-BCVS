@@ -134,6 +134,19 @@ export const getVerificationResult = asyncHandler(async (req, res) => {
   });
 });
 
+export const cancelVerificationSession = asyncHandler(async (req, res) => {
+  const data = await verificationService.cancelVerificationSession(
+    req.params.sessionId,
+    req.body?.nonce || req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Verification session cancelled.',
+  });
+});
+
 export const getVerificationSession = asyncHandler(async (req, res) => {
   const data = await verificationService.getVerificationSession(
     req.params.sessionId,

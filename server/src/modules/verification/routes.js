@@ -8,6 +8,7 @@ import { ApiError } from '../../shared/utils/ApiError.js';
 import {
   approveVerificationSession,
   approveVerificationSubmission,
+  cancelVerificationSession,
   createVerificationSession,
   denyVerificationSession,
   downloadPresentedCredential,
@@ -133,6 +134,11 @@ router.get(
 router.get(
   '/session/:sessionId/result',
   getVerificationResult
+);
+
+router.post(
+  '/session/:sessionId/cancel',
+  cancelVerificationSession
 );
 
 router.get(

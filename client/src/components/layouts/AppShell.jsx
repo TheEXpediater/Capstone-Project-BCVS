@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FaBars,
   FaChevronLeft,
@@ -39,7 +39,26 @@ function SidebarLink({ to, icon, children, collapsed }) {
   );
 }
 
-function Header({ user, onLogout, onToggleSidebar }) {
+const PAGE_TITLES = [
+  { path: '/students', title: 'Student Records' },
+  { path: '/link-accounts', title: 'Link Accounts' },
+  { path: '/credentials', title: 'VC' },
+  { path: '/curricula', title: 'Curriculum Manager' },
+  { path: '/users', title: 'Manage Users' },
+  { path: '/contracts', title: 'Contract Manager' },
+  { path: '/system-settings', title: 'System Settings' },
+  { path: '/', title: 'Dashboard' },
+];
+
+function getPageTitle(pathname) {
+  const match = PAGE_TITLES.find((item) =>
+    item.path === '/' ? pathname === '/' : pathname.startsWith(item.path)
+  );
+
+  return match?.title || 'BCVS';
+}
+
+function Header({ user, pageTitle, onLogout, onToggleSidebar }) {
   return (
     <header className="app-header">
       <div className="app-header-left">
@@ -56,6 +75,10 @@ function Header({ user, onLogout, onToggleSidebar }) {
           <FaSearch className="app-search-icon" />
           <input type="text" placeholder="Search" />
         </form>
+      </div>
+
+      <div className="app-header-title">
+        <h1>{pageTitle}</h1>
       </div>
 
       <div className="app-header-right">
@@ -79,6 +102,7 @@ function Header({ user, onLogout, onToggleSidebar }) {
 export default function AppShell({ children }) {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useSelector((state) => state.auth.user);
 
   const [collapsed, setCollapsed] = useState(false);
@@ -126,10 +150,11 @@ export default function AppShell({ children }) {
 
   const isDeveloper = user?.role === 'developer';
   const canSeeSettings = isDeveloper;
-  const canSeeContracts = isDeveloper;
+  const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
   const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);
-  const canSeeCredentialDrafts = ['admin', 'super_admin', 'cashier'].includes(user?.role);
+  const canSeeCredentialDrafts = ['admin', 'super_admin', 'developer', 'cashier'].includes(user?.role);
+  const pageTitle = getPageTitle(location.pathname);
 
   const links = useMemo(() => {
     const items = [{ to: '/', label: 'Dashboard', icon: <FaHome /> }];
@@ -163,7 +188,7 @@ export default function AppShell({ children }) {
       });
     }
 
-    if (isDeveloper || user?.role === 'super_admin') {
+    if (isDeveloper) {
       items.push({ to: '/users', label: 'Manage Users', icon: <FaUsers /> });
     }
 
@@ -183,9 +208,8 @@ export default function AppShell({ children }) {
       });
     }
 
-    return items;
+  return items;
   }, [
-    user?.role,
     isDeveloper,
     canSeeStudents,
     canSeeCredentialDrafts,
@@ -253,6 +277,7 @@ export default function AppShell({ children }) {
       <main className={`app-main ${collapsed ? 'sidebar-collapsed' : ''}`}>
         <Header
           user={user}
+          pageTitle={pageTitle}
           onLogout={handleLogout}
           onToggleSidebar={() => setMobileOpen((prev) => !prev)}
         />

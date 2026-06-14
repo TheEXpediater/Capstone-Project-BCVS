@@ -14,6 +14,7 @@ import {
   FaUpload,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
+import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import {
   bulkImportStudentGrades,
   bulkImportStudents,
@@ -906,7 +907,7 @@ function StudentActionMenu({
   creatingVcDraftId,
 }) {
   return (
-    <div className="d-inline-flex align-items-center gap-2 position-relative">
+    <div className="d-inline-flex align-items-center gap-2">
       <button
         type="button"
         className="btn btn-outline-primary btn-sm"
@@ -917,70 +918,63 @@ function StudentActionMenu({
         Profile
       </button>
 
-      <button
-        type="button"
-        className="btn btn-outline-secondary btn-sm"
-        onClick={onToggle}
-        aria-label="Student actions"
+      <FloatingActionMenu
+        isOpen={isOpen}
+        onToggle={onToggle}
+        onClose={onClose}
+        buttonContent={<FaCog />}
+        ariaLabel="Student actions"
+        menuWidth={220}
       >
-        <FaCog />
-      </button>
-
-      {isOpen ? (
-        <div
-          className="card shadow-sm position-absolute end-0 top-100 mt-1 text-start"
-          style={{ minWidth: 210, zIndex: 1060 }}
-        >
-          <div className="list-group list-group-flush">
-            <button
-              type="button"
-              className="list-group-item list-group-item-action"
-              onClick={() => {
-                onClose();
-                onOpenProfile(student._id, 'edit');
-              }}
-            >
-              <FaEdit className="me-2" />
-              Edit Profile
-            </button>
-            <button
-              type="button"
-              className="list-group-item list-group-item-action"
-              onClick={() => {
-                onClose();
-                onOpenGrades(student._id);
-              }}
-              disabled={gradesLoadingId === student._id}
-            >
-              <FaListAlt className="me-2" />
-              {gradesLoadingId === student._id ? 'Loading Grades...' : 'View Grades'}
-            </button>
-            <button
-              type="button"
-              className="list-group-item list-group-item-action"
-              onClick={() => {
-                onClose();
-                onConfirmVcDraft(student);
-              }}
-              disabled={creatingVcDraftId === student._id}
-            >
-              <FaFileSignature className="me-2" />
-              {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
-            </button>
-            <button
-              type="button"
-              className="list-group-item list-group-item-action text-danger"
-              onClick={() => {
-                onClose();
-                onDeleteStudent(student);
-              }}
-            >
-              <FaTrash className="me-2" />
-              Delete Student
-            </button>
-          </div>
+        <div className="list-group list-group-flush">
+          <button
+            type="button"
+            className="list-group-item list-group-item-action"
+            onClick={() => {
+              onClose();
+              onOpenProfile(student._id, 'edit');
+            }}
+          >
+            <FaEdit className="me-2" />
+            Edit Profile
+          </button>
+          <button
+            type="button"
+            className="list-group-item list-group-item-action"
+            onClick={() => {
+              onClose();
+              onOpenGrades(student._id);
+            }}
+            disabled={gradesLoadingId === student._id}
+          >
+            <FaListAlt className="me-2" />
+            {gradesLoadingId === student._id ? 'Loading Grades...' : 'View Grades'}
+          </button>
+          <button
+            type="button"
+            className="list-group-item list-group-item-action"
+            onClick={() => {
+              onClose();
+              onConfirmVcDraft(student);
+            }}
+            disabled={creatingVcDraftId === student._id}
+          >
+            <FaFileSignature className="me-2" />
+            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
+          </button>
+          <button
+            type="button"
+            className="list-group-item list-group-item-action text-danger"
+            onClick={() => {
+              onClose();
+              onDeleteStudent(student);
+            }}
+          >
+            <FaTrash className="me-2" />
+            Delete Student
+          </button>
         </div>
-      ) : null}
+      </FloatingActionMenu>
     </div>
   );
 }
@@ -1639,27 +1633,18 @@ export default function StudentImportManagerPage() {
   return (
     <>
       <div className="d-flex flex-column gap-4">
-        <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
-          <div>
-            <h1 className="h3 mb-1">Student Records</h1>
-            <p className="text-muted mb-0">
-              Create individual registrar records, optionally import CSV data, and manage student profile actions from one table.
-            </p>
-          </div>
-
-          <div className="d-flex flex-wrap gap-2">
-            <button className="btn btn-primary" onClick={openStudentDataModal} disabled={loadingCurricula}>
-              <FaPlus className="me-2" />
-              Import Student Data
-            </button>
-            <button className="btn btn-outline-primary" onClick={() => setGradeImportModalOpen(true)}>
-              <FaUpload className="me-2" />
-              Import Grades
-            </button>
-            <button className="btn btn-outline-secondary" onClick={() => loadStudents({ page: pagination.page, showBusy: true })} disabled={refreshingStudents}>
-              {refreshingStudents ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
+        <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
+          <button className="btn btn-primary" onClick={openStudentDataModal} disabled={loadingCurricula}>
+            <FaPlus className="me-2" />
+            Import Student Data
+          </button>
+          <button className="btn btn-outline-primary" onClick={() => setGradeImportModalOpen(true)}>
+            <FaUpload className="me-2" />
+            Import Grades
+          </button>
+          <button className="btn btn-outline-secondary" onClick={() => loadStudents({ page: pagination.page, showBusy: true })} disabled={refreshingStudents}>
+            {refreshingStudents ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
 
         <FeedbackAlert feedback={feedback} />

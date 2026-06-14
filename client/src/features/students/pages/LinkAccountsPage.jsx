@@ -395,13 +395,6 @@ export default function LinkAccountsPage() {
 
   return (
     <div className="d-flex flex-column gap-4">
-      <div>
-        <h1 className="h3 mb-1">Link Accounts</h1>
-        <p className="text-muted mb-0">
-          Review student mobile verification requests and link them to official student records.
-        </p>
-      </div>
-
       {toast ? (
         <div className="position-fixed top-0 end-0 p-3" style={{ zIndex: 2000 }}>
           <div className="alert alert-success shadow-sm mb-0">{toast}</div>

@@ -1097,13 +1097,6 @@ export default function CurriculumManagerPage() {
   return (
     <>
       <div className="d-flex flex-column gap-4">
-        <div>
-          <h1 className="h3 mb-1">Curriculum Manager</h1>
-          <p className="text-muted mb-0">
-            Clean registrar workflow: browse the list, open a curriculum, then switch between view and edit when needed.
-          </p>
-        </div>
-
         {feedback.text ? (
           <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
         ) : null}

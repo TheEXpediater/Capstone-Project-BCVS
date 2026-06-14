@@ -67,7 +67,9 @@ function EmptyState({ text }) {
   );
 }
 
-function SummaryCard({ icon: Icon, label, value, helper }) {
+function SummaryCard({ icon, label, value, helper }) {
+  const Icon = icon;
+
   return (
     <div className="col-sm-6 col-xl-3">
       <div className="content-card h-100">
@@ -415,11 +417,7 @@ export default function Dashboard() {
       <div className="dashboard-hero">
         <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
           <div>
-            <h1 className="dashboard-title">BCVS Dashboard</h1>
-            <p className="dashboard-subtitle">
-              Registrar overview for student records, credentials, and verification activity.
-            </p>
-            <div className="small text-muted mt-2">
+            <div className="small text-muted">
               Signed in as <strong>{user?.fullName || user?.username || 'User'}</strong>
               <span className="mx-2">•</span>
               Role: <strong>{titleCase(user?.role || 'unknown')}</strong>

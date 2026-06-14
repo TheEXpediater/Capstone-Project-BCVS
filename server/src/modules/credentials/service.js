@@ -212,11 +212,98 @@ export function canSubmitForSigning(draft) {
 }
 
 export function canSignCredential(draft) {
-  return Boolean(draft) && draft.status === 'for_signature' && isCredentialPaid(draft);
+  return Boolean(draft) && draft.status === 'for_signature';
 }
 
 export function canOverrideClaimQr(draft) {
   return Boolean(draft) && isCredentialPaid(draft) && draft.signedCredential && isCredentialClaimed(draft) && !isCredentialRejectedOrRevoked(draft);
+}
+
+function hasIssuedCredentialArtifacts(draft) {
+  return Boolean(
+    draft?.signedCredential ||
+      draft?.vcPayload ||
+      cleanString(draft?.credentialHash) ||
+      cleanString(draft?.vcHash) ||
+      draft?.signedAt ||
+      ['signed', 'claim_ready', 'claimed', 'shared', 'queued_for_anchor', 'anchored', 'revoked'].includes(cleanString(draft?.status))
+  );
+}
+
+function canEditCredentialDraft(draft) {
+  if (!draft) return false;
+  if (hasIssuedCredentialArtifacts(draft)) return false;
+  return ['draft', 'for_signature'].includes(cleanString(draft.status));
+}
+
+function canDeleteCredentialDraft(draft) {
+  if (!draft) return false;
+  if (hasIssuedCredentialArtifacts(draft)) return false;
+  return ['draft', 'for_signature', 'rejected'].includes(cleanString(draft.status));
+}
+
+function pickObjectPayload(payload = {}, keys = []) {
+  for (const key of keys) {
+    const value = payload?.[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return clonePlain(value);
+    }
+  }
+
+  return null;
+}
+
+function normalizeDraftProfileSnapshot(payload = {}, draft) {
+  const existing = clonePlain(draft?.profileSnapshot || {});
+  const incoming = pickObjectPayload(payload, ['profileSnapshot', 'profile', 'student']);
+  const profile = {
+    ...existing,
+    ...(incoming || {}),
+  };
+
+  profile.studentNo = cleanString(profile.studentNo || payload?.studentNo || draft?.studentNo);
+  profile.studentName = cleanString(profile.studentName || profile.fullName || payload?.studentName || draft?.studentName);
+
+  if (!profile.studentNo) {
+    throw new ApiError(400, 'Student number is required.');
+  }
+
+  if (!profile.studentName) {
+    throw new ApiError(400, 'Student name is required.');
+  }
+
+  return profile;
+}
+
+function hasMeaningfulGradeValue(row) {
+  return Object.entries(row || {}).some(([key, value]) => {
+    if (key === '_id') return false;
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== '';
+  });
+}
+
+function normalizeDraftGradeRows(value) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, 'Grades must be an array.');
+  }
+
+  return value
+    .map((row) => {
+      const source = row && typeof row === 'object' && !Array.isArray(row) ? clonePlain(row) : {};
+      const normalized = { ...source };
+      normalized.yearLevel = cleanString(source.yearLevel || source.year || source.level);
+      normalized.semester = cleanString(source.semester || source.term || source.termName);
+      normalized.subjectCode = cleanString(source.subjectCode || source.code);
+      normalized.subjectTitle = cleanString(source.subjectTitle || source.title || source.subject);
+      normalized.finalGrade = cleanString(source.finalGrade || source.grade);
+      normalized.remarks = cleanString(source.remarks);
+      normalized.schoolYear = cleanString(source.schoolYear || source.academicYear);
+      normalized.units = normalizeAmount(source.units, 0);
+      return normalized;
+    })
+    .filter(hasMeaningfulGradeValue);
 }
 
 function addDays(date, days) {
@@ -709,6 +796,93 @@ export async function getCredentialDraftById(id) {
   return serializeDraft(draft);
 }
 
+export async function updateCredentialDraft(id, payload = {}, actor) {
+  assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canManageVC',
+    'Cashier users cannot edit credential drafts'
+  );
+  assertObjectId(id, 'credential draft id');
+
+  const CredentialDraft = getCredentialDraftModel();
+  const draft = await CredentialDraft.findById(id);
+
+  if (!draft) {
+    throw new ApiError(404, 'Credential draft not found');
+  }
+
+  if (!canEditCredentialDraft(draft)) {
+    throw new ApiError(409, 'Only unsigned draft or pending-signature credentials can be edited.');
+  }
+
+  const credentialType = payload?.credentialType === undefined
+    ? normalizeCredentialType(draft.credentialType)
+    : normalizeCredentialType(payload.credentialType);
+
+  if (!credentialType) {
+    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
+  }
+
+  const profile = normalizeDraftProfileSnapshot(payload, draft);
+  const grades =
+    normalizeDraftGradeRows(payload?.gradesSnapshot ?? payload?.grades) ??
+    clonePlain(draft.gradesSnapshot || []);
+
+  draft.credentialType = credentialType;
+  draft.profileSnapshot = profile;
+  draft.gradesSnapshot = grades;
+  draft.studentNo = cleanString(profile.studentNo);
+  draft.studentName = cleanString(profile.studentName);
+
+  if (payload?.notes !== undefined) {
+    draft.notes = cleanString(payload.notes);
+    draft.remarks = cleanString(payload.notes);
+  } else if (payload?.remarks !== undefined) {
+    draft.remarks = cleanString(payload.remarks);
+  }
+
+  if (payload?.presetRemark !== undefined) {
+    draft.presetRemark = cleanString(payload.presetRemark);
+  }
+
+  if (payload?.anchorPreference !== undefined) {
+    draft.anchorPreference = normalizeAnchorPreference(payload.anchorPreference);
+  }
+
+  if (draft.status === 'for_signature') {
+    draft.rejectionReason = '';
+  }
+
+  await draft.save();
+  return serializeDraft(draft);
+}
+
+export async function deleteCredentialDraft(id, actor) {
+  assertRegistrar(actor);
+  await assertCredentialPermission(
+    actor,
+    'canManageVC',
+    'Cashier users cannot delete credential drafts'
+  );
+  assertObjectId(id, 'credential draft id');
+
+  const CredentialDraft = getCredentialDraftModel();
+  const draft = await CredentialDraft.findById(id);
+
+  if (!draft) {
+    throw new ApiError(404, 'Credential draft not found');
+  }
+
+  if (!canDeleteCredentialDraft(draft)) {
+    throw new ApiError(409, 'Only unsigned draft, rejected, or pending-signature credentials can be deleted.');
+  }
+
+  const serialized = serializeDraft(draft);
+  await draft.deleteOne();
+  return serialized;
+}
+
 export async function createCredentialDraftFromStudent(studentId, payload = {}, actor) {
   const CredentialDraft = getCredentialDraftModel();
   const credentialType = normalizeCredentialType(payload?.credentialType);
@@ -952,7 +1126,7 @@ export async function rejectCredentialDraft(id, payload = {}, actor) {
   return serializeDraft(draft);
 }
 
-export async function signCredentialDraft(id, actor) {
+export async function signCredentialDraft(id, payload = {}, actor) {
   assertRegistrar(actor);
   await assertCredentialPermission(
     actor,
@@ -972,7 +1146,12 @@ export async function signCredentialDraft(id, actor) {
     throw new ApiError(409, 'Only drafts pending signature can be signed');
   }
 
-  if (!isCredentialPaid(draft)) {
+  const allowUnpaid =
+    payload?.allowUnpaid === true ||
+    payload?.continueUnpaid === true ||
+    normalizeBoolean(payload?.allowUnpaid || payload?.continueUnpaid || payload?.force);
+
+  if (!isCredentialPaid(draft) && !allowUnpaid) {
     throw new ApiError(409, 'Payment is required before signing this credential.');
   }
 

@@ -43,6 +43,14 @@ export async function getPublicVerificationResult(sessionId, nonce) {
   return unwrap(response);
 }
 
+export async function cancelPublicVerificationSession(sessionId, nonce) {
+  const response = await publicApi.post(
+    `/verification/session/${encodeURIComponent(sessionId)}/cancel`,
+    { nonce }
+  );
+  return unwrap(response);
+}
+
 export function buildDownloadUrl(sessionId, nonce, kind) {
   const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
   const params = new URLSearchParams({ nonce });

@@ -1062,13 +1062,6 @@ export default function SystemSettingsPage() {
   return (
     <>
       <div className="d-flex flex-column gap-4">
-        <div>
-          <h1 className="h3 mb-1">System Settings</h1>
-          <p className="text-muted mb-0">
-            Production controls for permissions, issuer keys, business rules, locks, and contract selection.
-          </p>
-        </div>
-
         {feedback.text ? (
           <div className={`alert alert-${feedback.type} mb-0`}>{feedback.text}</div>
         ) : null}
