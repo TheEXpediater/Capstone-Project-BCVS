@@ -1,5 +1,5 @@
 import { ENDPOINTS } from '@/constants/config';
-import { api, apiErrorMessage } from '@/services/apiClient';
+import { api, apiErrorMessage, clearApiAuthState } from '@/services/apiClient';
 import { clearSession, saveSession } from '@/utils/storage';
 
 function normalizeAuthResponse(data) {
@@ -59,6 +59,7 @@ export async function logout() {
     // Local logout should still complete if the API is unavailable.
   }
   await clearSession();
+  clearApiAuthState();
 }
 
 export async function requestEmailOtp(email) {

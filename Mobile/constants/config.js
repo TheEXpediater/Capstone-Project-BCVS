@@ -1,23 +1,56 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 const extra = Constants.expoConfig?.extra || {};
 
 function trimSlashes(value) {
-  return String(value || '').replace(/\/+$/, '');
+  return String(value || '').trim().replace(/\/+$/, '');
 }
 
-const configuredOrigin =
-  process.env.EXPO_PUBLIC_API_URL ||
-  extra.API_URL ||
-  'http://192.168.100.12:5000';
+function firstValue(...values) {
+  return values.map(trimSlashes).find(Boolean) || '';
+}
+
+function resolveDevHost() {
+  const candidates = [
+    Constants.expoConfig?.hostUri,
+    Constants.manifest?.hostUri,
+    Constants.manifest?.debuggerHost,
+    Constants.manifest2?.extra?.expoGo?.debuggerHost
+  ];
+  const rawHost = candidates.find(Boolean);
+
+  if (rawHost) {
+    const host = String(rawHost).split('/')[0].split(':')[0];
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return host;
+    }
+  }
+
+  return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+}
+
+function localDevOrigin(port) {
+  return `http://${resolveDevHost()}:${port}`;
+}
+
+const configuredOrigin = firstValue(
+  process.env.EXPO_PUBLIC_API_URL,
+  extra.API_URL,
+  localDevOrigin(5000)
+);
 
 export const API_ORIGIN = trimSlashes(configuredOrigin);
 export const API_BASE_URL = /\/api$/.test(API_ORIGIN)
   ? API_ORIGIN
   : `${API_ORIGIN}/api`;
 
-export const WEB_BASE_URL = trimSlashes(
-  process.env.EXPO_PUBLIC_WEB_BASE || extra.WEB_BASE || ''
+export const WEB_BASE_URL = firstValue(
+  process.env.EXPO_PUBLIC_WEB_URL,
+  process.env.EXPO_PUBLIC_WEB_BASE,
+  extra.WEB_URL,
+  extra.WEB_BASE,
+  localDevOrigin(5173)
 );
 
 export const EAS_PROJECT_ID =

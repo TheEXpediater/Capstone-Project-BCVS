@@ -459,7 +459,20 @@ function DraftEditField({ label, value, onChange, type = 'text', disabled, class
 }
 
 function DraftActionMenu({ actions, isOpen, onToggle, onClose }) {
-  if (!actions?.length) return null;
+  if (!actions?.length) {
+    return (
+      <span className="d-inline-block" title="No available actions">
+        <button
+          type="button"
+          className="btn btn-outline-secondary btn-sm"
+          disabled
+          aria-label="No available actions"
+        >
+          <FaCog />
+        </button>
+      </span>
+    );
+  }
 
   return (
     <FloatingActionMenu

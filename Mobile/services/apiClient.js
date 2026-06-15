@@ -52,9 +52,18 @@ export function isNetworkError(error) {
   return Boolean(!error?.response && (error?.request || error?.message === 'Network Error' || error?.code));
 }
 
+export function clearApiAuthState() {
+  delete api.defaults.headers.common.Authorization;
+  delete api.defaults.headers.Authorization;
+}
+
 export function apiErrorMessage(error, fallback = 'Request failed') {
   if (isNetworkError(error)) {
-    return `Cannot reach the BCVS server at ${API_BASE_URL}. Check that the server is running and this device is on the same network.`;
+    if (__DEV__) {
+      return `Cannot reach the BCVS server. Active API URL: ${API_BASE_URL}. Check that the server is running and this device is on the same network.`;
+    }
+
+    return 'Cannot reach the BCVS server. Check your connection and try again.';
   }
 
   return (

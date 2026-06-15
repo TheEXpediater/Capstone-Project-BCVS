@@ -20,12 +20,25 @@ npm install
 npx expo start
 ```
 
-Set the backend origin before running. `EXPO_PUBLIC_WEB_BASE` is optional if you have a separate verifier portal:
+Set the backend and verifier portal origins before running. The app reads Expo public
+environment variables first:
 
 ```bash
 EXPO_PUBLIC_API_URL=https://your-backend.example.com
-EXPO_PUBLIC_WEB_BASE=https://your-web-verifier.example.com/verification-portal
+EXPO_PUBLIC_WEB_URL=https://your-web-verifier.example.com
 ```
+
+Use URLs that are reachable from the device running the mobile app:
+
+- Physical phone on the same LAN: `EXPO_PUBLIC_API_URL=http://YOUR_COMPUTER_LAN_IP:5000`
+- Android emulator: `EXPO_PUBLIC_API_URL=http://10.0.2.2:5000`
+- iOS simulator: `EXPO_PUBLIC_API_URL=http://localhost:5000`
+- Deployed backend/frontend: use the deployed HTTPS URLs
+
+If no environment values are set, the app falls back to a local development URL derived
+from the Expo dev-server host when possible, otherwise `10.0.2.2` on Android and
+`localhost` on iOS/web. That fallback is for local development only; set
+`EXPO_PUBLIC_API_URL` and `EXPO_PUBLIC_WEB_URL` for real device testing or deployment.
 
 ## Important Backend Contract
 

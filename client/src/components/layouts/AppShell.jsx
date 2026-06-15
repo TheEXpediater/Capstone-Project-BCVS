@@ -10,7 +10,6 @@ import {
   FaFileContract,
   FaCog,
   FaUserCircle,
-  FaSearch,
   FaSignOutAlt,
   FaBook,
   FaUserGraduate,
@@ -70,11 +69,6 @@ function Header({ user, pageTitle, onLogout, onToggleSidebar }) {
         >
           <FaBars />
         </button>
-
-        <form className="app-search" onSubmit={(e) => e.preventDefault()}>
-          <FaSearch className="app-search-icon" />
-          <input type="text" placeholder="Search" />
-        </form>
       </div>
 
       <div className="app-header-title">
