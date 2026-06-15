@@ -3,7 +3,6 @@ import {
   activateIssuerKey,
   createIssuerKey,
   deleteIssuerKey,
-  getContractCapabilities,
   getSettingsDashboard,
   rotateIssuerKey,
   updateActiveContract,
@@ -12,6 +11,7 @@ import {
   updateIssuerKey,
   updateSystemLocks,
 } from '../settingsAPI';
+import { checkAnchorReadiness } from '../../contracts/contractsAPI';
 
 const TABS = [
   'Permissions',
@@ -106,26 +106,50 @@ function shortText(value, start = 18, end = 8) {
   return `${text.slice(0, start)}...${text.slice(-end)}`;
 }
 
-function capabilitySupported(capabilities) {
-  return Boolean(capabilities?.canAnchorMerkleRoot && capabilities?.canVerifyMerkleRoot);
+function contractRecordKey(contract) {
+  return String(contract?.address || contract?._id || contract?.selectedContractAddress || contract?.selectedContractId || '').trim();
 }
 
-function capabilityBadge(capabilities) {
-  return capabilitySupported(capabilities) ? 'text-bg-success' : 'text-bg-warning';
+function contractName(contract) {
+  return contract?.contractName || contract?.selectedContractName || 'MerkleAnchor';
 }
 
-function capabilityLabel(capabilities) {
-  return capabilitySupported(capabilities)
-    ? 'Merkle Anchoring Supported'
-    : 'Merkle Anchoring Not Supported';
+function isMerkleAnchorContract(contract) {
+  const type = String(contract?.contractType || contract?.selectedContractType || '').toLowerCase();
+  const name = String(contractName(contract)).toLowerCase();
+  return type === 'merkle_anchor' || name.includes('merkle');
 }
 
-function contractTypeLabel(value) {
-  return value === 'merkle_anchor' ? 'MerkleAnchor' : 'MerkleAnchor';
+function isSameContract(contract, value) {
+  const target = String(value || '').trim().toLowerCase();
+  if (!target) return false;
+
+  return [
+    contract?._id,
+    contract?.address,
+    contract?.selectedContractId,
+    contract?.selectedContractAddress,
+  ]
+    .filter(Boolean)
+    .some((item) => String(item).trim().toLowerCase() === target);
+}
+
+function isContractReady(contract) {
+  return Boolean(contractRecordKey(contract) && isMerkleAnchorContract(contract));
+}
+
+function contractStatusBadge(contract) {
+  return isContractReady(contract) ? 'text-bg-success' : 'text-bg-secondary';
+}
+
+function contractStatusLabel(contract) {
+  return isContractReady(contract) ? 'Ready' : 'Not Ready';
 }
 
 function explorerBase(url) {
-  return String(url || '').replace(/\/tx\/[^/]+$/i, '');
+  return String(url || '')
+    .replace(/\/tx\/[^/]+$/i, '')
+    .replace(/\/address\/[^/]+$/i, '');
 }
 
 function contractAddressUrl(contract) {
@@ -224,6 +248,81 @@ function TextModal({ action, busy, onCancel, onConfirm }) {
   );
 }
 
+
+function ReadinessModal({ check, onClose }) {
+  if (!check) return null;
+
+  const result = check.result || null;
+  const contract = check.contract || {};
+  const errors = Array.isArray(result?.errors) ? result.errors : [];
+  const checks = [
+    ['Contract Exists', Boolean(result?.contractExists)],
+    ['Anchor Method Available', Boolean(result?.canAnchor)],
+    ['RPC Connected', Boolean(result?.rpcConnected)],
+    ['Wallet Loaded', Boolean(result?.walletLoaded)],
+    ['Wallet Balance Available', Boolean(result?.walletBalance)],
+    ['Anchor Simulation Passed', Boolean(result?.anchorSimulation)],
+  ];
+
+  return (
+    <ModalShell
+      title="Anchor Readiness Check"
+      body="Read-only health check for the selected anchor contract."
+      onClose={onClose}
+      footer={
+        <button className="btn btn-outline-secondary" onClick={onClose}>
+          Close
+        </button>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        <div className="border rounded-3 p-3 bg-light">
+          <div className="small text-muted">Contract</div>
+          <div className="fw-semibold text-break">{contractName(contract)}</div>
+          <div className="small text-muted text-break">{contract.address || contractRecordKey(contract)}</div>
+        </div>
+
+        {check.error ? (
+          <div className="alert alert-danger mb-0">{check.error}</div>
+        ) : (
+          <>
+            <div className="d-flex flex-wrap align-items-center gap-2">
+              <span className={`badge ${result?.ready ? 'text-bg-success' : 'text-bg-danger'}`}>
+                {result?.ready ? 'READY FOR ANCHORING' : 'NOT READY'}
+              </span>
+              <span className="small text-muted">
+                Wallet balance: {result?.walletBalance ?? '0.0'} POL
+              </span>
+            </div>
+
+            <ul className="list-group list-group-flush">
+              {checks.map(([label, ok]) => (
+                <li
+                  key={label}
+                  className="list-group-item d-flex justify-content-between align-items-center px-0"
+                >
+                  <span>{label}</span>
+                  <span className={`badge ${ok ? 'text-bg-success' : 'text-bg-danger'}`}>
+                    {ok ? '✓' : '✗'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            {errors.length ? (
+              <div className="alert alert-danger mb-0">
+                {errors.map((item) => (
+                  <div key={item}>{item}</div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
 function Toggle({ checked, disabled, onChange }) {
   return (
     <input
@@ -248,11 +347,12 @@ export default function SystemSettingsPage() {
   const [access, setAccess] = useState(EMPTY_ACCESS);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [checkingCapability, setCheckingCapability] = useState(false);
   const [savingUserId, setSavingUserId] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [confirmAction, setConfirmAction] = useState(null);
   const [textAction, setTextAction] = useState(null);
+  const [readinessCheck, setReadinessCheck] = useState(null);
+  const [checkingContractId, setCheckingContractId] = useState('');
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
     activate: true,
@@ -265,32 +365,55 @@ export default function SystemSettingsPage() {
 
   const selectableContracts = useMemo(
     () =>
-      (availableContracts || []).filter(
-        (item) =>
-          item?.contractType === 'merkle_anchor' &&
-          Boolean(item?.capabilities?.canAnchorMerkleRoot)
-      ),
-    [availableContracts]
+      (availableContracts || [])
+        .filter((item) => isMerkleAnchorContract(item) && contractRecordKey(item))
+        .sort((a, b) => {
+          const activeKeys = [
+            settings.blockchain?.selectedContractId,
+            settings.blockchain?.selectedContractAddress,
+            wallet?.activeContract?._id,
+            wallet?.activeContract?.address,
+          ].filter(Boolean);
+
+          const aActive = activeKeys.some((key) => isSameContract(a, key));
+          const bActive = activeKeys.some((key) => isSameContract(b, key));
+
+          if (aActive && !bActive) return -1;
+          if (!aActive && bActive) return 1;
+          return 0;
+        }),
+    [
+      availableContracts,
+      settings.blockchain?.selectedContractAddress,
+      settings.blockchain?.selectedContractId,
+      wallet?.activeContract?._id,
+      wallet?.activeContract?.address,
+    ]
   );
   const selectedContractOption = useMemo(
-    () =>
-      selectableContracts.find(
-        (item) => item._id === selectedContractId || item.address === selectedContractId
-      ),
+    () => selectableContracts.find((item) => isSameContract(item, selectedContractId)),
     [selectableContracts, selectedContractId]
   );
   const activeContract = useMemo(() => {
-    const selectedId = settings.blockchain?.selectedContractId || '';
+    const activeKeys = [
+      settings.blockchain?.selectedContractId,
+      settings.blockchain?.selectedContractAddress,
+      wallet?.activeContract?._id,
+      wallet?.activeContract?.address,
+    ].filter(Boolean);
+
     return (
-      selectableContracts.find(
-        (item) => item._id === selectedId || item.address === selectedId
-      ) || wallet?.activeContract || null
+      selectableContracts.find((item) => activeKeys.some((key) => isSameContract(item, key))) ||
+      wallet?.activeContract ||
+      (settings.blockchain?.selectedContractAddress || settings.blockchain?.selectedContractId
+        ? settings.blockchain
+        : null)
     );
-  }, [selectableContracts, settings.blockchain?.selectedContractId, wallet?.activeContract]);
-  const activeCapabilities =
-    activeContract?.capabilities ||
-    settings.blockchain?.selectedContractCapabilities ||
-    EMPTY_SETTINGS.blockchain.selectedContractCapabilities;
+  }, [
+    selectableContracts,
+    settings.blockchain,
+    wallet?.activeContract,
+  ]);
 
   async function loadDashboard() {
     try {
@@ -433,16 +556,21 @@ export default function SystemSettingsPage() {
     });
   }
 
-  function confirmSaveContract() {
+  function confirmSaveContract(contract = selectedContractOption) {
+    const contractId = contractRecordKey(contract) || selectedContractId;
+
+    if (!contractId) {
+      setFeedback({ type: 'danger', text: 'Select a contract before saving.' });
+      return;
+    }
+
     setConfirmAction({
       title: 'Change active contract?',
       body: 'New anchoring operations will use the selected deployed contract.',
-      details: selectedContractOption
-        ? `${selectedContractOption.contractName || 'MerkleAnchor'} - ${selectedContractOption.address}`
-        : selectedContractId,
-      confirmLabel: 'Save Contract',
+      details: `${contractName(contract)} - ${contractId}`,
+      confirmLabel: 'Save Active Contract',
       run: async () => {
-        const updated = await updateActiveContract({ contractId: selectedContractId });
+        const updated = await updateActiveContract({ contractId });
         await loadDashboard();
         setFeedback({
           type: updated.warning ? 'warning' : 'success',
@@ -452,30 +580,30 @@ export default function SystemSettingsPage() {
     });
   }
 
-  async function checkSelectedCapability() {
-    if (!selectedContractId) return;
+  async function handleCheckReadiness(contract) {
+    const contractId = contractRecordKey(contract);
+
+    if (!contractId) {
+      setReadinessCheck({
+        contract,
+        result: null,
+        error: 'A contract address or id is required before running the readiness check.',
+      });
+      return;
+    }
 
     try {
-      setCheckingCapability(true);
-      const data = await getContractCapabilities(selectedContractId);
-      const contract = data.contract || {};
-      const capabilities = data.capabilities || contract.capabilities || {};
-
-      setAvailableContracts((prev) =>
-        prev.map((item) =>
-          item.address === contract.address || item._id === contract._id
-            ? { ...item, ...contract, capabilities }
-            : item
-        )
-      );
-      setFeedback({
-        type: capabilitySupported(capabilities) ? 'success' : 'warning',
-        text: capabilityLabel(capabilities),
-      });
+      setCheckingContractId(contractId);
+      const result = await checkAnchorReadiness(contractId);
+      setReadinessCheck({ contract, result, error: '' });
     } catch (error) {
-      setFeedback({ type: 'danger', text: actionError(error, 'Failed to check capability.') });
+      setReadinessCheck({
+        contract,
+        result: null,
+        error: actionError(error, 'Failed to check anchor readiness.'),
+      });
     } finally {
-      setCheckingCapability(false);
+      setCheckingContractId('');
     }
   }
 
@@ -913,8 +1041,18 @@ export default function SystemSettingsPage() {
     return (
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
-          <h2 className="h5 mb-1">Blockchain / Contract</h2>
-          <p className="text-muted">Contract deployment controls remain protected by backend roles.</p>
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+            <div>
+              <h2 className="h5 mb-1">Anchor Contracts</h2>
+              <p className="text-muted mb-0">
+                The active contract appears first and is used for future anchoring.
+              </p>
+            </div>
+
+            <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
 
           {!wallet?.ok ? (
             <div className="alert alert-warning">
@@ -925,25 +1063,25 @@ export default function SystemSettingsPage() {
 
           <div className="row g-3 mb-4">
             <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100">
+              <div className="border rounded-3 p-3 h-100 bg-light">
                 <div className="small text-muted">Wallet</div>
                 <div className="fw-semibold small text-break">{wallet?.walletAddress || 'Not configured'}</div>
               </div>
             </div>
             <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100">
+              <div className="border rounded-3 p-3 h-100 bg-light">
                 <div className="small text-muted">Network</div>
                 <div className="fw-semibold">{wallet?.networkLabel || 'Unavailable'}</div>
               </div>
             </div>
             <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100">
+              <div className="border rounded-3 p-3 h-100 bg-light">
                 <div className="small text-muted">Chain ID</div>
                 <div className="fw-semibold">{wallet?.chainId ?? 'Not available'}</div>
               </div>
             </div>
             <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100">
+              <div className="border rounded-3 p-3 h-100 bg-light">
                 <div className="small text-muted">Balance</div>
                 <div className="fw-semibold">
                   {wallet?.walletBalance || '0.0000'} {wallet?.gasToken || 'POL'}
@@ -952,92 +1090,88 @@ export default function SystemSettingsPage() {
             </div>
           </div>
 
-          <div className="border rounded-3 p-3 bg-light mb-4">
-            <div className="small text-muted">Active contract</div>
-            <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
-              <div className="fw-semibold">
-                {settings.blockchain?.selectedContractName || activeContract?.contractName || 'Not selected'}
-              </div>
-              <span className={`badge ${capabilityBadge(activeCapabilities)}`}>
-                {capabilityLabel(activeCapabilities)}
-              </span>
+          {selectableContracts.length === 0 ? (
+            <div className="alert alert-light border mb-0">
+              No MerkleAnchor contracts are registered yet. Register or deploy one from Contract Manager first.
             </div>
-            <div className="small text-muted">Type</div>
-            <div className="small mb-2">{contractTypeLabel(settings.blockchain?.selectedContractType || activeContract?.contractType)}</div>
-            <div className="small text-muted">Address</div>
-            <div className="small text-break mb-2">
-              {contractAddressUrl(activeContract || settings.blockchain) ? (
-                <a href={contractAddressUrl(activeContract || settings.blockchain)} target="_blank" rel="noreferrer">
-                  {settings.blockchain?.selectedContractAddress || activeContract?.address || settings.blockchain?.selectedContractId}
-                </a>
-              ) : (
-                settings.blockchain?.selectedContractAddress ||
-                activeContract?.address ||
-                settings.blockchain?.selectedContractId ||
-                'No active contract'
-              )}
-            </div>
-            <div className="row g-2">
-              <div className="col-md-4">
-                <div className="small text-muted">Chain ID</div>
-                <div className="fw-semibold">{settings.blockchain?.selectedContractChainId ?? activeContract?.chainId ?? 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Network</div>
-                <div className="fw-semibold">{settings.blockchain?.selectedContractNetwork || activeContract?.network || 'Not available'}</div>
-              </div>
-              <div className="col-md-4">
-                <div className="small text-muted">Verify Function</div>
-                <div className="fw-semibold">{activeCapabilities?.verifyFunctionName || 'Not available'}</div>
-              </div>
-            </div>
-            {!capabilitySupported(activeCapabilities) ? (
-              <div className="alert alert-warning mt-3 mb-0">
-                Active contract does not support Merkle root anchoring. Credentials can prepare local proofs, but blockchain verification will not pass until a compatible MerkleAnchor contract is deployed and selected.
-              </div>
-            ) : null}
-          </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 360 }}>Contract Address</th>
+                    <th style={{ minWidth: 120 }}>Status</th>
+                    <th style={{ minWidth: 120 }}>Active</th>
+                    <th style={{ minWidth: 220 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectableContracts.map((contract) => {
+                    const key = contractRecordKey(contract);
+                    const isActive = [
+                      activeContract?._id,
+                      activeContract?.address,
+                      activeContract?.selectedContractId,
+                      activeContract?.selectedContractAddress,
+                      settings.blockchain?.selectedContractId,
+                      settings.blockchain?.selectedContractAddress,
+                    ]
+                      .filter(Boolean)
+                      .some((value) => isSameContract(contract, value));
 
-          <div className="row g-3 align-items-end">
-            <div className="col-md-9">
-              <label className="form-label fw-semibold">Selected contract</label>
-              <select
-                className="form-select"
-                value={selectedContractId}
-                disabled={!access.canManageActiveContract}
-                onChange={(event) => setSelectedContractId(event.target.value)}
-              >
-                <option value="">Select a deployed MerkleAnchor contract</option>
-                {selectableContracts
-                  .filter((item) => item.address)
-                  .map((item) => (
-                    <option key={item._id || item.address} value={item.address || item._id}>
-                      {(item.contractName || 'MerkleAnchor')} - {item.address}
-                    </option>
-                  ))}
-              </select>
-              <div className="form-text text-muted mt-2">
-                Only MerkleAnchor contracts can be used for VC anchoring. Admin contracts are not valid for Merkle root anchoring.
-              </div>
+                    return (
+                      <tr key={key} className={isActive ? 'table-success' : ''}>
+                        <td>
+                          <div className="fw-semibold text-break">
+                            {contractAddressUrl(contract) ? (
+                              <a href={contractAddressUrl(contract)} target="_blank" rel="noreferrer">
+                                {contract.address}
+                              </a>
+                            ) : (
+                              contract.address || key
+                            )}
+                          </div>
+                          <div className="small text-muted">{contractName(contract)}</div>
+                        </td>
+                        <td>
+                          <span className={`badge ${contractStatusBadge(contract)}`}>
+                            {contractStatusLabel(contract)}
+                          </span>
+                        </td>
+                        <td>
+                          {isActive ? (
+                            <span className="badge text-bg-success">Active</span>
+                          ) : (
+                            <span className="text-muted small">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="d-flex flex-wrap gap-2">
+                          <button
+                            className="btn btn-outline-success btn-sm"
+                            type="button"
+                            onClick={() => handleCheckReadiness(contract)}
+                            disabled={checkingContractId === key}
+                          >
+                            {checkingContractId === key ? 'Checking...' : 'Check'}
+                          </button>
+                          <button
+                            className="btn btn-success btn-sm"
+                            type="button"
+                            onClick={() => confirmSaveContract(contract)}
+                            disabled={isActive || !access.canManageActiveContract}
+                          >
+                            {isActive ? 'Active' : 'Set Active'}
+                          </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            <div className="col-md-3 d-grid gap-2">
-              <button
-                className="btn btn-outline-secondary"
-                type="button"
-                onClick={checkSelectedCapability}
-                disabled={!selectedContractId || checkingCapability}
-              >
-                {checkingCapability ? 'Checking...' : 'Check Capability'}
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={confirmSaveContract}
-                disabled={!selectedContractId || !access.canManageActiveContract}
-              >
-                Save Active Contract
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     );
@@ -1085,6 +1219,10 @@ export default function SystemSettingsPage() {
         {renderActiveTab()}
       </div>
 
+      <ReadinessModal
+        check={readinessCheck}
+        onClose={() => setReadinessCheck(null)}
+      />
       <ConfirmModal
         action={confirmAction}
         busy={busy}
@@ -1100,3 +1238,4 @@ export default function SystemSettingsPage() {
     </>
   );
 }
+
