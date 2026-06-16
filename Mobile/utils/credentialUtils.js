@@ -41,9 +41,12 @@ export function getCredentialRecordId(credential) {
   return String(
     credential?.credentialId ||
       credential?._id ||
+      credential?.id ||
       credential?.meta?.credentialId ||
       credential?.vcPayload?.credentialId ||
       credential?.signedCredential?.credentialId ||
+      credential?.verifiableCredential?.credentialId ||
+      credential?.credential?.credentialId ||
       ''
   );
 }
@@ -116,14 +119,17 @@ export function normalizeCredential(input) {
   if (!id) {
     throw new Error('Credential is missing a stable id');
   }
+  const recordId = getCredentialRecordId(input) || id;
   const blockchainAnchor = getBlockchainAnchorInfo(input);
 
   return {
     ...input,
     id,
+    credentialId: input?.credentialId || input?._id || recordId,
     savedAt: input?.savedAt || new Date().toISOString(),
     meta: {
       ...(input?.meta || {}),
+      credentialId: input?.meta?.credentialId || recordId,
       title: input?.meta?.title || getCredentialTitle(input),
       fullName: input?.meta?.fullName || getHolderName(input),
       issuedAt: input?.meta?.issuedAt || getIssuedDate(input),
@@ -153,4 +159,3 @@ export function formatDate(value) {
   if (Number.isNaN(date.getTime())) return 'Not available';
   return date.toISOString().slice(0, 10);
 }
-

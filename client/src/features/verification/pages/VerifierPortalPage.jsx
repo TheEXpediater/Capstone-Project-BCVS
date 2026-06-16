@@ -187,6 +187,30 @@ function ResultPanel({ session, nonce }) {
   );
 }
 
+
+function DraftCredentialPanel({ session, form }) {
+  const credentialId = clean(session?.credentialId || form?.credentialId);
+  const credentialType = clean(session?.credentialType || form?.credentialType);
+
+  if (!credentialId && !credentialType) return null;
+
+  return (
+    <div className="alert alert-light border mb-3">
+      <div className="fw-semibold mb-2">Credential selected from QR</div>
+      <div className="row g-2 small">
+        <div className="col-md-8">
+          <div className="text-muted">Credential ID</div>
+          <div className="fw-semibold text-break">{credentialId || 'Not available'}</div>
+        </div>
+        <div className="col-md-4">
+          <div className="text-muted">Document</div>
+          <div className="fw-semibold">{titleCase(credentialType || 'tor')}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function VerifierPortalPage() {
   const { sessionId: routeSessionId } = useParams();
   const [searchParams] = useSearchParams();
@@ -363,12 +387,15 @@ export default function VerifierPortalPage() {
         {canRequestConsent ? (
           <form className="bg-white border rounded-2 p-4 shadow-sm mb-4" onSubmit={submit}>
             {isDraftSession ? (
-              <div className="alert alert-info border mb-3">
-                <div className="fw-semibold">Credential session ready</div>
-                <div className="small">
-                  A holder shared this credential. Enter verifier details to request consent from the mobile app.
+              <>
+                <div className="alert alert-info border mb-3">
+                  <div className="fw-semibold">Credential session ready</div>
+                  <div className="small">
+                    A holder shared this credential. Enter verifier details to request consent from the mobile app.
+                  </div>
                 </div>
-              </div>
+                <DraftCredentialPanel session={session} form={form} />
+              </>
             ) : null}
 
             <div className="row g-3">
@@ -461,6 +488,8 @@ export default function VerifierPortalPage() {
                 </span>
               </div>
             </div>
+
+            <DraftCredentialPanel session={session} form={form} />
 
             <ResultPanel session={session} nonce={nonce} />
 

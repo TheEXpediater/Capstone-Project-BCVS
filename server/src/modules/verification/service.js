@@ -1170,6 +1170,8 @@ export async function requestVerificationSession(sessionId, payload = {}) {
     data: {
       sessionId: session._id.toString(),
       session_id: session._id.toString(),
+      nonce: cleanString(session.nonce),
+      verificationNonce: cleanString(session.nonce),
       credentialId: session.credentialId,
       credentialType: normalizeCredentialType(session.credentialType),
       requestedPdf: session.requestedPdf,

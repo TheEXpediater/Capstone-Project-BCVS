@@ -23,6 +23,32 @@ function resolveWebBase() {
   }
 }
 
+function normalizeCredentialType(value) {
+  const text = String(value || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (['tor', 'transcript', 'transcript_of_records', 'student_record'].includes(text)) {
+    return 'tor';
+  }
+  if (text.includes('diploma')) return 'diploma';
+  return text || 'tor';
+}
+
+function getCredentialType(credential) {
+  const raw =
+    credential?.credentialType ||
+    credential?.meta?.credentialType ||
+    credential?.vcPayload?.credentialType ||
+    credential?.signedCredential?.credentialType ||
+    credential?.type;
+
+  if (Array.isArray(raw)) {
+    const diplomaType = raw.find((item) => /diploma/i.test(String(item)));
+    const torType = raw.find((item) => /transcript|tor|record/i.test(String(item)));
+    return normalizeCredentialType(diplomaType || torType || raw[0]);
+  }
+
+  return normalizeCredentialType(raw);
+}
+
 export async function getAccountVerification() {
   try {
     const { data } = await api.get(ENDPOINTS.verification.account);
@@ -69,31 +95,41 @@ export async function createShareSession({ credential, ttlHours = 168 }) {
   const credentialId = getCredentialRecordId(credential);
   if (!credentialId) throw new Error('Credential is missing an id');
 
+  const credentialType = getCredentialType(credential);
+  const verifyBaseUrl = `${resolveWebBase()}/verify`;
+
   try {
     const response = await api.post(ENDPOINTS.verification.createSession, {
       ttlHours,
       credential_id: credentialId,
-      verifyBaseUrl: `${resolveWebBase()}/verify`
+      credentialId,
+      credentialType,
+      verifyBaseUrl,
+      request: {
+        credentialType,
+        purpose: 'Credential verification'
+      }
     });
+
     const data = response.data?.data || response.data;
     const sessionId = data?.session_id || data?.sessionId || data?.id || data?._id;
     const nonce = data?.nonce || '';
-    const base = resolveWebBase();
     const fallbackVerifyUrl =
-      base && sessionId
-        ? `${base}/verify/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
+      verifyBaseUrl && sessionId
+        ? `${verifyBaseUrl}/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
         : sessionId
           ? `bcvs://verification/session/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
           : '';
-    const verifyUrl =
-      data?.verifyUrl ||
-      data?.url ||
-      fallbackVerifyUrl;
+
+    const verifyUrl = data?.verifyUrl || data?.url || fallbackVerifyUrl;
 
     return {
       ...data,
       sessionId,
+      session_id: data?.session_id || sessionId,
       nonce,
+      credentialId,
+      credentialType,
       verifyUrl
     };
   } catch (error) {
@@ -105,11 +141,7 @@ export function buildVerifierShareUrl(credential) {
   const credentialId = getCredentialRecordId(credential);
   if (!credentialId) throw new Error('Credential is missing an id');
 
-  const credentialType =
-    credential?.credentialType ||
-    credential?.meta?.credentialType ||
-    credential?.vcPayload?.credentialType ||
-    '';
+  const credentialType = getCredentialType(credential);
   const base = `${resolveWebBase()}/verify`;
   if (!base) {
     throw new Error('Verifier web portal URL is not configured');

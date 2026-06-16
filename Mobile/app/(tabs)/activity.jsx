@@ -11,7 +11,7 @@ import {
   View
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import ActivityItem from '@/components/notifications/ActivityItem';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
@@ -129,6 +129,42 @@ function detailRows(item) {
   ];
 }
 
+
+function verificationRouteFromItem(item) {
+  const data = item?.data || {};
+  const request = data?.request || {};
+  const normalizedType = String(item?.type || data?.type || request?.type || '').toLowerCase();
+
+  const sessionId =
+    data?.sessionId ||
+    data?.session_id ||
+    request?.sessionId ||
+    request?.session_id ||
+    item?.sessionId ||
+    item?.session_id;
+
+  if (!sessionId || !normalizedType.includes('verification')) {
+    return null;
+  }
+
+  const nonce =
+    data?.nonce ||
+    data?.verificationNonce ||
+    data?.verification_nonce ||
+    request?.nonce ||
+    request?.verificationNonce ||
+    request?.verification_nonce ||
+    '';
+
+  return {
+    pathname: '/verification/consent',
+    params: {
+      sessionId: String(sessionId),
+      nonce: String(nonce || '')
+    }
+  };
+}
+
 function groupByYear(items) {
   const groups = new Map();
 
@@ -224,6 +260,12 @@ export default function ActivityScreen() {
   function handleItemPress(item) {
     if (selectionMode) {
       toggleSelection(item.id);
+      return;
+    }
+
+    const verificationRoute = verificationRouteFromItem(item);
+    if (verificationRoute) {
+      router.push(verificationRoute);
       return;
     }
 

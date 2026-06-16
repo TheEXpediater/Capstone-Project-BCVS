@@ -6,15 +6,21 @@ import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
 import { colors, radius, spacing } from '@/constants/theme';
 import { createShareSession } from '@/services/verificationService';
-import { getCredentialTitle, getHolderName } from '@/utils/credentialUtils';
+import { getCredentialRecordId, getCredentialTitle, getHolderName } from '@/utils/credentialUtils';
 import { useAppStore } from '@/store/useAppStore';
 
 export default function ShareCredentialScreen() {
   const { id } = useLocalSearchParams();
   const credentials = useAppStore((state) => state.credentials);
+  const loadCredentials = useAppStore((state) => state.loadCredentials);
   const [shareValue, setShareValue] = useState('');
   const [sessionInfo, setSessionInfo] = useState(null);
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    loadCredentials().catch(() => {});
+  }, [loadCredentials]);
+
   const credential = useMemo(
     () => credentials.find((item) => String(item.id) === String(id)),
     [credentials, id]
@@ -22,8 +28,10 @@ export default function ShareCredentialScreen() {
 
   useEffect(() => {
     let mounted = true;
+
     async function run() {
       if (!credential) return;
+
       setCreating(true);
       try {
         const session = await createShareSession({ credential });
@@ -41,7 +49,9 @@ export default function ShareCredentialScreen() {
         if (mounted) setCreating(false);
       }
     }
+
     run();
+
     return () => {
       mounted = false;
     };
@@ -52,25 +62,52 @@ export default function ShareCredentialScreen() {
     await Share.share({ message: shareValue });
   }
 
+  if (!credential && !creating) {
+    return (
+      <Screen>
+        <Text style={styles.title}>Credential not found</Text>
+        <Text style={styles.help}>This credential is not stored on this device.</Text>
+        <Button title="Back to Credentials" onPress={() => router.replace('/(tabs)/credentials')} />
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
+      <Text style={styles.kicker}>Verifier QR</Text>
       <Text style={styles.title}>Share Credential</Text>
+
       <View style={styles.card}>
         <Text style={styles.label}>{getCredentialTitle(credential)}</Text>
         <Text style={styles.name}>{getHolderName(credential)}</Text>
+        <Text style={styles.metaLabel}>Credential ID</Text>
+        <Text selectable style={styles.metaValue}>
+          {getCredentialRecordId(credential) || credential?.id || 'Not available'}
+        </Text>
       </View>
 
       <View style={styles.qrWrap}>
         {shareValue ? (
           <QRCode value={shareValue} size={230} />
         ) : (
-          <Text>{creating ? 'Creating share session...' : 'No share link available'}</Text>
+          <Text style={styles.loadingText}>
+            {creating ? 'Creating verification QR...' : 'No share link available'}
+          </Text>
         )}
       </View>
 
-      <Text style={styles.help}>
-        Show this QR to a verifier only when you intend to share this credential.
-      </Text>
+      <View style={styles.infoCard}>
+        <Text style={styles.infoTitle}>How this works</Text>
+        <Text style={styles.infoText}>
+          The QR opens the public verification portal with this credential already selected.
+          The verifier still needs to request consent, and this phone must approve or deny before any result is shown.
+        </Text>
+      </View>
+
+      {shareValue ? (
+        <Text selectable style={styles.linkText}>{shareValue}</Text>
+      ) : null}
+
       {sessionInfo?.sessionId ? (
         <Text style={styles.meta}>Verification session: {sessionInfo.sessionId}</Text>
       ) : null}
@@ -82,11 +119,18 @@ export default function ShareCredentialScreen() {
 }
 
 const styles = StyleSheet.create({
+  kicker: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginTop: spacing.lg,
+    textTransform: 'uppercase'
+  },
   title: {
     color: colors.text,
     fontSize: 26,
-    fontWeight: '900',
-    marginTop: spacing.lg
+    fontWeight: '900'
   },
   card: {
     backgroundColor: colors.surface,
@@ -94,7 +138,8 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radius.md,
     padding: spacing.lg,
-    marginVertical: spacing.lg
+    marginVertical: spacing.lg,
+    gap: spacing.xs
   },
   label: {
     color: colors.text,
@@ -105,6 +150,17 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: spacing.xs
   },
+  metaLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: spacing.md
+  },
+  metaValue: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700'
+  },
   qrWrap: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -112,18 +168,45 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.line
+    borderColor: colors.line,
+    minHeight: 286
+  },
+  loadingText: {
+    color: colors.muted,
+    textAlign: 'center'
+  },
+  infoCard: {
+    backgroundColor: colors.primarySoft,
+    borderColor: '#BBF7D0',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    gap: spacing.xs
+  },
+  infoTitle: {
+    color: colors.text,
+    fontWeight: '900'
+  },
+  infoText: {
+    color: colors.muted,
+    lineHeight: 20
   },
   help: {
     color: colors.muted,
-    textAlign: 'center',
     lineHeight: 20,
     marginVertical: spacing.lg
+  },
+  linkText: {
+    color: colors.info,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.md
   },
   meta: {
     color: colors.muted,
     textAlign: 'center',
-    marginBottom: spacing.md,
+    marginVertical: spacing.md,
     fontSize: 12
   }
 });

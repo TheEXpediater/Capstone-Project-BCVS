@@ -14,15 +14,60 @@ function textOrFallback(value, fallback = 'Not provided') {
 
 function normalizeType(value) {
   const normalized = String(value || '').toLowerCase().replace(/[\s-]+/g, '_');
+
   if (['tor', 'transcript', 'transcript_of_records', 'student_record'].includes(normalized)) {
     return 'tor';
   }
+
   if (normalized.includes('diploma')) return 'diploma';
+
   return normalized;
 }
 
 function typeLabel(value) {
   return normalizeType(value) === 'diploma' ? 'Diploma' : 'Transcript of Records';
+}
+
+function titleCase(value) {
+  const text = String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return text ? text.replace(/\b\w/g, (letter) => letter.toUpperCase()) : 'Pending';
+}
+
+function getRecordId(credential) {
+  return String(getCredentialRecordId(credential) || credential?.id || credential?._id || '');
+}
+
+function getCredentialType(credential) {
+  return normalizeType(
+    credential?.credentialType ||
+      credential?.meta?.credentialType ||
+      credential?.vcPayload?.credentialType ||
+      credential?.signedCredential?.credentialType ||
+      credential?.type
+  );
+}
+
+function isTerminalStatus(status) {
+  return ['presented', 'denied', 'cancelled', 'expired', 'failed'].includes(
+    String(status || '').toLowerCase()
+  );
+}
+
+function statusMessage(status) {
+  const normalized = String(status || '').toLowerCase();
+
+  if (normalized === 'presented') return 'This request was already approved and shared.';
+  if (normalized === 'denied') return 'This request was already denied.';
+  if (normalized === 'cancelled') return 'The verifier cancelled this request.';
+  if (normalized === 'expired') return 'This verification request expired.';
+  if (normalized === 'failed') return 'This verification request failed.';
+  if (normalized === 'draft') return 'The verifier has opened the QR link but has not requested consent yet.';
+
+  return 'Review the request and choose whether to share the selected credential.';
 }
 
 export default function ConsentScreen() {
@@ -34,20 +79,43 @@ export default function ConsentScreen() {
   const loadCredentials = useAppStore((state) => state.loadCredentials);
   const request = useAppStore((state) => state.activeRequest);
   const loading = useAppStore((state) => state.loading.verification);
+  const credentialLoading = useAppStore((state) => state.loading.credentials);
+
   const [selectedId, setSelectedId] = useState('');
   const [allowPdfDownload, setAllowPdfDownload] = useState(false);
+
   const requestCredentialId = String(
-    request?.credentialId || request?.credential_id || ''
+    request?.credentialId ||
+      request?.credential_id ||
+      request?.request?.credentialId ||
+      request?.request?.credential_id ||
+      ''
   );
+
   const requestCredentialType = normalizeType(
-    request?.credentialType || request?.request?.credentialType
+    request?.credentialType ||
+      request?.credential_type ||
+      request?.request?.credentialType ||
+      request?.request?.credential_type
   );
-  const requestedPdf = Boolean(request?.requestedPdf || request?.request?.requestedPdf);
+
+  const requestedPdf = Boolean(
+    request?.requestedPdf ||
+      request?.request?.requestedPdf ||
+      request?.request?.requiresPdf
+  );
+
+  const requestStatus = String(request?.status || '').toLowerCase();
+  const canRespond = Boolean(sessionId) && !isTerminalStatus(requestStatus) && requestStatus !== 'draft';
 
   useEffect(() => {
-    loadCredentials().catch(() => {});
     setAllowPdfDownload(false);
     setSelectedId('');
+
+    loadCredentials({ sync: true }).catch(() => {
+      loadCredentials().catch(() => {});
+    });
+
     if (sessionId) {
       loadRequest(String(sessionId), String(nonce || '')).catch((error) => {
         Alert.alert('Request unavailable', error.message);
@@ -63,13 +131,13 @@ export default function ConsentScreen() {
 
   const credentialOptions = useMemo(() => {
     const rows = requestCredentialId
-      ? credentials.filter((item) => String(getCredentialRecordId(item)) === requestCredentialId)
+      ? credentials.filter((item) => getRecordId(item) === requestCredentialId)
       : credentials;
 
     if (!requestCredentialType) return rows;
 
     const filtered = rows.filter((item) => {
-      const type = normalizeType(item?.credentialType || item?.meta?.credentialType || item?.vcPayload?.credentialType);
+      const type = getCredentialType(item);
       return !type || type === requestCredentialType;
     });
 
@@ -78,17 +146,29 @@ export default function ConsentScreen() {
 
   const selectedCredential = useMemo(
     () =>
-      credentialOptions.find((item) => String(getCredentialRecordId(item)) === String(selectedId)) ||
-      credentialOptions.find((item) => String(getCredentialRecordId(item)) === requestCredentialId) ||
-      credentialOptions[0],
+      credentialOptions.find((item) => getRecordId(item) === String(selectedId)) ||
+      credentialOptions.find((item) => getRecordId(item) === requestCredentialId) ||
+      credentialOptions[0] ||
+      null,
     [credentialOptions, selectedId, requestCredentialId]
   );
 
-  const org = request?.employer?.org || request?.organization || request?.orgName;
-  const contact = request?.employer?.contact || request?.contact;
+  const org = request?.employer?.org || request?.organization || request?.orgName || request?.request?.organization;
+  const contact = request?.employer?.contact || request?.contact || request?.request?.contact;
   const purpose = request?.request?.purpose || request?.purpose;
+  const verifierName = textOrFallback(org, 'Verifier');
+  const proofNote =
+    'Approval sends the signed VC payload to the server. The server then verifies the VC hash, issuer signature, Merkle proof, and blockchain anchor before showing the result to the verifier.';
 
   async function approveRequest() {
+    if (!selectedCredential) {
+      Alert.alert(
+        'Credential not available',
+        'This request matches a credential that is not stored on this device yet. Claim or sync the credential first.'
+      );
+      return;
+    }
+
     try {
       await approve({
         sessionId: String(sessionId),
@@ -96,7 +176,8 @@ export default function ConsentScreen() {
         credential: selectedCredential,
         allowPdfDownload
       });
-      Alert.alert('Credential shared', 'Your credential was sent to the verifier.');
+
+      Alert.alert('Credential shared', 'The verifier can now see the verification result.');
       router.replace('/(tabs)/activity');
     } catch (error) {
       Alert.alert('Share failed', error.message);
@@ -116,64 +197,119 @@ export default function ConsentScreen() {
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.kicker}>Holder Consent</Text>
         <Text style={styles.title}>Verification Request</Text>
+
         <View style={styles.card}>
+          <View style={styles.statusRow}>
+            <View>
+              <Text style={styles.label}>Status</Text>
+              <Text style={styles.value}>{titleCase(requestStatus || 'loading')}</Text>
+            </View>
+            <View style={[styles.statusPill, isTerminalStatus(requestStatus) && styles.statusPillMuted]}>
+              <Text style={styles.statusPillText}>{canRespond ? 'Action needed' : titleCase(requestStatus)}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.helper}>{statusMessage(requestStatus)}</Text>
+
           <Text style={styles.label}>Organization</Text>
-          <Text style={styles.value}>{textOrFallback(org)}</Text>
+          <Text style={styles.value}>{verifierName}</Text>
+
           <Text style={styles.label}>Contact</Text>
           <Text style={styles.value}>{textOrFallback(contact)}</Text>
+
           <Text style={styles.label}>Purpose</Text>
           <Text style={styles.value}>{textOrFallback(purpose, 'Credential verification')}</Text>
+
           <Text style={styles.label}>Requested document</Text>
           <Text style={styles.value}>{typeLabel(requestCredentialType)}</Text>
+
+          <Text style={styles.label}>Credential ID</Text>
+          <Text selectable style={styles.value}>{textOrFallback(requestCredentialId)}</Text>
+
           <Text style={styles.label}>PDF download</Text>
           <Text style={styles.value}>{requestedPdf ? 'Requested by verifier' : 'Not requested'}</Text>
         </View>
 
-        <Pressable
-          style={[styles.toggle, allowPdfDownload && styles.toggleActive]}
-          onPress={() => setAllowPdfDownload((value) => !value)}
-        >
-          <View style={[styles.check, allowPdfDownload && styles.checkActive]}>
-            {allowPdfDownload && <View style={styles.checkDot} />}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Two-layer verification</Text>
+          <Text style={styles.helper}>{proofNote}</Text>
+          <View style={styles.proofRow}>
+            <Text style={styles.proofLabel}>Layer 1</Text>
+            <Text style={styles.proofValue}>Holder consent and credential ownership</Text>
           </View>
-          <View style={styles.toggleCopy}>
-            <Text style={styles.toggleTitle}>Allow PDF download</Text>
-            <Text style={styles.toggleHelp}>The verifier can download JSON proof either way.</Text>
+          <View style={styles.proofRow}>
+            <Text style={styles.proofLabel}>Layer 2</Text>
+            <Text style={styles.proofValue}>VC signature, Merkle proof, and blockchain anchor</Text>
           </View>
-        </Pressable>
+        </View>
 
-        <Text style={styles.sectionTitle}>Choose Credential</Text>
-        {credentialOptions.map((credential) => {
-          const recordId = getCredentialRecordId(credential) || credential.id;
-          return (
-          <View
-            key={recordId}
-            style={[
-              styles.choice,
-              String(getCredentialRecordId(selectedCredential)) === String(recordId) && styles.choiceActive
-            ]}
+        {requestedPdf ? (
+          <Pressable
+            style={[styles.toggle, allowPdfDownload && styles.toggleActive]}
+            onPress={() => setAllowPdfDownload((value) => !value)}
+            disabled={!canRespond}
           >
-            <CredentialCard
-              credential={credential}
-              onPress={() => setSelectedId(String(recordId))}
-            />
-          </View>
+            <View style={[styles.check, allowPdfDownload && styles.checkActive]}>
+              {allowPdfDownload && <View style={styles.checkDot} />}
+            </View>
+            <View style={styles.toggleCopy}>
+              <Text style={styles.toggleTitle}>Allow PDF download</Text>
+              <Text style={styles.toggleHelp}>The verifier can download JSON proof either way.</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
+        <Text style={styles.sectionTitle}>Credential to share</Text>
+
+        {credentialLoading ? (
+          <Text style={styles.empty}>Syncing stored credentials...</Text>
+        ) : null}
+
+        {credentialOptions.map((credential) => {
+          const recordId = getRecordId(credential);
+
+          return (
+            <View
+              key={recordId || credential.id}
+              style={[
+                styles.choice,
+                selectedCredential && getRecordId(selectedCredential) === recordId && styles.choiceActive
+              ]}
+            >
+              <CredentialCard
+                credential={credential}
+                onPress={() => setSelectedId(String(recordId))}
+              />
+            </View>
           );
         })}
 
-        {!credentialOptions.length && (
-          <Text style={styles.empty}>No credentials are stored on this device.</Text>
-        )}
+        {!credentialOptions.length && !credentialLoading ? (
+          <View style={styles.card}>
+            <Text style={styles.emptyTitle}>No matching credential found</Text>
+            <Text style={styles.empty}>
+              This request is for a credential that is not currently stored on this device.
+              Claim or sync the credential first, then reopen this request.
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.actions}>
-          <Button title="Deny" variant="outline" onPress={denyRequest} loading={loading} />
-          <Button
-            title="Approve Sharing"
-            onPress={approveRequest}
-            loading={loading}
-            disabled={!selectedCredential}
-          />
+          {canRespond ? (
+            <>
+              <Button title="Deny" variant="outline" onPress={denyRequest} loading={loading} />
+              <Button
+                title="Approve Sharing"
+                onPress={approveRequest}
+                loading={loading}
+                disabled={!selectedCredential}
+              />
+            </>
+          ) : (
+            <Button title="Back to Activity" variant="outline" onPress={() => router.replace('/(tabs)/activity')} />
+          )}
         </View>
       </ScrollView>
     </Screen>
@@ -185,11 +321,18 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md
   },
+  kicker: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginTop: spacing.lg,
+    textTransform: 'uppercase'
+  },
   title: {
     color: colors.text,
     fontSize: 26,
-    fontWeight: '900',
-    marginTop: spacing.lg
+    fontWeight: '900'
   },
   card: {
     backgroundColor: colors.surface,
@@ -199,14 +342,41 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.xs
   },
+  statusRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.sm
+  },
+  statusPill: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs
+  },
+  statusPillMuted: {
+    backgroundColor: colors.surfaceMuted
+  },
+  statusPillText: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: '900'
+  },
   label: {
     color: colors.muted,
     fontWeight: '800',
-    fontSize: 12
+    fontSize: 12,
+    marginTop: spacing.sm
   },
   value: {
     color: colors.text,
     fontWeight: '700',
+    lineHeight: 20
+  },
+  helper: {
+    color: colors.muted,
+    lineHeight: 20,
     marginBottom: spacing.sm
   },
   sectionTitle: {
@@ -214,6 +384,23 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 18,
     marginTop: spacing.md
+  },
+  proofRow: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs
+  },
+  proofLabel: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase'
+  },
+  proofValue: {
+    color: colors.text,
+    fontWeight: '800',
+    lineHeight: 20
   },
   choice: {
     borderRadius: radius.md,
@@ -266,14 +453,19 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 2
   },
+  emptyTitle: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 16
+  },
   empty: {
     color: colors.muted,
+    lineHeight: 20,
     textAlign: 'center',
-    paddingVertical: spacing.xl
+    paddingVertical: spacing.md
   },
   actions: {
     gap: spacing.md,
     marginTop: spacing.md
   }
 });
-
