@@ -34,8 +34,42 @@ app.get('/', (_req, res) => {
   });
 });
 
+function resolveVerifierWebBase(req) {
+  const configured = String(
+    process.env.VERIFICATION_WEB_BASE_URL ||
+      process.env.WEB_BASE_URL ||
+      ''
+  )
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/verification-portal\/verify$/i, '')
+    .replace(/\/verification-portal$/i, '')
+    .replace(/\/verify$/i, '');
+
+  if (configured) return configured;
+
+  const host = String(req.get('host') || 'localhost:5000').replace(/:\d+$/, ':5173');
+  return `${req.protocol}://${host}`;
+}
+
+function legacyVerifierPortalRedirect(req, res) {
+  const sessionId = req.params.sessionId || '';
+  const queryIndex = req.originalUrl.indexOf('?');
+  const query = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
+  const targetPath = sessionId
+    ? `/verify/${encodeURIComponent(sessionId)}`
+    : '/verify';
+
+  res.redirect(302, `${resolveVerifierWebBase(req)}${targetPath}${query}`);
+}
+
+app.get('/verification-portal/verify', legacyVerifierPortalRedirect);
+app.get('/verification-portal/verify/:sessionId', legacyVerifierPortalRedirect);
+
 app.use('/api', routes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;
+
+

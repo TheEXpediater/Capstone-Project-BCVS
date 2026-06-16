@@ -45,13 +45,22 @@ export const API_BASE_URL = /\/api$/.test(API_ORIGIN)
   ? API_ORIGIN
   : `${API_ORIGIN}/api`;
 
-export const WEB_BASE_URL = firstValue(
+function normalizeWebBase(value) {
+  const cleaned = trimSlashes(value)
+    .replace(/\/verification-portal\/verify\/?$/i, '')
+    .replace(/\/verification-portal\/?$/i, '')
+    .replace(/\/verify\/?$/i, '');
+
+  return cleaned;
+}
+
+export const WEB_BASE_URL = normalizeWebBase(firstValue(
   process.env.EXPO_PUBLIC_WEB_URL,
   process.env.EXPO_PUBLIC_WEB_BASE,
   extra.WEB_URL,
   extra.WEB_BASE,
   localDevOrigin(5173)
-);
+));
 
 export const EAS_PROJECT_ID =
   process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
@@ -94,3 +103,5 @@ export const ENDPOINTS = {
     testImage: '/uploads/test-image'
   }
 };
+
+

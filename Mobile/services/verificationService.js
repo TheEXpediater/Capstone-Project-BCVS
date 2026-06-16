@@ -12,15 +12,61 @@ function appendImage(formData, name, asset, fallbackName) {
   });
 }
 
+function stripLegacyVerifierPath(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/verification-portal\/verify\/?$/i, '')
+    .replace(/\/verification-portal\/?$/i, '')
+    .replace(/\/verify\/?$/i, '');
+}
+
 function resolveWebBase() {
-  if (WEB_BASE_URL) return WEB_BASE_URL;
+  const configured = stripLegacyVerifierPath(WEB_BASE_URL);
+
+  if (configured) return configured;
 
   try {
     const url = new URL(API_ORIGIN);
-    return `${url.protocol}//${url.hostname}:5173`;
+    url.port = '5173';
+    return stripLegacyVerifierPath(url.toString());
   } catch {
     return 'http://localhost:5173';
   }
+}
+
+function buildVerifierPortalUrl(sessionId, nonce = '') {
+  if (!sessionId) return '';
+
+  const suffix = nonce ? `?nonce=${encodeURIComponent(nonce)}` : '';
+  return `${resolveWebBase()}/verify/${encodeURIComponent(sessionId)}${suffix}`;
+}
+
+function normalizeReturnedVerifierUrl(value, sessionId, nonce = '') {
+  const cleanValue = String(value || '').trim();
+  const expected = buildVerifierPortalUrl(sessionId, nonce);
+
+  if (!cleanValue) return expected;
+
+  try {
+    const parsed = new URL(cleanValue);
+    const hasLegacyPath = /\/verification-portal\/verify\//i.test(parsed.pathname);
+    const hitsApiServer = parsed.port === '5000';
+
+    if (hasLegacyPath || hitsApiServer) {
+      return expected;
+    }
+
+    if (/\/verify\//i.test(parsed.pathname)) {
+      return cleanValue;
+    }
+  } catch {
+    if (/^\/verification-portal\/verify\//i.test(cleanValue) || /^\/verify\//i.test(cleanValue)) {
+      return expected;
+    }
+  }
+
+  return expected || cleanValue;
 }
 
 function normalizeCredentialType(value) {
@@ -114,14 +160,7 @@ export async function createShareSession({ credential, ttlHours = 168 }) {
     const data = response.data?.data || response.data;
     const sessionId = data?.session_id || data?.sessionId || data?.id || data?._id;
     const nonce = data?.nonce || '';
-    const fallbackVerifyUrl =
-      verifyBaseUrl && sessionId
-        ? `${verifyBaseUrl}/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
-        : sessionId
-          ? `bcvs://verification/session/${encodeURIComponent(sessionId)}${nonce ? `?nonce=${encodeURIComponent(nonce)}` : ''}`
-          : '';
-
-    const verifyUrl = data?.verifyUrl || data?.url || fallbackVerifyUrl;
+    const verifyUrl = normalizeReturnedVerifierUrl(data?.verifyUrl || data?.url, sessionId, nonce);
 
     return {
       ...data,
@@ -211,3 +250,4 @@ export async function denyVerificationRequest(sessionId, nonce = '') {
     throw new Error(apiErrorMessage(error, 'Failed to deny request'));
   }
 }
+

@@ -30,6 +30,8 @@ export default function AppRoutes() {
       <Route path="/unauthorized" element={<Unauthorized />} />
       <Route path="/verify" element={<VerifierPortalPage />} />
       <Route path="/verify/:sessionId" element={<VerifierPortalPage />} />
+      <Route path="/verification-portal/verify" element={<VerifierPortalPage />} />
+      <Route path="/verification-portal/verify/:sessionId" element={<VerifierPortalPage />} />
 
       <Route path="/" element={<ShellPage><Dashboard /></ShellPage>} />
 
@@ -128,3 +130,5 @@ export default function AppRoutes() {
     </Routes>
   );
 }
+
+
