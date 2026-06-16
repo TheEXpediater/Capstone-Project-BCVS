@@ -37,7 +37,10 @@ app.get('/', (_req, res) => {
 function resolveVerifierWebBase(req) {
   const configured = String(
     process.env.VERIFICATION_WEB_BASE_URL ||
+      process.env.WEB_CLIENT_URL ||
       process.env.WEB_BASE_URL ||
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
       ''
   )
     .trim()
@@ -63,6 +66,8 @@ function legacyVerifierPortalRedirect(req, res) {
   res.redirect(302, `${resolveVerifierWebBase(req)}${targetPath}${query}`);
 }
 
+app.get('/verify', legacyVerifierPortalRedirect);
+app.get('/verify/:sessionId', legacyVerifierPortalRedirect);
 app.get('/verification-portal/verify', legacyVerifierPortalRedirect);
 app.get('/verification-portal/verify/:sessionId', legacyVerifierPortalRedirect);
 

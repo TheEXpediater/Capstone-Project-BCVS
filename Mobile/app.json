@@ -54,12 +54,12 @@
       "expo-font"
     ],
     "extra": {
-  "API_URL": "http://192.168.100.12:5000",
-  "WEB_BASE": "http://192.168.100.12:5173",
-  "eas": {
-    "projectId": "e4c6cd8c-4086-47e3-83b2-eb97cf304c3d"
-  },
-  "router": {}
-}
+      "API_URL": "http://192.168.100.18:5000",
+      "WEB_BASE": "http://192.168.100.18:5173",
+      "eas": {
+        "projectId": "e4c6cd8c-4086-47e3-83b2-eb97cf304c3d"
+      },
+      "router": {}
+    }
   }
 }

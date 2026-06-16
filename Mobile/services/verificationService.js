@@ -160,7 +160,15 @@ export async function createShareSession({ credential, ttlHours = 168 }) {
     const data = response.data?.data || response.data;
     const sessionId = data?.session_id || data?.sessionId || data?.id || data?._id;
     const nonce = data?.nonce || '';
-    const verifyUrl = normalizeReturnedVerifierUrl(data?.verifyUrl || data?.url, sessionId, nonce);
+    const verifyUrl = normalizeReturnedVerifierUrl(
+      data?.verifyUrl || data?.verificationUrl || data?.url,
+      sessionId,
+      nonce
+    );
+
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('VERIFIER QR URL:', verifyUrl);
+    }
 
     return {
       ...data,
