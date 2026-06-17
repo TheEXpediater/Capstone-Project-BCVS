@@ -1,0 +1,241 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "GE 1",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "GE 2",
+        "title": "Readings in Philippine History",
+        "units": 3
+      },
+      {
+        "code": "GE 3",
+        "title": "The Contemporary World",
+        "units": 3
+      },
+      {
+        "code": "GE 4",
+        "title": "Mathematics in the Modern World",
+        "units": 3
+      },
+      {
+        "code": "GE 5",
+        "title": "Purposive Communication",
+        "units": 3
+      },
+      {
+        "code": "GE ELEC 1",
+        "title": "Environmental Science",
+        "units": 3
+      },
+      {
+        "code": "PE 1",
+        "title": "Physical Fitness",
+        "units": 2
+      },
+      {
+        "code": "NSTP 1",
+        "title": "Civic Welfare Training Service 1",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "GE 6",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "GE 7",
+        "title": "Science, Technology, and Society",
+        "units": 3
+      },
+      {
+        "code": "GE 8",
+        "title": "Ethics",
+        "units": 3
+      },
+      {
+        "code": "GE ELEC 2",
+        "title": "Philippine Popular Culture",
+        "units": 3
+      },
+      {
+        "code": "ENG 1",
+        "title": "Introduction to Linguistics",
+        "units": 3
+      },
+      {
+        "code": "PE 2",
+        "title": "Rhythmic Activities",
+        "units": 2
+      },
+      {
+        "code": "NSTP 2",
+        "title": "Civic Welfare Training Service 2",
+        "units": 3
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "GE 9",
+        "title": "Rizal’s Life and Works",
+        "units": 3
+      },
+      {
+        "code": "GE ELEC 3",
+        "title": "Gender and Society",
+        "units": 3
+      },
+      {
+        "code": "ENG 2",
+        "title": "Structure of English",
+        "units": 3
+      },
+      {
+        "code": "ENG 3",
+        "title": "Principles and Theories of Language Acquisition",
+        "units": 3
+      },
+      {
+        "code": "EDUC 1",
+        "title": "The Child and Adolescent Learner",
+        "units": 3
+      },
+      {
+        "code": "PE 3",
+        "title": "Individual and Dual Sports",
+        "units": 2
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "ENG 4",
+        "title": "Language Curriculum for Secondary Schools",
+        "units": 3
+      },
+      {
+        "code": "ENG 5",
+        "title": "Teaching Reading and Literature",
+        "units": 3
+      },
+      {
+        "code": "ENG 6",
+        "title": "Teaching Listening and Speaking",
+        "units": 3
+      },
+      {
+        "code": "EDUC 2",
+        "title": "Facilitating Learning",
+        "units": 3
+      },
+      {
+        "code": "EDUC 3",
+        "title": "Technology for Teaching and Learning 1",
+        "units": 3
+      },
+      {
+        "code": "PE 4",
+        "title": "Team Sports",
+        "units": 2
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "ENG 7",
+        "title": "Assessment and Evaluation in English",
+        "units": 3
+      },
+      {
+        "code": "ENG 8",
+        "title": "Creative Writing",
+        "units": 3
+      },
+      {
+        "code": "ENG 9",
+        "title": "Literary Criticism",
+        "units": 3
+      },
+      {
+        "code": "EDUC 4",
+        "title": "The Teacher and the Community",
+        "units": 3
+      },
+      {
+        "code": "EDUC 5",
+        "title": "Technology for Teaching and Learning 2",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "ENG 10",
+        "title": "Speech and Oral Communication",
+        "units": 3
+      },
+      {
+        "code": "ENG 11",
+        "title": "World Literature",
+        "units": 3
+      },
+      {
+        "code": "ENG 12",
+        "title": "Research in English Language Teaching",
+        "units": 3
+      },
+      {
+        "code": "EDUC 6",
+        "title": "Assessment of Student Learning",
+        "units": 3
+      },
+      {
+        "code": "EDUC 7",
+        "title": "The Teacher and the School Curriculum",
+        "units": 3
+      }
+    ]
+  },
+  "4Th Year": {
+    "1St Semester": [
+      {
+        "code": "ENG 13",
+        "title": "Language and Literature Teaching Strategies",
+        "units": 3
+      },
+      {
+        "code": "ENG 14",
+        "title": "Technology in Language Education",
+        "units": 3
+      },
+      {
+        "code": "EDUC 8",
+        "title": "Field Study 1",
+        "units": 3
+      },
+      {
+        "code": "EDUC 9",
+        "title": "Field Study 2",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "EDUC 10",
+        "title": "Practice Teaching 1",
+        "units": 6
+      },
+      {
+        "code": "EDUC 11",
+        "title": "Practice Teaching 2",
+        "units": 6
+      }
+    ]
+  }
+}

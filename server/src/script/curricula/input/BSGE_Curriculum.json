@@ -1,0 +1,372 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "GENG 1",
+        "title": "General Surveying 1",
+        "units": 3
+      },
+      {
+        "code": "ESCI 1",
+        "title": "Computer Fundamentals and Programming",
+        "units": 3
+      },
+      {
+        "code": "ESCI 2",
+        "title": "Safety Management",
+        "units": 1
+      },
+      {
+        "code": "ESCI 3",
+        "title": "Computer-Aided Drafting",
+        "units": 2
+      },
+      {
+        "code": "GE-ELEC MST",
+        "title": "Environmental Science",
+        "units": 3
+      },
+      {
+        "code": "GE-MMW",
+        "title": "Mathematics in the Modern World",
+        "units": 3
+      },
+      {
+        "code": "GE-RPH",
+        "title": "Readings in Phil. History",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 1",
+        "title": "Movement Competency Training",
+        "units": 2
+      },
+      {
+        "code": "NSTP1",
+        "title": "Basic Army Science /Civic Wellfare Training Service",
+        "units": 3
+      },
+      {
+        "code": "PRE-CAL",
+        "title": "Preparatory to calculus",
+        "units": 4
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "MATH 1",
+        "title": "Calculus 1",
+        "units": 3
+      },
+      {
+        "code": "GENG 2",
+        "title": "General Surveying 2",
+        "units": 4,
+        "prerequisite": "GENG 1"
+      },
+      {
+        "code": "GENG 3",
+        "title": "Cartography",
+        "units": 3
+      },
+      {
+        "code": "GENG 4",
+        "title": "Introduction to the Laws on Private and Public Lands",
+        "units": 2
+      },
+      {
+        "code": "PHYS 1",
+        "title": "Physics for Engineers",
+        "units": 4,
+        "prerequisite": "MATH 1"
+      },
+      {
+        "code": "GEAC 1",
+        "title": "Principles of Geology",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC SSP",
+        "title": "Gender and Society",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 2",
+        "title": "Exercise-Based Training",
+        "units": 2,
+        "prerequisite": "PATHFIT 1"
+      },
+      {
+        "code": "NSTP2",
+        "title": "National Service Training Program 2",
+        "units": 3,
+        "prerequisite": "NSPTP 1"
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "MATH 2",
+        "title": "Calculus 2",
+        "units": 3,
+        "prerequisite": "MATH 1"
+      },
+      {
+        "code": "GENG 5",
+        "title": "Engineering Surveys",
+        "units": 4,
+        "prerequisite": "GENG 2"
+      },
+      {
+        "code": "GENG 6",
+        "title": "Geometric Geodesy",
+        "units": 3,
+        "prerequisite": "GENG 2"
+      },
+      {
+        "code": "GENG 7",
+        "title": "Geodetic Engineering Laws, Obligations and Contracts, Ethics",
+        "units": 2,
+        "prerequisite": "GENG 4"
+      },
+      {
+        "code": "GE-ELEC AH",
+        "title": "Indigenous Creative Crafts",
+        "units": 3
+      },
+      {
+        "code": "GE-PC",
+        "title": "Purposive Communication",
+        "units": 3,
+        "prerequisite": "PHYS 1"
+      },
+      {
+        "code": "GEAC 2",
+        "title": "Electrical and Electronics Engineering for Geodetic Engineers",
+        "units": 3,
+        "prerequisite": "PHYS 1"
+      },
+      {
+        "code": "PATHFIT3",
+        "title": "Individual and Dual Sports",
+        "units": 2,
+        "prerequisite": "PATHFITI ;PATHFlT2"
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "MATH 3",
+        "title": "Differential Equations",
+        "units": 3,
+        "prerequisite": "GENG 2"
+      },
+      {
+        "code": "GENG 8",
+        "title": "Property Surveys",
+        "units": 5,
+        "prerequisite": "GENG 2"
+      },
+      {
+        "code": "GENG 9",
+        "title": "Hydrographic Surveying",
+        "units": 3,
+        "prerequisite": "GENG 2"
+      },
+      {
+        "code": "GENG 10",
+        "title": "Physical Geodesy",
+        "units": 3,
+        "prerequisite": "GENG 6"
+      },
+      {
+        "code": "GENG 11",
+        "title": "Land Registration Laws",
+        "units": 3,
+        "prerequisite": "GENG 4"
+      },
+      {
+        "code": "ESCI 4",
+        "title": "Engineering Mechanics",
+        "units": 3,
+        "prerequisite": "PHYS 1, MATH 2"
+      },
+      {
+        "code": "PATHFIT 4",
+        "title": "Outdoor Adventure and Group Exercise",
+        "units": 2,
+        "prerequisite": "PATHFITI ;PATHFlT2"
+      },
+      {
+        "code": "GENG 12",
+        "title": "Survey Camp (120 hours)",
+        "units": 1
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "GENG 13",
+        "title": "Geodetic Surveying",
+        "units": 4,
+        "prerequisite": "GENG 6, GENG 10"
+      },
+      {
+        "code": "GENG 14",
+        "title": "Satellite Geodesy",
+        "units": 3,
+        "prerequisite": "GENG 6, GENG 10"
+      },
+      {
+        "code": "GENG 15",
+        "title": "Geographic Information Systems",
+        "units": 3,
+        "prerequisite": "GENG 3"
+      },
+      {
+        "code": "GENG 16",
+        "title": "Theory of Errors and Adjustment",
+        "units": 3,
+        "prerequisite": "MATH 3"
+      },
+      {
+        "code": "ESCI 5",
+        "title": "Technopreneurship 101",
+        "units": 3
+      },
+      {
+        "code": "GE-E",
+        "title": "Ethics",
+        "units": 3
+      },
+      {
+        "code": "GE-AA",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "GE-VE",
+        "title": "Values Education"
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "GENG 17",
+        "title": "Geodetic Computations and Adjustments",
+        "units": 4,
+        "prerequisite": "GENG 16"
+      },
+      {
+        "code": "GENG 18",
+        "title": "Remote Sensing",
+        "units": 4,
+        "prerequisite": "PHYS 1"
+      },
+      {
+        "code": "GENG 19",
+        "title": "Land Use Planning and Development",
+        "units": 3,
+        "prerequisite": "GENG 15"
+      },
+      {
+        "code": "GENG 20",
+        "title": "Land Administration and Management",
+        "units": 3
+      },
+      {
+        "code": "GENG 21",
+        "title": "Public Land Laws & Laws on Natural Resources",
+        "units": 3,
+        "prerequisite": "GENG 4"
+      },
+      {
+        "code": "MATH 4",
+        "title": "Engineering Data Analysis",
+        "units": 3
+      },
+      {
+        "code": "ESCI 6",
+        "title": "Engineering Economics",
+        "units": 3
+      },
+      {
+        "code": "GE-UTS",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "GENG 22",
+        "title": "Geodetic Engineering Immersion/OJT (240 hours)",
+        "units": 2
+      }
+    ]
+  },
+  "4Th Year": {
+    "1St Semester": [
+      {
+        "code": "GENG 23",
+        "title": "Photogrammetry",
+        "units": 4,
+        "prerequisite": "GENG 3, GENG 17"
+      },
+      {
+        "code": "GENG 24",
+        "title": "Geodetic Engineering Elective",
+        "units": 3
+      },
+      {
+        "code": "GENG 25",
+        "title": "Methods of Research",
+        "units": 1
+      },
+      {
+        "code": "GENG 26",
+        "title": "GE Application",
+        "units": 3
+      },
+      {
+        "code": "ESCI 7",
+        "title": "Engineering Management",
+        "units": 3
+      },
+      {
+        "code": "GEAC",
+        "title": "Environmental Science and Engineering",
+        "units": 3
+      },
+      {
+        "code": "GE-CW",
+        "title": "Contemporary World",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "GENG 27",
+        "title": "Special Studies in Geodetic Engineering",
+        "units": 3,
+        "prerequisite": "GENG 25"
+      },
+      {
+        "code": "GENG 28",
+        "title": "Pre Board",
+        "units": 3
+      },
+      {
+        "code": "GEAC 4",
+        "title": "Advanced Information & Communications Technology",
+        "units": 3
+      },
+      {
+        "code": "GE-STS",
+        "title": "Science, Technology, and Society",
+        "units": 3
+      },
+      {
+        "code": "GE-RIZAL",
+        "title": "Life and Works of Rizal"
+      }
+    ]
+  }
+}

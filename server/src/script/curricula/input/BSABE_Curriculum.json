@@ -1,0 +1,396 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "BE 101",
+        "title": "Introduction to AB Engineering",
+        "units": 1
+      },
+      {
+        "code": "GE-MMW",
+        "title": "Mathematics in Modem Wortd",
+        "units": 3
+      },
+      {
+        "code": "GE-Elec MST",
+        "title": "Environmental Science",
+        "units": 3
+      },
+      {
+        "code": "Chem 1",
+        "title": "Chemistry for Engineers",
+        "units": 4
+      },
+      {
+        "code": "Physics 1",
+        "title": "Physics for Engineers",
+        "units": 4
+      },
+      {
+        "code": "PATHFITI",
+        "title": "Movement Competeny Training",
+        "units": 2
+      },
+      {
+        "code": "NSTPI",
+        "title": "National Service Training Program 1",
+        "units": 3
+      },
+      {
+        "code": "Math 101",
+        "title": "Pre- Calculus for Non-STEM (Advance",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "GE-UTS",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "GE-Elec SSP",
+        "title": "Gender and Society",
+        "units": 3
+      },
+      {
+        "code": "ES 102",
+        "title": "Computer Aided Drafting",
+        "units": 1
+      },
+      {
+        "code": "Math 102",
+        "title": "Calculus I",
+        "units": 3,
+        "prerequisite": "GE-MMW"
+      },
+      {
+        "code": "BE 102",
+        "title": "Surveying",
+        "units": 3,
+        "prerequisite": "GE-MMW"
+      },
+      {
+        "code": "cs 1",
+        "title": "Principles of Crop Science",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT2",
+        "title": "Exercise-Based Training",
+        "units": 2,
+        "prerequisite": "PATHFITI"
+      },
+      {
+        "code": "NSTP2",
+        "title": "National Service Training Program 2",
+        "units": 3,
+        "prerequisite": "NSTPI"
+      },
+      {
+        "code": "AMO",
+        "title": "Agricultural Machine O",
+        "units": 3
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "GE-E",
+        "title": "Ethics",
+        "units": 3,
+        "prerequisite": "GE-UTS"
+      },
+      {
+        "code": "GE-CW",
+        "title": "Contemporary World",
+        "units": 3
+      },
+      {
+        "code": "GE-VE",
+        "title": "Values Education",
+        "units": 3
+      },
+      {
+        "code": "Math 201",
+        "title": "Calculus Il",
+        "units": 3,
+        "prerequisite": "Math 102"
+      },
+      {
+        "code": "BE 201",
+        "title": "Thermodynamics & Heat Transfer",
+        "units": 5,
+        "prerequisite": "Physicsl, Math 102"
+      },
+      {
+        "code": "ES 201",
+        "title": "Engineering Mechanics I",
+        "units": 3,
+        "prerequisite": "Physicsl, Math 102"
+      },
+      {
+        "code": "AS 1",
+        "title": "Principle of Animal Science",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT3",
+        "title": "A Menu of Dance and Sports",
+        "units": 2,
+        "prerequisite": "PATHFITI ;PATHFlT2"
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "GE- RPH",
+        "title": "Readings in Phil. History",
+        "units": 3
+      },
+      {
+        "code": "GE-STS",
+        "title": "Science, Technology and Society",
+        "units": 3
+      },
+      {
+        "code": "GE-AA",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "Math 202",
+        "title": "Differential Equations",
+        "units": 3,
+        "prerequisite": "Math 201"
+      },
+      {
+        "code": "ES 202",
+        "title": "Engineering Mechanics Il",
+        "units": 3,
+        "prerequisite": "ES 201"
+      },
+      {
+        "code": "BE 202",
+        "title": "Fluid Mechanics",
+        "units": 3,
+        "prerequisite": "ES 201"
+      },
+      {
+        "code": "BE 212",
+        "title": "Materials and Processes for ABE",
+        "units": 3,
+        "prerequisite": "ES 201"
+      },
+      {
+        "code": "BE 232",
+        "title": "ABE and Related Laws, Specifications, Contracts, and Professional Ethics",
+        "units": 1,
+        "prerequisite": "GE-E, BE 101"
+      },
+      {
+        "code": "PATHFIT 4",
+        "title": "Outdoor Adventure and Group Exercise",
+        "units": 2,
+        "prerequisite": "PATHFITI"
+      }
+    ],
+    "Mid Year Term": [
+      {
+        "code": "GE pc",
+        "title": "Purposive Communication",
+        "units": 3
+      },
+      {
+        "code": "GE- RIZAL",
+        "title": "Life and Works of Rizal",
+        "units": 3
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "GE Elec AH",
+        "title": "Indigenous Creative Crafts",
+        "units": 3
+      },
+      {
+        "code": "BE 301",
+        "title": "Strength of Materials",
+        "units": 3,
+        "prerequisite": "ES 202"
+      },
+      {
+        "code": "ES 301",
+        "title": "Engineering Economy",
+        "units": 3,
+        "prerequisite": "Third Year Standing"
+      },
+      {
+        "code": "Math 301",
+        "title": "Engineering Data Analysis",
+        "units": 3,
+        "prerequisite": "GE- MMW"
+      },
+      {
+        "code": "ABE 131",
+        "title": "AB Power Engineering",
+        "units": 3,
+        "prerequisite": "BE 202, Math 201"
+      },
+      {
+        "code": "ABE 331",
+        "title": "Hydrometeorology",
+        "units": 3,
+        "prerequisite": "BE 202, Math 201"
+      },
+      {
+        "code": "ABE 431",
+        "title": "Properties of AB Materials",
+        "units": 3,
+        "prerequisite": "BE 212, BE 201"
+      },
+      {
+        "code": "GIS 1",
+        "title": "GIS Application in ABE",
+        "units": 3,
+        "prerequisite": "BE 102"
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "BE 302",
+        "title": "Technopreneurship 101",
+        "units": 3,
+        "prerequisite": "ES 301"
+      },
+      {
+        "code": "BE 312",
+        "title": "Computer Applications in AB Engineering",
+        "units": 3,
+        "prerequisite": "Third Year Standing"
+      },
+      {
+        "code": "BE 232",
+        "title": "AB Structures Engineering",
+        "units": 3,
+        "prerequisite": "BE 301"
+      },
+      {
+        "code": "ABE .132",
+        "title": "AB Machinery and Mechanization",
+        "units": 3,
+        "prerequisite": "ABE 131, CS 1, SSI"
+      },
+      {
+        "code": "ABE 232",
+        "title": "AB Electrification and Control Systems",
+        "units": 3,
+        "prerequisite": "Math 202, Physics 1"
+      },
+      {
+        "code": "ABE 332",
+        "title": "Irrigation and Drainage Engineering",
+        "units": 3,
+        "prerequisite": "BE 102, ABE 331, Math 202, CS 1 , SSI"
+      },
+      {
+        "code": "ABE 432",
+        "title": "AB Products Processing and Storage",
+        "units": 3,
+        "prerequisite": "ABE 431, CS 1 , SSI"
+      },
+      {
+        "code": "ABE 99A",
+        "title": "Thesis 1",
+        "units": 1,
+        "prerequisite": "Third Year Standing"
+      },
+      {
+        "code": "ABE 500",
+        "title": "Industry Immersion Program (240 hrs with atleast 160 hrs aciual industry engagement",
+        "units": 3,
+        "prerequisite": "Third Year Standing"
+      }
+    ]
+  },
+  "4Th Year": {
+    "1St Semester": [
+      {
+        "code": "ABE 141",
+        "title": "Machine Design for AB Production",
+        "units": 3,
+        "prerequisite": "ABE 132, BE 301, ABE 431"
+      },
+      {
+        "code": "ABE 241",
+        "title": "Plant and Livestock System Engineering and Control Engineering",
+        "units": 3,
+        "prerequisite": "ABE 232, CS 1, SSI AS1"
+      },
+      {
+        "code": "ABE 341",
+        "title": "Aquaculture Engineering",
+        "units": 3,
+        "prerequisite": "ABE 332"
+      },
+      {
+        "code": "ABE 441",
+        "title": "Food Process Engineering",
+        "units": 3,
+        "prerequisite": "ABE 432"
+      },
+      {
+        "code": "ABE 501",
+        "title": "Undergraduate Seminar",
+        "units": 1,
+        "prerequisite": "Fourth Year Standing"
+      },
+      {
+        "code": "ABE 99B",
+        "title": "Thesis 2",
+        "units": 2,
+        "prerequisite": "ABE 99A"
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "ABE 142",
+        "title": "Renewable Energy for AB Applications",
+        "units": 3,
+        "prerequisite": "ABE 131"
+      },
+      {
+        "code": "ABE 242",
+        "title": "AB Waste Management Engineering",
+        "units": 3,
+        "prerequisite": "ABE 241"
+      },
+      {
+        "code": "ABE 342",
+        "title": "Land and Water Conservation Engineering",
+        "units": 3,
+        "prerequisite": "ABE 332"
+      },
+      {
+        "code": "ABE 442",
+        "title": "Design and Management of AB",
+        "units": 3,
+        "prerequisite": "ABE 432"
+      },
+      {
+        "code": "ABE 502",
+        "title": "AB Engineering Application",
+        "units": 3,
+        "prerequisite": "Graduating Student"
+      },
+      {
+        "code": "ABE 100",
+        "title": "Thesis 3",
+        "units": 3,
+        "prerequisite": "ABE 99B"
+      }
+    ]
+  }
+}

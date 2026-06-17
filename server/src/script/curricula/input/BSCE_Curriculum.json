@@ -1,0 +1,353 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "MATH01",
+        "title": "Calculus 1 (Differential Calculus)",
+        "units": 3
+      },
+      {
+        "code": "CHEM-ENG",
+        "title": "Chemistry for Engineers",
+        "units": 4
+      },
+      {
+        "code": "CPE111",
+        "title": "Civil Engineering Orienatation",
+        "units": 2
+      },
+      {
+        "code": "MATH02",
+        "title": "Mathematics of Engineering 1 (Advance Algebra and Plane and Spherical Trigonometry)",
+        "units": 3
+      },
+      {
+        "code": "GE-MMW",
+        "title": "Mathematics for the Modern World",
+        "units": 3
+      },
+      {
+        "code": "GE-STS",
+        "title": "Science, Technology and Society",
+        "units": 3
+      },
+      {
+        "code": "GE-RPH",
+        "title": "Readings in Phil. History",
+        "units": 2
+      },
+      {
+        "code": "PATHFIT 1",
+        "title": "Movement Competency Training",
+        "units": 3
+      },
+      {
+        "code": "NSTP1",
+        "title": "Basic Army Science /Civic Wellfare Training Service"
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "MATH03",
+        "title": "Calculus 2 (Integrate Calculus)",
+        "units": 3
+      },
+      {
+        "code": "PHYS-ENG",
+        "title": "Physics for Engineers (Calculus Based)",
+        "units": 4
+      },
+      {
+        "code": "MATH04",
+        "title": "Mathemathics of Egineering 2 (Analytic and Solid Geometry)",
+        "units": 3
+      },
+      {
+        "code": "GE-UTS",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "GE-DR",
+        "title": "Engineering Drawing and Plans",
+        "units": 1
+      },
+      {
+        "code": "GE-CP",
+        "title": "Computer Fundamentals and Programming",
+        "units": 2
+      },
+      {
+        "code": "GE-CW",
+        "title": "Contemporary World",
+        "units": 3
+      },
+      {
+        "code": "GE-RIZAL",
+        "title": "Life and Works of Rizal",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 2",
+        "title": "Exercise-Based Training",
+        "units": 2
+      },
+      {
+        "code": "NSTP2",
+        "title": "National Service Training Program 2",
+        "units": 3
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "MATH05",
+        "title": "Differential Equations",
+        "units": 3
+      },
+      {
+        "code": "CENG01",
+        "title": "Statics of Rigid Bodies",
+        "units": 3
+      },
+      {
+        "code": "CENG02",
+        "title": "Fundamentals of Surveying",
+        "units": 4
+      },
+      {
+        "code": "BEES211",
+        "title": "Engineering Economy",
+        "units": 3
+      },
+      {
+        "code": "GE-PC",
+        "title": "Purposive Communication",
+        "units": 3
+      },
+      {
+        "code": "BEES212",
+        "title": "Computer-Aided Drafting",
+        "units": 1
+      },
+      {
+        "code": "BEES213",
+        "title": "Engineering Management",
+        "units": 2
+      },
+      {
+        "code": "GE-ELEC ESE",
+        "title": "Environmental Science and Engineering",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT3",
+        "title": "A Menu of Dance and Sports",
+        "units": 2
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "MATH06",
+        "title": "Engineering Data Analysis",
+        "units": 3
+      },
+      {
+        "code": "CENG03",
+        "title": "Geology for Civil Engineers",
+        "units": 2
+      },
+      {
+        "code": "CENG04",
+        "title": "Dynamic of Rigid Bodies",
+        "units": 2
+      },
+      {
+        "code": "CENG05",
+        "title": "Mechanics of Deformable Bodies",
+        "units": 4
+      },
+      {
+        "code": "CENG06",
+        "title": "Construction Materials & Testing",
+        "units": 3
+      },
+      {
+        "code": "GE-AA",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC AH",
+        "title": "Indigenous Creative Crafts",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 4",
+        "title": "Outdoor Adventure and Group Exercise",
+        "units": 2
+      },
+      {
+        "code": "GE-ELEC SSP",
+        "title": "Gender and Society",
+        "units": 3
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "CENG07",
+        "title": "Structural Theory",
+        "units": 4
+      },
+      {
+        "code": "CENG08",
+        "title": "Mechanics of Fluid",
+        "units": 3
+      },
+      {
+        "code": "GE-E",
+        "title": "Ethics",
+        "units": 3
+      },
+      {
+        "code": "CENG09",
+        "title": "Engineering Utilities 1 (Electrical Engineering)",
+        "units": 3
+      },
+      {
+        "code": "CENG10",
+        "title": "Engineering Utilities 2 (Basic Mechanical Engineering)",
+        "units": 3
+      },
+      {
+        "code": "CENG11",
+        "title": "Numerical Solution to CE Problems",
+        "units": 3
+      },
+      {
+        "code": "CENG12",
+        "title": "Highway and Railroad Engineeering",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "TECHNO",
+        "title": "Technopreneurship 101",
+        "units": 3
+      },
+      {
+        "code": "CENG13",
+        "title": "Building Systems Design",
+        "units": 3
+      },
+      {
+        "code": "CENG14",
+        "title": "Principles of Steel Design",
+        "units": 3
+      },
+      {
+        "code": "CENG15",
+        "title": "Principles of Reinforce/Prestressed Concrete",
+        "units": 4
+      },
+      {
+        "code": "CENG16",
+        "title": "Hydraulics",
+        "units": 3
+      },
+      {
+        "code": "CENG17",
+        "title": "CE Laws and Professional Practice",
+        "units": 2
+      },
+      {
+        "code": "CEWR01",
+        "title": "Hydrology for Engineers",
+        "units": 3
+      },
+      {
+        "code": "3RD YEAR-SUMMER",
+        "title": ""
+      },
+      {
+        "code": "OJT",
+        "title": "On-the-Job Training-240 hours",
+        "units": 3
+      }
+    ]
+  },
+  "4Th Year": {
+    "1St Semester": [
+      {
+        "code": "CENG18",
+        "title": "Geothecnical Engineering 1 (Soil Mechanics)",
+        "units": 4
+      },
+      {
+        "code": "CENG19",
+        "title": "Principles of Transportation Engineering",
+        "units": 3
+      },
+      {
+        "code": "CENG20",
+        "title": "CE Project 1",
+        "units": 2
+      },
+      {
+        "code": "CEWR02",
+        "title": "Groundwater Engineering",
+        "units": 3
+      },
+      {
+        "code": "PCS1",
+        "title": "Professional Course-specialized 1 (Foundation Engg)",
+        "units": 3
+      },
+      {
+        "code": "PCS2",
+        "title": "Professional Course-specialized 2 (Earthquake Engg)",
+        "units": 4
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "CENG21",
+        "title": "CE Project 2",
+        "units": 2
+      },
+      {
+        "code": "CENG22",
+        "title": "Quantity Surveying",
+        "units": 2
+      },
+      {
+        "code": "CEWR03",
+        "title": "Water Resources Engineering",
+        "units": 3
+      },
+      {
+        "code": "PCS3",
+        "title": "Professional Course-specialized 3  (Irrigation and Drainage Engineering)",
+        "units": 3
+      },
+      {
+        "code": "PCS4",
+        "title": "Professional Course-specialized 4  (Geo Informatics)"
+      },
+      {
+        "code": "PCS5",
+        "title": "Professional Course-specialized 5 (Water Supply Planing and Devt)",
+        "units": 3
+      },
+      {
+        "code": "CENG23",
+        "title": "Construction Engineering and Management",
+        "units": 3
+      }
+    ]
+  }
+}

@@ -72,6 +72,150 @@ function getErrorMessage(error, fallback = 'Request failed') {
   return error?.response?.data?.message || error?.response?.data?.error || error?.message || fallback;
 }
 
+function anchorExplorerUrl(result = {}) {
+  const blockchain = result?.checks?.blockchain || {};
+  return (
+    clean(result.anchorExplorerUrl) ||
+    clean(blockchain.explorerUrl) ||
+    clean(blockchain.anchorExplorerUrl) ||
+    clean(blockchain.url) ||
+    ''
+  );
+}
+
+function CheckBadge({ label, valid }) {
+  return (
+    <div className="border rounded-2 p-3 bg-light h-100">
+      <div className="small text-muted mb-1">{label}</div>
+      <span className={valid ? 'badge bg-success' : 'badge bg-warning text-dark'}>
+        {valid ? 'Passed' : 'Attention'}
+      </span>
+    </div>
+  );
+}
+
+function AnchorExplorerLink({ result, className = 'btn btn-outline-primary' }) {
+  const url = anchorExplorerUrl(result);
+
+  if (!url) {
+    return <span className="text-muted small">Blockchain anchor link unavailable</span>;
+  }
+
+  return (
+    <a className={className} href={url} target="_blank" rel="noreferrer">
+      View Blockchain Anchor
+    </a>
+  );
+}
+
+function ProofHelpModal({ open, onClose }) {
+  if (!open) return null;
+
+  return (
+    <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content border-0 shadow">
+          <div className="modal-header">
+            <h2 className="h5 mb-0">How BCVS verifies credentials</h2>
+            <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+          </div>
+          <div className="modal-body">
+            <p>
+              BCVS verifies credentials in two layers. First, it checks the W3C Verifiable Credential
+              payload, issuer signature, subject data, and credential hash.
+            </p>
+            <p>
+              Second, it checks the Merkle proof and blockchain anchor to confirm that the credential
+              batch was recorded on-chain. The holder must approve the request before the verifier
+              receives the credential data.
+            </p>
+            <div className="alert alert-light border mb-0">
+              <div className="fw-semibold">Layer 1</div>
+              <div className="small text-muted">W3C VC payload, issuer signature, hash, and holder-approved sharing.</div>
+              <div className="fw-semibold mt-3">Layer 2</div>
+              <div className="small text-muted">Merkle proof and Polygon/Polygon Amoy blockchain anchor when available.</div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-primary" type="button" onClick={onClose}>
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </div>
+  );
+}
+
+function ResultModal({ open, session, onClose, onOpenHelp }) {
+  const result = session?.verificationResult;
+  const checks = result?.checks || {};
+
+  if (!open || !result) return null;
+
+  const blockchainVerified = Boolean(checks.blockchain?.verified || result.blockchainAnchorValid);
+  const fullyVerified = Boolean(result.verified || result.valid || result.overallValid);
+  const message = blockchainVerified
+    ? 'The credential format, issuer proof, Merkle proof, and blockchain anchor were verified.'
+    : 'The credential payload was checked, but the blockchain anchor could not be fully confirmed.';
+
+  return (
+    <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+      <div className="modal-dialog modal-dialog-centered modal-lg">
+        <div className="modal-content border-0 shadow">
+          <div className="modal-header">
+            <div>
+              <h2 className="h5 mb-1">{fullyVerified ? 'Credential Verified' : 'Verification Completed'}</h2>
+              <p className="text-muted mb-0 small">{message}</p>
+            </div>
+            <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+          </div>
+
+          <div className="modal-body">
+            <div className={`alert ${fullyVerified ? 'alert-success' : 'alert-warning'}`}>
+              <div className="fw-bold">{fullyVerified ? 'Credential is valid' : 'Credential needs attention'}</div>
+              <div className="small mt-1">
+                BCVS evaluated the W3C credential format, issuer signature, deterministic hash,
+                Merkle proof, and blockchain anchor.
+              </div>
+            </div>
+
+            <div className="row g-3">
+              <div className="col-md-3">
+                <CheckBadge label="W3C Format" valid={checks.credentialType?.valid || result.payloadVerified} />
+              </div>
+              <div className="col-md-3">
+                <CheckBadge label="Signature" valid={checks.signature?.valid || result.signatureValid} />
+              </div>
+              <div className="col-md-3">
+                <CheckBadge label="Merkle Proof" valid={checks.merkle?.valid || result.merkleProofValid} />
+              </div>
+              <div className="col-md-3">
+                <CheckBadge label="Blockchain Anchor" valid={blockchainVerified} />
+              </div>
+            </div>
+
+            <div className="d-flex flex-wrap align-items-center gap-2 mt-4">
+              <AnchorExplorerLink result={result} />
+              <button className="btn btn-outline-secondary" type="button" onClick={onOpenHelp}>
+                ? How verification works
+              </button>
+            </div>
+          </div>
+
+          <div className="modal-footer">
+            <button className="btn btn-primary" type="button" onClick={onClose}>
+              Continue
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="modal-backdrop show" />
+    </div>
+  );
+}
+
 function deriveFormFromSession(session, currentForm) {
   const request = session?.request || {};
   return {
@@ -97,10 +241,11 @@ function ProofRow({ label, valid, detail }) {
   );
 }
 
-function ResultPanel({ session, nonce }) {
+function ResultPanel({ session, nonce, onOpenHelp }) {
   const result = session?.verificationResult;
   const checks = result?.checks || {};
   const downloads = session?.downloads || {};
+  const blockchainVerified = Boolean(checks.blockchain?.verified || result?.blockchainAnchorValid);
 
   if (session?.status === 'denied') {
     return <div className="alert alert-danger mb-0">The holder denied this verification request.</div>;
@@ -129,8 +274,19 @@ function ResultPanel({ session, nonce }) {
   return (
     <div className="d-flex flex-column gap-3">
       <div className={`alert mb-0 ${result.verified ? 'alert-success' : result.status === 'failed' ? 'alert-danger' : 'alert-warning'}`}>
-        <div className="fw-bold">Verification status: {titleCase(result.status)}</div>
-        <div className="small mt-1">{result.note || 'All available proof checks were evaluated.'}</div>
+        <div className="d-flex flex-wrap justify-content-between align-items-start gap-2">
+          <div>
+            <div className="fw-bold">Verification status: {titleCase(result.status)}</div>
+            <div className="small mt-1">
+              {result.note || (blockchainVerified
+                ? 'The credential format and blockchain anchor were evaluated.'
+                : 'Credential payload was checked, but blockchain anchor could not be fully confirmed.')}
+            </div>
+          </div>
+          <button className="btn btn-sm btn-outline-secondary" type="button" onClick={onOpenHelp}>
+            ? How it works
+          </button>
+        </div>
       </div>
 
       <div className="border rounded-2 p-3 text-start">
@@ -166,7 +322,8 @@ function ResultPanel({ session, nonce }) {
         />
       </div>
 
-      <div className="d-flex flex-wrap gap-2">
+      <div className="d-flex flex-wrap gap-2 align-items-center">
+        <AnchorExplorerLink result={result} />
         {downloads.vc ? (
           <a className="btn btn-outline-primary" href={buildDownloadUrl(session.sessionId, nonce, 'vc')}>
             Download VC JSON
@@ -186,7 +343,6 @@ function ResultPanel({ session, nonce }) {
     </div>
   );
 }
-
 
 function DraftCredentialPanel({ session, form }) {
   const credentialId = clean(session?.credentialId || form?.credentialId);
@@ -230,12 +386,16 @@ export default function VerifierPortalPage() {
   const [nonce, setNonce] = useState(routeNonce);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [showProofHelp, setShowProofHelp] = useState(false);
+  const [resultModalKey, setResultModalKey] = useState('');
 
   const sessionId = session?.sessionId || routeSessionId || '';
   const isDraftSession = Boolean(sessionId && session?.status === 'draft');
   const canRequestConsent = !sessionId || isDraftSession;
   const canCancel = Boolean(sessionId && nonce && WAITING_STATUSES.has(session?.status));
 
+  
   useEffect(() => {
     if (routeSessionId || routeNonce) return;
     const stored = readStoredSession();
@@ -291,6 +451,14 @@ export default function VerifierPortalPage() {
     };
   }, [routeNonce, routeSessionId]);
 
+  useEffect(() => {
+    if (session?.status !== 'presented' || !session?.verificationResult || !sessionId) return;
+    if (resultModalKey === sessionId) return;
+
+    setShowResultModal(true);
+    setResultModalKey(sessionId);
+  }, [resultModalKey, session, sessionId]);
+
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
@@ -326,6 +494,7 @@ export default function VerifierPortalPage() {
     }
   }
 
+  
   async function cancelRequest() {
     if (!sessionId || !nonce) return;
 
@@ -371,7 +540,8 @@ export default function VerifierPortalPage() {
   }, [session, sessionId]);
 
   return (
-    <main className="min-vh-100 bg-light text-start">
+    <>
+      <main className="min-vh-100 bg-light text-start">
       <div className="container py-4 py-lg-5">
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
           <div>
@@ -491,7 +661,7 @@ export default function VerifierPortalPage() {
 
             <DraftCredentialPanel session={session} form={form} />
 
-            <ResultPanel session={session} nonce={nonce} />
+            <ResultPanel session={session} nonce={nonce} onOpenHelp={() => setShowProofHelp(true)} />
 
             <div className="d-flex flex-wrap gap-2 mt-4">
               {canCancel ? (
@@ -506,6 +676,19 @@ export default function VerifierPortalPage() {
           </div>
         ) : null}
       </div>
-    </main>
+      </main>
+
+      <ResultModal
+        open={showResultModal}
+        session={session}
+        onClose={() => setShowResultModal(false)}
+        onOpenHelp={() => setShowProofHelp(true)}
+      />
+
+      <ProofHelpModal
+        open={showProofHelp}
+        onClose={() => setShowProofHelp(false)}
+      />
+    </>
   );
 }

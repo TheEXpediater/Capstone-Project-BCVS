@@ -1,0 +1,503 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "BP-GIC",
+        "title": "General and Inorganic Chemistry",
+        "units": 3
+      },
+      {
+        "code": "BP-PB 1",
+        "title": "Principles of Biology",
+        "units": 3
+      },
+      {
+        "code": "BP-IT1",
+        "title": "Basic computer concepts and application or its equivalent",
+        "units": 3
+      },
+      {
+        "code": "GE-UTS",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "GE-STS",
+        "title": "Science, Technology and Society",
+        "units": 3
+      },
+      {
+        "code": "GE-MMW",
+        "title": "Mathematics in the Modern World",
+        "units": 3
+      },
+      {
+        "code": "GE-Zoo 1",
+        "title": "General Zoology",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC SSP",
+        "title": "Gender and Society",
+        "units": 3
+      },
+      {
+        "code": "Chem 1",
+        "title": "Organic Chemistry",
+        "units": 3
+      },
+      {
+        "code": "GE-FIL 1",
+        "title": "Panitikan ng Pilipinas",
+        "units": 3
+      },
+      {
+        "code": "PE 1",
+        "title": "Physical Fitness and Gymnastics",
+        "units": 2
+      },
+      {
+        "code": "GE-VE",
+        "title": "Values Education",
+        "units": 3
+      },
+      {
+        "code": "NSTP 1",
+        "title": "National Service Training Program",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "GE-RPH",
+        "title": "Readings in the Philippine History",
+        "units": 3
+      },
+      {
+        "code": "Chem 2",
+        "title": "Biochemistry",
+        "units": 3
+      },
+      {
+        "code": "GE-AA",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "GE-PC",
+        "title": "Purposive Communication",
+        "units": 3
+      },
+      {
+        "code": "AS 100",
+        "title": "Principles of Animal Production and Economics",
+        "units": 3
+      },
+      {
+        "code": "GE-E",
+        "title": "Ethics",
+        "units": 3
+      },
+      {
+        "code": "GE-FIL 2",
+        "title": "Estruktura ng Wikang Filipino",
+        "units": 3
+      },
+      {
+        "code": "PE 2",
+        "title": "Fundamentals of Rhythmic Activities",
+        "units": 2
+      },
+      {
+        "code": "NSTP 2",
+        "title": "National Service Training Program 2",
+        "units": 3
+      },
+      {
+        "code": "BP-FS",
+        "title": "Fundamentals of Statistics",
+        "units": 3
+      },
+      {
+        "code": "BP-P",
+        "title": "Physics",
+        "units": 3
+      },
+      {
+        "code": "BP-PB 2",
+        "title": "Genetics",
+        "units": 3
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "GE-CW",
+        "title": "The Contemporary World",
+        "units": 3
+      },
+      {
+        "code": "AS 101",
+        "title": "Principles of Animal Nutrition",
+        "units": 3
+      },
+      {
+        "code": "AS 102",
+        "title": "Principles of Animal Breeding and Genetics",
+        "units": 3
+      },
+      {
+        "code": "AS 103",
+        "title": "Poultry Production and Flock Health",
+        "units": 3
+      },
+      {
+        "code": "AS 104",
+        "title": "Swine Production and Herd Health Management",
+        "units": 3
+      },
+      {
+        "code": "Biostat",
+        "title": "Intro to Biostat and Experimental Design",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC MST",
+        "title": "Environmental Science",
+        "units": 3
+      },
+      {
+        "code": "PE 3",
+        "title": "Individual and Dual Sports",
+        "units": 2
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "Mol Bio 1",
+        "title": "Introduction to Molecular Biology",
+        "units": 3
+      },
+      {
+        "code": "Research 101",
+        "title": "Research Methods and Scientific Paper Writing",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC AH",
+        "title": "Philippine Popular Culture",
+        "units": 3
+      },
+      {
+        "code": "GE-Rizal",
+        "title": "Life and Works of Rizal",
+        "units": 3
+      },
+      {
+        "code": "AS 106",
+        "title": "Wildlife, Zoo Management and Apiculture",
+        "units": 3
+      },
+      {
+        "code": "AS 107",
+        "title": "Ruminant Production & Herd Health",
+        "units": 3
+      },
+      {
+        "code": "AS 108",
+        "title": "Aquaculture",
+        "units": 3
+      },
+      {
+        "code": "AS 109",
+        "title": "Laboratory Animal Production and Management",
+        "units": 3
+      },
+      {
+        "code": "PE 4",
+        "title": "Team Sports",
+        "units": 2
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "V. Anat 121",
+        "title": "Macroscopic Veterinary Anatomy (Gross Anatomy)",
+        "units": 4
+      },
+      {
+        "code": "V. Physio 131",
+        "title": "General Veterinary Physiology",
+        "units": 3
+      },
+      {
+        "code": "V. Anat 123",
+        "title": "Microscopic Veterinary Anatomy (Veterinary Embryology)",
+        "units": 3
+      },
+      {
+        "code": "V. Micro 151",
+        "title": "General Veterinary Microbiology",
+        "units": 3
+      },
+      {
+        "code": "AS 110",
+        "title": "Animal Welfare and Ethology",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "V. Anat 122",
+        "title": "Macroscopic Veterinary Anatomy",
+        "units": 4
+      },
+      {
+        "code": "V. Anat 124",
+        "title": "Microscopic Veterinary Anatomy",
+        "units": 3
+      },
+      {
+        "code": "V. Physio 132",
+        "title": "Systemic Veterinary Physiology",
+        "units": 3
+      },
+      {
+        "code": "V. Micro 152",
+        "title": "Veterinary Bacteriology and Mycology",
+        "units": 3
+      },
+      {
+        "code": "V. Micro 153",
+        "title": "Veterinary Virology",
+        "units": 3
+      },
+      {
+        "code": "AS 105",
+        "title": "Equine Production and Health",
+        "units": 3
+      }
+    ]
+  },
+  "4Th Year": {
+    "1St Semester": [
+      {
+        "code": "V. Patho 141",
+        "title": "General Veterinary Pathology",
+        "units": 3
+      },
+      {
+        "code": "V. Pharma 181",
+        "title": "Basic Veterinary Pharmacology",
+        "units": 3
+      },
+      {
+        "code": "V. Micro 154",
+        "title": "Fundamentals of Veterinary Immunology",
+        "units": 3
+      },
+      {
+        "code": "V. Physio 133",
+        "title": "Veterinary Reproductive Physiology and Endocrinology",
+        "units": 3
+      },
+      {
+        "code": "VPH 171",
+        "title": "Veterinary Epidemiology",
+        "units": 3
+      },
+      {
+        "code": "V. Para 161",
+        "title": "Veterinary Entomology & Protozoology",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "V. Patho 142",
+        "title": "Systemic Veterinary Pathology",
+        "units": 3
+      },
+      {
+        "code": "V. Patho 143",
+        "title": "Veterinary Clinical Pathology",
+        "units": 3
+      },
+      {
+        "code": "V. Pharma 182",
+        "title": "Veterinary Clinical Pharmacology",
+        "units": 3
+      },
+      {
+        "code": "VPH 172",
+        "title": "Environmental Animal Health and Biosafety",
+        "units": 3
+      },
+      {
+        "code": "V. Para 162",
+        "title": "Veterinary Helminthology",
+        "units": 3
+      },
+      {
+        "code": "V. Med 200",
+        "title": "General Principles of Veterinary Medicine",
+        "units": 3
+      },
+      {
+        "code": "V. Clinics 231",
+        "title": "Introduction to Veterinary Clinics (in-campus)",
+        "units": 3
+      }
+    ]
+  },
+  "5Th Year": {
+    "1St Semester": [
+      {
+        "code": "V. Med 201",
+        "title": "Canine Medicine",
+        "units": 3
+      },
+      {
+        "code": "V. Med 202",
+        "title": "Feline Medicine",
+        "units": 3
+      },
+      {
+        "code": "V. Med 203",
+        "title": "Ruminant Medicine",
+        "units": 3
+      },
+      {
+        "code": "V. Med 204",
+        "title": "Equine Medicine",
+        "units": 3
+      },
+      {
+        "code": "V. Sur 221",
+        "title": "Principles of Veterinary Surgery and Anesthesiology",
+        "units": 3
+      },
+      {
+        "code": "V. Sur 222",
+        "title": "Diagnostic Imaging",
+        "units": 3
+      },
+      {
+        "code": "VPH 173",
+        "title": "Veterinary Food Safety and Hygiene",
+        "units": 3
+      },
+      {
+        "code": "VPH 174",
+        "title": "Zoonoses, Emerging/Re-emerging Diseases and One Health",
+        "units": 3
+      },
+      {
+        "code": "Clinics 232",
+        "title": "Veterinary Clerkship (in-campus)",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "V Med 205",
+        "title": "Poultry Medicine",
+        "units": 3
+      },
+      {
+        "code": "V Med 207",
+        "title": "Aquatic Animal Medicine",
+        "units": 3
+      },
+      {
+        "code": "V Med 208",
+        "title": "Wildlife Conservation, Zoo and Bee Medicine",
+        "units": 3
+      },
+      {
+        "code": "V Med 209",
+        "title": "Laboratory Animal Medicine",
+        "units": 3
+      },
+      {
+        "code": "V Med 211",
+        "title": "Veterinary Jurisprudence and Ethics",
+        "units": 3
+      },
+      {
+        "code": "V Med 212",
+        "title": "Veterinary Practice Management & Entrepreneurship",
+        "units": 3
+      },
+      {
+        "code": "V Med 206",
+        "title": "Swine Medicine",
+        "units": 3
+      },
+      {
+        "code": "V Med 210",
+        "title": "Veterinary Theriogenology",
+        "units": 3
+      },
+      {
+        "code": "V Sur 224",
+        "title": "Large Animal Surgery",
+        "units": 3
+      },
+      {
+        "code": "V Sur 223",
+        "title": "Small Animal Surgery",
+        "units": 3
+      },
+      {
+        "code": "V Clinics 233",
+        "title": "Veterinary Internship (off-campus)",
+        "units": 3
+      },
+      {
+        "code": "Thesis 10",
+        "title": "Thesis Proposal, Outline Defense and Comprehensive Examination",
+        "units": 3
+      },
+      {
+        "code": "V Clinics 234",
+        "title": "Clinico-Pathological Conference 1",
+        "units": 3
+      },
+      {
+        "code": "TA",
+        "title": "Training and Assessment for National",
+        "units": 3
+      }
+    ]
+  },
+  "6Th Year": {
+    "1St Semester": [
+      {
+        "code": "V Clinics 235",
+        "title": "Veterinary Internship (off-campus)",
+        "units": 3
+      },
+      {
+        "code": "Thesis 11",
+        "title": "Thesis Conduct and Defense",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "V Clinics 236",
+        "title": "Clinico-Pathological Conference 2",
+        "units": 3
+      },
+      {
+        "code": "V Clinics 237",
+        "title": "Veterinary Internship (off-campus)",
+        "units": 3
+      }
+    ]
+  }
+}

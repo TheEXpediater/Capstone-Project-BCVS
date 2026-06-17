@@ -70,6 +70,28 @@ function statusMessage(status) {
   return 'Review the request and choose whether to share the selected credential.';
 }
 
+function ConsentActions({
+  canRespond,
+  loading,
+  selectedCredential,
+  onApprove,
+  onDeny,
+  onBack,
+}) {
+  return (
+    <View style={styles.topActions}>
+      {canRespond ? (
+        <>
+          <Button title="Approve Sharing" onPress={onApprove} loading={loading} disabled={!selectedCredential} />
+          <Button title="Deny Request" variant="outline" onPress={onDeny} loading={loading} />
+        </>
+      ) : (
+        <Button title="Back to Activity" variant="outline" onPress={onBack} />
+      )}
+    </View>
+  );
+}
+
 export default function ConsentScreen() {
   const { sessionId, nonce } = useLocalSearchParams();
   const loadRequest = useAppStore((state) => state.loadVerificationRequest);
@@ -109,7 +131,6 @@ export default function ConsentScreen() {
   const canRespond = Boolean(sessionId) && !isTerminalStatus(requestStatus) && requestStatus !== 'draft';
 
   useEffect(() => {
-    setAllowPdfDownload(false);
     setSelectedId('');
 
     loadCredentials({ sync: true }).catch(() => {
@@ -122,6 +143,10 @@ export default function ConsentScreen() {
       });
     }
   }, [sessionId, nonce, loadCredentials, loadRequest]);
+
+  useEffect(() => {
+    setAllowPdfDownload(Boolean(requestedPdf));
+  }, [requestedPdf, sessionId]);
 
   useEffect(() => {
     if (!selectedId && requestCredentialId) {
@@ -158,13 +183,33 @@ export default function ConsentScreen() {
   const purpose = request?.request?.purpose || request?.purpose;
   const verifierName = textOrFallback(org, 'Verifier');
   const proofNote =
-    'Approval sends the signed VC payload to the server. The server then verifies the VC hash, issuer signature, Merkle proof, and blockchain anchor before showing the result to the verifier.';
+    'Approval sends the signed VC payload to the server. The server then verifies the W3C credential format, issuer signature, credential hash, Merkle proof, and blockchain anchor before showing the result to the verifier.';
 
-  async function approveRequest() {
+  function goBackToActivity() {
+    router.replace('/(tabs)/activity');
+  }
+
+  async function submitApproval({ confirmedWithoutPdf = false } = {}) {
     if (!selectedCredential) {
       Alert.alert(
         'Credential not available',
         'This request matches a credential that is not stored on this device yet. Claim or sync the credential first.'
+      );
+      return;
+    }
+
+    if (requestedPdf && !allowPdfDownload && !confirmedWithoutPdf) {
+      Alert.alert(
+        'Continue without PDF?',
+        'The verifier requested PDF access. If you continue, they can still verify the credential, but they will not be able to download the PDF.',
+        [
+          { text: 'Go Back', style: 'cancel' },
+          {
+            text: 'Continue Without PDF',
+            style: 'destructive',
+            onPress: () => submitApproval({ confirmedWithoutPdf: true }),
+          },
+        ]
       );
       return;
     }
@@ -174,11 +219,14 @@ export default function ConsentScreen() {
         sessionId: String(sessionId),
         nonce: String(nonce || ''),
         credential: selectedCredential,
-        allowPdfDownload
+        allowPdfDownload,
       });
 
-      Alert.alert('Credential shared', 'The verifier can now see the verification result.');
-      router.replace('/(tabs)/activity');
+      Alert.alert(
+        'Credential Shared',
+        'Your credential was shared for verification. The verifier can now view the validation result.',
+        [{ text: 'Back to Activity', onPress: goBackToActivity }]
+      );
     } catch (error) {
       Alert.alert('Share failed', error.message);
     }
@@ -187,8 +235,11 @@ export default function ConsentScreen() {
   async function denyRequest() {
     try {
       await deny(String(sessionId), String(nonce || ''));
-      Alert.alert('Request denied', 'No credential was shared.');
-      router.replace('/(tabs)/activity');
+      Alert.alert(
+        'Request Denied',
+        'The verifier will not receive your credential.',
+        [{ text: 'Back to Activity', onPress: goBackToActivity }]
+      );
     } catch (error) {
       Alert.alert('Deny failed', error.message);
     }
@@ -200,18 +251,30 @@ export default function ConsentScreen() {
         <Text style={styles.kicker}>Holder Consent</Text>
         <Text style={styles.title}>Verification Request</Text>
 
-        <View style={styles.card}>
+        <View style={styles.actionCard}>
           <View style={styles.statusRow}>
-            <View>
+            <View style={styles.statusTextBlock}>
               <Text style={styles.label}>Status</Text>
               <Text style={styles.value}>{titleCase(requestStatus || 'loading')}</Text>
+              <Text style={styles.helper}>{statusMessage(requestStatus)}</Text>
             </View>
             <View style={[styles.statusPill, isTerminalStatus(requestStatus) && styles.statusPillMuted]}>
               <Text style={styles.statusPillText}>{canRespond ? 'Action needed' : titleCase(requestStatus)}</Text>
             </View>
           </View>
 
-          <Text style={styles.helper}>{statusMessage(requestStatus)}</Text>
+          <ConsentActions
+            canRespond={canRespond}
+            loading={loading}
+            selectedCredential={selectedCredential}
+            onApprove={submitApproval}
+            onDeny={denyRequest}
+            onBack={goBackToActivity}
+          />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Request details</Text>
 
           <Text style={styles.label}>Organization</Text>
           <Text style={styles.value}>{verifierName}</Text>
@@ -232,19 +295,6 @@ export default function ConsentScreen() {
           <Text style={styles.value}>{requestedPdf ? 'Requested by verifier' : 'Not requested'}</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Two-layer verification</Text>
-          <Text style={styles.helper}>{proofNote}</Text>
-          <View style={styles.proofRow}>
-            <Text style={styles.proofLabel}>Layer 1</Text>
-            <Text style={styles.proofValue}>Holder consent and credential ownership</Text>
-          </View>
-          <View style={styles.proofRow}>
-            <Text style={styles.proofLabel}>Layer 2</Text>
-            <Text style={styles.proofValue}>VC signature, Merkle proof, and blockchain anchor</Text>
-          </View>
-        </View>
-
         {requestedPdf ? (
           <Pressable
             style={[styles.toggle, allowPdfDownload && styles.toggleActive]}
@@ -256,10 +306,25 @@ export default function ConsentScreen() {
             </View>
             <View style={styles.toggleCopy}>
               <Text style={styles.toggleTitle}>Allow PDF download</Text>
-              <Text style={styles.toggleHelp}>The verifier can download JSON proof either way.</Text>
+              <Text style={styles.toggleHelp}>
+                Checked by default because the verifier requested PDF access. Uncheck only if the verifier should validate without PDF download.
+              </Text>
             </View>
           </Pressable>
         ) : null}
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Two-layer verification</Text>
+          <Text style={styles.helper}>{proofNote}</Text>
+          <View style={styles.proofRow}>
+            <Text style={styles.proofLabel}>Layer 1</Text>
+            <Text style={styles.proofValue}>Holder consent, W3C VC payload, issuer signature, and credential hash</Text>
+          </View>
+          <View style={styles.proofRow}>
+            <Text style={styles.proofLabel}>Layer 2</Text>
+            <Text style={styles.proofValue}>Merkle proof and blockchain anchor authenticity check</Text>
+          </View>
+        </View>
 
         <Text style={styles.sectionTitle}>Credential to share</Text>
 
@@ -275,7 +340,7 @@ export default function ConsentScreen() {
               key={recordId || credential.id}
               style={[
                 styles.choice,
-                selectedCredential && getRecordId(selectedCredential) === recordId && styles.choiceActive
+                selectedCredential && getRecordId(selectedCredential) === recordId && styles.choiceActive,
               ]}
             >
               <CredentialCard
@@ -296,21 +361,14 @@ export default function ConsentScreen() {
           </View>
         ) : null}
 
-        <View style={styles.actions}>
-          {canRespond ? (
-            <>
-              <Button title="Deny" variant="outline" onPress={denyRequest} loading={loading} />
-              <Button
-                title="Approve Sharing"
-                onPress={approveRequest}
-                loading={loading}
-                disabled={!selectedCredential}
-              />
-            </>
-          ) : (
-            <Button title="Back to Activity" variant="outline" onPress={() => router.replace('/(tabs)/activity')} />
-          )}
-        </View>
+        <ConsentActions
+          canRespond={canRespond}
+          loading={loading}
+          selectedCredential={selectedCredential}
+          onApprove={submitApproval}
+          onDeny={denyRequest}
+          onBack={goBackToActivity}
+        />
       </ScrollView>
     </Screen>
   );
@@ -319,7 +377,7 @@ export default function ConsentScreen() {
 const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
-    gap: spacing.md
+    gap: spacing.md,
   },
   kicker: {
     color: colors.primary,
@@ -327,12 +385,20 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.6,
     marginTop: spacing.lg,
-    textTransform: 'uppercase'
+    textTransform: 'uppercase',
   },
   title: {
     color: colors.text,
     fontSize: 26,
-    fontWeight: '900'
+    fontWeight: '900',
+  },
+  actionCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    gap: spacing.md,
   },
   card: {
     backgroundColor: colors.surface,
@@ -340,75 +406,80 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radius.md,
     padding: spacing.lg,
-    gap: spacing.xs
+    gap: spacing.xs,
+  },
+  topActions: {
+    gap: spacing.sm,
   },
   statusRow: {
     alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: spacing.md,
-    marginBottom: spacing.sm
+  },
+  statusTextBlock: {
+    flex: 1,
   },
   statusPill: {
     backgroundColor: colors.primarySoft,
     borderRadius: 999,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs
+    paddingVertical: spacing.xs,
   },
   statusPillMuted: {
-    backgroundColor: colors.surfaceMuted
+    backgroundColor: colors.surfaceMuted,
   },
   statusPillText: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: '900'
+    fontWeight: '900',
   },
   label: {
     color: colors.muted,
     fontWeight: '800',
     fontSize: 12,
-    marginTop: spacing.sm
+    marginTop: spacing.sm,
   },
   value: {
     color: colors.text,
     fontWeight: '700',
-    lineHeight: 20
+    lineHeight: 20,
   },
   helper: {
     color: colors.muted,
     lineHeight: 20,
-    marginBottom: spacing.sm
+    marginTop: spacing.xs,
   },
   sectionTitle: {
     color: colors.text,
     fontWeight: '900',
     fontSize: 18,
-    marginTop: spacing.md
+    marginTop: spacing.md,
   },
   proofRow: {
     backgroundColor: colors.surfaceMuted,
     borderRadius: radius.md,
     padding: spacing.md,
-    gap: spacing.xs
+    gap: spacing.xs,
   },
   proofLabel: {
     color: colors.primary,
     fontSize: 12,
     fontWeight: '900',
-    textTransform: 'uppercase'
+    textTransform: 'uppercase',
   },
   proofValue: {
     color: colors.text,
     fontWeight: '800',
-    lineHeight: 20
+    lineHeight: 20,
   },
   choice: {
     borderRadius: radius.md,
     borderWidth: 2,
-    borderColor: 'transparent'
+    borderColor: 'transparent',
   },
   choiceActive: {
-    borderColor: colors.primary
+    borderColor: colors.primary,
   },
   toggle: {
     alignItems: 'center',
@@ -418,10 +489,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: spacing.md,
-    padding: spacing.md
+    padding: spacing.md,
   },
   toggleActive: {
-    borderColor: colors.primary
+    borderColor: colors.primary,
   },
   check: {
     alignItems: 'center',
@@ -430,42 +501,39 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     height: 24,
     justifyContent: 'center',
-    width: 24
+    width: 24,
   },
   checkActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary
+    borderColor: colors.primary,
   },
   checkDot: {
     backgroundColor: '#FFFFFF',
     borderRadius: 5,
     height: 10,
-    width: 10
+    width: 10,
   },
   toggleCopy: {
-    flex: 1
+    flex: 1,
   },
   toggleTitle: {
     color: colors.text,
-    fontWeight: '900'
+    fontWeight: '900',
   },
   toggleHelp: {
     color: colors.muted,
-    marginTop: 2
+    marginTop: 2,
+    lineHeight: 19,
   },
   emptyTitle: {
     color: colors.text,
     fontWeight: '900',
-    fontSize: 16
+    fontSize: 16,
   },
   empty: {
     color: colors.muted,
     lineHeight: 20,
     textAlign: 'center',
-    paddingVertical: spacing.md
+    paddingVertical: spacing.md,
   },
-  actions: {
-    gap: spacing.md,
-    marginTop: spacing.md
-  }
 });

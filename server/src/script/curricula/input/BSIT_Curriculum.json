@@ -1,0 +1,299 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "CC101",
+        "title": "Introduction to Computing",
+        "units": 3
+      },
+      {
+        "code": "CC102",
+        "title": "Computer Programming 1",
+        "units": 3
+      },
+      {
+        "code": "HCI101",
+        "title": "Introduction to Human Computer Interaction",
+        "units": 3
+      },
+      {
+        "code": "MATH-PREP",
+        "title": "Pre-Calculus (Algebra and Trigo) for Non-STEM"
+      },
+      {
+        "code": "GE-UTS",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "GE-MMW",
+        "title": "Mathematics in the Modern World",
+        "units": 3
+      },
+      {
+        "code": "KomFil",
+        "title": "Kontekswalisadong Komunikasyon sa Filipino",
+        "units": 2
+      },
+      {
+        "code": "PATHFIT 1",
+        "title": "Movement Competency Training",
+        "units": 3
+      },
+      {
+        "code": "GE-E",
+        "title": "Ethics",
+        "units": 3
+      },
+      {
+        "code": "NSTP 1",
+        "title": "Basic Army Science / Civic Welfare Training Service",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "MS101",
+        "title": "Discrete Mathematics",
+        "units": 3
+      },
+      {
+        "code": "CC103",
+        "title": "Computer Programming 2",
+        "units": 3
+      },
+      {
+        "code": "WS101",
+        "title": "Web Systems and Technologies",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC MST",
+        "title": "Living in IT Era",
+        "units": 3
+      },
+      {
+        "code": "GE-RPH",
+        "title": "Readings in Philippine History",
+        "units": 3
+      },
+      {
+        "code": "GE-PC",
+        "title": "Purposive Communication",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 2",
+        "title": "Exercise-based Training",
+        "units": 2
+      },
+      {
+        "code": "GE-VE",
+        "title": "Values Education",
+        "units": 3
+      },
+      {
+        "code": "FilDis",
+        "title": "Filipino sa iba't ibang Disiplina"
+      },
+      {
+        "code": "NSTP 2",
+        "title": "Reserve Officer Training Corps / Civic Welfare Training Service",
+        "units": 3
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "CC104",
+        "title": "Data Structures and Algorithms",
+        "units": 3
+      },
+      {
+        "code": "PF 101",
+        "title": "Object Oriented Programming",
+        "units": 3
+      },
+      {
+        "code": "PT 101",
+        "title": "Platform Technologies",
+        "units": 3
+      },
+      {
+        "code": "GE-CW",
+        "title": "The Contemporary World",
+        "units": 3
+      },
+      {
+        "code": "GE-AA",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 3",
+        "title": "A Menu of Dance and Sports",
+        "units": 2
+      },
+      {
+        "code": "ACCTG",
+        "title": "Accounting Principles",
+        "units": 3
+      },
+      {
+        "code": "IT-AGRI",
+        "title": "Development",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "CC105",
+        "title": "Information Management",
+        "units": 3
+      },
+      {
+        "code": "MS102",
+        "title": "Quantitative Methods",
+        "units": 3
+      },
+      {
+        "code": "NET101",
+        "title": "Networking 1",
+        "units": 3
+      },
+      {
+        "code": "IPT101",
+        "title": "Integrative Programming Technologies",
+        "units": 3
+      },
+      {
+        "code": "GE-STS",
+        "title": "Science, technology and Society",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC AH",
+        "title": "Art and Humanities (Reading Visual Art)",
+        "units": 3
+      },
+      {
+        "code": "WS102",
+        "title": "Web Systems and Technologies 2",
+        "units": 2
+      },
+      {
+        "code": "PATHFIT 4",
+        "title": "Outdoor Adventure and Group Exercise"
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "IM101",
+        "title": "Advance Database Systems",
+        "units": 3
+      },
+      {
+        "code": "NET102",
+        "title": "Networking 2",
+        "units": 3
+      },
+      {
+        "code": "SIA101",
+        "title": "Systems Integration and Architecture 1",
+        "units": 3
+      },
+      {
+        "code": "GV101",
+        "title": "Graphics and Visual Computing"
+      },
+      {
+        "code": "PF102",
+        "title": "Event Driven Programming",
+        "units": 3
+      },
+      {
+        "code": "SAD",
+        "title": "System Analysis and Design",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC SSP",
+        "title": "Social Sciences and Philosophy (Gender and Society)",
+        "units": 3
+      }
+    ]
+  },
+  "3Rd  Year": {
+    "2Nd Semester": [
+      {
+        "code": "IAS101",
+        "title": "Information Assurance and Security 1",
+        "units": 3
+      },
+      {
+        "code": "SP101",
+        "title": "Social and Professional Issues 1",
+        "units": 3
+      },
+      {
+        "code": "CC106",
+        "title": "Application Development and Emerging Technologies",
+        "units": 3
+      },
+      {
+        "code": "CAP101",
+        "title": "Capstone Project 1",
+        "units": 3
+      },
+      {
+        "code": "TECHNO",
+        "title": "Technopreneurship",
+        "units": 3
+      },
+      {
+        "code": "GE-RIZAL",
+        "title": "Life and Works of Rizal",
+        "units": 3
+      }
+    ]
+  },
+  "4Th  Year": {
+    "1St Semester": [
+      {
+        "code": "CAP102",
+        "title": "Capstone Project 2",
+        "units": 3
+      },
+      {
+        "code": "IAS102",
+        "title": "Information Assurance and Security 2",
+        "units": 3
+      },
+      {
+        "code": "SA101",
+        "title": "System Administration and Maintenance",
+        "units": 3
+      },
+      {
+        "code": "SIA102",
+        "title": "Systems Integration and Architecture 2",
+        "units": 3
+      },
+      {
+        "code": "SP102",
+        "title": "Social and Professional Issues 2",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "PRAC",
+        "title": "Practicum",
+        "units": 6
+      }
+    ]
+  }
+}

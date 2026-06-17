@@ -1,0 +1,341 @@
+{
+  "1St Year": {
+    "1St Semester": [
+      {
+        "code": "MATH01",
+        "title": "Calculus 1",
+        "units": 3
+      },
+      {
+        "code": "CHEM-ENG",
+        "title": "Chemistry for Engineers",
+        "units": 4
+      },
+      {
+        "code": "CPE111",
+        "title": "Computer Engineering as a Discipline",
+        "units": 1
+      },
+      {
+        "code": "CPE112",
+        "title": "Programming Logic and Design",
+        "units": 2
+      },
+      {
+        "code": "GE-MMW",
+        "title": "Mathematics in the Modern World",
+        "units": 3
+      },
+      {
+        "code": "GE-STS",
+        "title": "Science, Technology, and Society",
+        "units": 3
+      },
+      {
+        "code": "GE-UTS",
+        "title": "Understanding the Self",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 1",
+        "title": "Movement Competency Training",
+        "units": 2
+      },
+      {
+        "code": "NSTP1",
+        "title": "National Service Training Program 1",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "MATH02",
+        "title": "Calculus 2",
+        "units": 3
+      },
+      {
+        "code": "PHYS-ENG",
+        "title": "Physics for Engineers",
+        "units": 4
+      },
+      {
+        "code": "CPE 121",
+        "title": "Object Oriented Programming",
+        "units": 2
+      },
+      {
+        "code": "MATH03",
+        "title": "Engineering Data Analysis",
+        "units": 3
+      },
+      {
+        "code": "MS101",
+        "title": "Discrete Mathematics",
+        "units": 3
+      },
+      {
+        "code": "GE-RPH",
+        "title": "Readings  in Philippine History",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 2",
+        "title": "Exercise-Based Training",
+        "units": 2
+      },
+      {
+        "code": "IT-AGRI 1",
+        "title": "Introduction to Crop Science",
+        "units": 3
+      },
+      {
+        "code": "NSTP2",
+        "title": "National Service Training Program 2",
+        "units": 3
+      }
+    ]
+  },
+  "2Nd Year": {
+    "1St Semester": [
+      {
+        "code": "MATH04",
+        "title": "Differential Equations",
+        "units": 3
+      },
+      {
+        "code": "GE-AA",
+        "title": "Art Appreciation",
+        "units": 3
+      },
+      {
+        "code": "CC104",
+        "title": "Data Structures and Algorithms",
+        "units": 2
+      },
+      {
+        "code": "BES211",
+        "title": "Engineering Economics",
+        "units": 3
+      },
+      {
+        "code": "AEC211",
+        "title": "Fundamentals of Electrical Circuits",
+        "units": 4
+      },
+      {
+        "code": "GE-ELEC MST",
+        "title": "Environmental Science",
+        "units": 3
+      },
+      {
+        "code": "BES212",
+        "title": "Computer-Aided Drafting",
+        "units": 1
+      },
+      {
+        "code": "PATHFIT3",
+        "title": "A Menu of Dance and Sports",
+        "units": 2
+      },
+      {
+        "code": "GE-VE",
+        "title": "Values Education",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "CPE221",
+        "title": "Numerical Methods",
+        "units": 3
+      },
+      {
+        "code": "CPE222",
+        "title": "Software Design",
+        "units": 4
+      },
+      {
+        "code": "GE-PC",
+        "title": "Purposive Communication",
+        "units": 3
+      },
+      {
+        "code": "AEC221",
+        "title": "Fundamentals of Electromic Circuits",
+        "units": 4
+      },
+      {
+        "code": "GE-RIZAL",
+        "title": "Life and Works of Rizal",
+        "units": 3
+      },
+      {
+        "code": "IT-AGRI  2",
+        "title": "Introduction to Animal Science",
+        "units": 3
+      },
+      {
+        "code": "PATHFIT 4",
+        "title": "Outdoor Adventure and Group Exercise",
+        "units": 2
+      },
+      {
+        "code": "GE-CW",
+        "title": "The Contemporary World",
+        "units": 3
+      }
+    ]
+  },
+  "3Rd Year": {
+    "1St Semester": [
+      {
+        "code": "CPE311",
+        "title": "Logic Circuits and Design",
+        "units": 4
+      },
+      {
+        "code": "CPE212",
+        "title": "Operating Systems",
+        "units": 3
+      },
+      {
+        "code": "CPE313",
+        "title": "Data and Digital Communications",
+        "units": 3
+      },
+      {
+        "code": "CPE314",
+        "title": "Introduction to HDL",
+        "units": 1
+      },
+      {
+        "code": "CPE315",
+        "title": "Feedback and Controls Systems",
+        "units": 3
+      },
+      {
+        "code": "CPE316",
+        "title": "Fundamentals of Mixed Signals and Sensors",
+        "units": 3
+      },
+      {
+        "code": "CPE317",
+        "title": "Computer Engineering Drafting and Design",
+        "units": 1
+      },
+      {
+        "code": "ELEC1",
+        "title": "Cognate/Elective Course 1",
+        "units": 3
+      },
+      {
+        "code": "IT-AGRI 3",
+        "title": "Information Technology Integration for Agricultural Development (Agricultural Engineering)",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "CPE321",
+        "title": "Basic Occupational Health and Safety",
+        "units": 3
+      },
+      {
+        "code": "CPE322",
+        "title": "Computer Networks and Security",
+        "units": 4
+      },
+      {
+        "code": "CPE323",
+        "title": "Microprocessors",
+        "units": 4
+      },
+      {
+        "code": "CPE324",
+        "title": "Methods of Research",
+        "units": 2
+      },
+      {
+        "code": "TECHNO",
+        "title": "Technopreneurship",
+        "units": 3
+      },
+      {
+        "code": "CPE325",
+        "title": "Ethics",
+        "units": 3
+      },
+      {
+        "code": "CPE326",
+        "title": "CpE Laws and Professional Practice",
+        "units": 2
+      },
+      {
+        "code": "ELEC2",
+        "title": "Cognate/Elective Course 2",
+        "units": 3
+      }
+    ]
+  },
+  "4Th Year": {
+    "1St Semester": [
+      {
+        "code": "CPE411",
+        "title": "Embedded Systems",
+        "units": 4
+      },
+      {
+        "code": "CPE412",
+        "title": "Computer Architecture and Organization",
+        "units": 4
+      },
+      {
+        "code": "CPE413",
+        "title": "Emerging technologies in CpE",
+        "units": 3
+      },
+      {
+        "code": "CPE-DES1",
+        "title": "CpE Practice and Design 1",
+        "units": 1
+      },
+      {
+        "code": "CPE414",
+        "title": "Digital  Signal Processing",
+        "units": 4
+      },
+      {
+        "code": "GE-ELEC AH",
+        "title": "Indigenous Creative Crafts",
+        "units": 3
+      },
+      {
+        "code": "ELEC3",
+        "title": "Cognate/Elective Course 3",
+        "units": 3
+      }
+    ],
+    "2Nd Semester": [
+      {
+        "code": "CPE-DES2",
+        "title": "CpE Practice and Design 2",
+        "units": 2
+      },
+      {
+        "code": "SEM1",
+        "title": "Seminars and Fieldtrips",
+        "units": 1
+      },
+      {
+        "code": "OJT1",
+        "title": "On the Job Training (240 hours)",
+        "units": 3
+      },
+      {
+        "code": "GE-ELEC SSP",
+        "title": "Gender and Society",
+        "units": 3
+      }
+    ]
+  }
+}
