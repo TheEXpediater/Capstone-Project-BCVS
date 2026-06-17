@@ -5,9 +5,12 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "dev:client": "expo start --dev-client --host lan",
     "android": "expo start --android",
+    "android:dev": "expo run:android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "build:dev": "eas build --profile development --platform android",
     "lint": "expo lint"
   },
   "dependencies": {
@@ -43,6 +46,7 @@
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
     "react-native-toast-message": "^2.3.3",
+    "react-native-zeroconf": "^0.14.0",
     "react-native-vision-camera": "^4.7.2",
     "react-native-vision-camera-face-detector": "^1.9.1",
     "react-native-web": "~0.21.0",

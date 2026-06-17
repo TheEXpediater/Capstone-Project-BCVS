@@ -48,6 +48,7 @@ function resolveVerifierWebBase(req) {
   const configured = [
     env.verificationWebBaseUrl,
     env.domainWebBaseUrl,
+    env.publicDomain ? `https://${env.publicDomain}` : '',
     env.webBaseUrl,
     process.env.WEB_CLIENT_URL,
     process.env.CLIENT_URL,

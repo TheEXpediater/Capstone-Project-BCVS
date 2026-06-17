@@ -1,6 +1,8 @@
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 import QRScanner from '@/components/qr/QRScanner';
+import { setApiBaseUrl } from '@/services/apiClient';
+import { saveConfigFromQr } from '@/services/serverConfigService';
 import { parseQrPayload } from '@/utils/qrParser';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -9,6 +11,20 @@ export default function ScanScreen() {
 
   async function handleScan(raw) {
     const parsed = parseQrPayload(raw);
+
+    if (parsed.kind === 'server_config') {
+      try {
+        const config = await saveConfigFromQr(parsed.raw);
+        setApiBaseUrl(config.apiBaseUrl);
+        Alert.alert('Server configured', `Mobile requests will use ${config.apiBaseUrl}`);
+      } catch (error) {
+        Alert.alert(
+          'Server setup failed',
+          error.message || 'This BCVS server setup QR could not be validated.'
+        );
+      }
+      return;
+    }
 
     if (parsed.kind === 'verification_request') {
       router.push({
@@ -39,7 +55,7 @@ export default function ScanScreen() {
 
     Alert.alert(
       'Unsupported QR',
-      'This QR code is not a credential claim or verification request.'
+      'This QR code is not a credential claim, verification request, or server setup code.'
     );
   }
 

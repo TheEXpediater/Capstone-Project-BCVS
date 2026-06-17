@@ -167,7 +167,11 @@ function serializeNetworkSettings(network = {}) {
   return {
     manualApiBaseUrl: normalizeApiBaseUrl(network.manualApiBaseUrl),
     manualWebBaseUrl: normalizeWebBaseUrl(network.manualWebBaseUrl),
-    domainApiBaseUrl: normalizeApiBaseUrl(network.domainApiBaseUrl || env.domainApiBaseUrl),
+    domainApiBaseUrl: normalizeApiBaseUrl(
+      network.domainApiBaseUrl ||
+        env.domainApiBaseUrl ||
+        (env.publicDomain ? `https://${env.publicDomain}/api` : '')
+    ),
     domainWebBaseUrl: normalizeWebBaseUrl(
       network.domainWebBaseUrl || env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : '')
     ),

@@ -92,7 +92,9 @@ export function buildDeploymentInfo(settingsNetwork = {}) {
   const manualApiBaseUrl = normalizeApiBaseUrl(settingsNetwork.manualApiBaseUrl);
   const manualWebBaseUrl = normalizeWebBaseUrl(settingsNetwork.manualWebBaseUrl);
   const domainApiBaseUrl = normalizeApiBaseUrl(
-    settingsNetwork.domainApiBaseUrl || env.domainApiBaseUrl
+    settingsNetwork.domainApiBaseUrl ||
+      env.domainApiBaseUrl ||
+      (env.publicDomain ? `https://${env.publicDomain}${API_BASE_PATH}` : '')
   );
   const domainWebBaseUrl = normalizeWebBaseUrl(
     settingsNetwork.domainWebBaseUrl ||
@@ -219,11 +221,13 @@ export function buildNetworkInfoPayload(settingsNetwork = {}) {
       domainApiBaseUrl: deployment.domainApiBaseUrl,
       domainWebBaseUrl: deployment.domainWebBaseUrl,
       preferredBaseUrl: deployment.preferredBaseUrl,
+      preferredApiBaseUrl: deployment.preferredBaseUrl,
       preferredWebBaseUrl: deployment.preferredWebBaseUrl,
       preferredMode: deployment.preferredMode,
     },
     discovery: {
       enabled: deployment.discoveryEnabled,
+      status: deployment.discoveryEnabled ? 'enabled' : 'disabled',
       serviceName: env.discovery.serviceName,
       serviceType: env.discovery.serviceType,
       serviceProtocol: env.discovery.serviceProtocol,

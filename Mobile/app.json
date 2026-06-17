@@ -18,6 +18,10 @@
     "android": {
       "permissions": [
         "CAMERA",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "CHANGE_WIFI_MULTICAST_STATE",
         "POST_NOTIFICATIONS",
         "READ_MEDIA_IMAGES",
         "READ_EXTERNAL_STORAGE",
@@ -54,8 +58,8 @@
       "expo-font"
     ],
     "extra": {
-      "API_URL": "http://192.168.100.18:5000",
-      "WEB_BASE": "http://192.168.100.18:5173",
+      "DOMAIN_API_BASE_URL": "https://psau-credentials.cfd/api",
+      "DOMAIN_WEB_BASE_URL": "https://psau-credentials.cfd",
       "eas": {
         "projectId": "e4c6cd8c-4086-47e3-83b2-eb97cf304c3d"
       },

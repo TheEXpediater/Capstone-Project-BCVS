@@ -58,16 +58,20 @@ function normalizeWebBase(value) {
   return cleaned;
 }
 
-export const WEB_BASE_URL = normalizeWebBase(firstValue(
+export const CONFIGURED_WEB_BASE_URL = normalizeWebBase(firstValue(
   process.env.EXPO_PUBLIC_WEB_URL,
   process.env.EXPO_PUBLIC_WEB_BASE,
   extra.WEB_URL,
-  extra.WEB_BASE,
-  localDevOrigin(5173)
+  extra.WEB_BASE
 ));
+export const WEB_BASE_URL = normalizeWebBase(CONFIGURED_WEB_BASE_URL || localDevOrigin(5173));
 export const DOMAIN_WEB_BASE_URL = normalizeWebBase(firstValue(
   process.env.EXPO_PUBLIC_DOMAIN_WEB_BASE_URL,
   extra.DOMAIN_WEB_BASE_URL
+));
+export const VERIFICATION_WEB_BASE_URL = normalizeWebBase(firstValue(
+  process.env.EXPO_PUBLIC_VERIFICATION_WEB_BASE_URL,
+  extra.VERIFICATION_WEB_BASE_URL
 ));
 
 export const EAS_PROJECT_ID =

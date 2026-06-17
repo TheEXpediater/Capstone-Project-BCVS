@@ -70,12 +70,32 @@ function parseClaimJson(json, raw) {
   };
 }
 
+function parseServerConfigJson(json, raw) {
+  if (json?.type !== 'BCVS_SERVER_CONFIG' || json?.system !== 'BCVS') {
+    return null;
+  }
+
+  return {
+    kind: 'server_config',
+    raw,
+    preferred: String(json.preferred || 'lan'),
+    lanApiBaseUrl: String(json.lanApiBaseUrl || ''),
+    lanWebBaseUrl: String(json.lanWebBaseUrl || ''),
+    domainApiBaseUrl: String(json.domainApiBaseUrl || ''),
+    domainWebBaseUrl: String(json.domainWebBaseUrl || ''),
+    healthUrl: String(json.healthUrl || '')
+  };
+}
+
 export function parseQrPayload(rawValue) {
   const raw = String(rawValue || '').trim();
   if (!raw) return { kind: 'unknown', raw };
 
   const json = tryJson(raw);
   if (json) {
+    const serverConfig = parseServerConfigJson(json, raw);
+    if (serverConfig) return serverConfig;
+
     const verification = parseVerificationJson(json, raw);
     if (verification) return verification;
 

@@ -143,7 +143,7 @@ export default function AppShell({ children }) {
   }
 
   const isDeveloper = user?.role === 'developer';
-  const canSeeSettings = isDeveloper;
+  const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
   const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
   const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);

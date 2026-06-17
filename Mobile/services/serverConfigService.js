@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import { API_BASE_URL, DOMAIN_API_BASE_URL, WEB_BASE_URL } from '@/constants/config';
+import { API_BASE_URL, DOMAIN_API_BASE_URL, DOMAIN_WEB_BASE_URL, WEB_BASE_URL } from '@/constants/config';
 import { STORAGE_KEYS, readJson, writeJson } from '@/utils/storage';
 
 const DEFAULT_API_PORT = 5000;
@@ -26,6 +27,14 @@ function isLocalhost(hostname) {
   return ['localhost', '127.0.0.1', '::1'].includes(String(hostname || '').toLowerCase());
 }
 
+function defaultAllowsLocalhost() {
+  if (Platform.OS === 'android' && Device.isDevice) {
+    return false;
+  }
+
+  return Boolean(__DEV__);
+}
+
 function looksLikeLanHost(hostname) {
   return (
     isIpv4(hostname) ||
@@ -48,8 +57,8 @@ function parseJson(raw) {
   }
 }
 
-function getHealthUrl(apiBaseUrl) {
-  return normalizeServerUrl(apiBaseUrl, { allowLocalhost: true }).apiBaseUrl.replace(
+function getHealthUrl(apiBaseUrl, options = {}) {
+  return normalizeServerUrl(apiBaseUrl, options).apiBaseUrl.replace(
     /\/api\/?$/i,
     '/api/health'
   );
@@ -57,7 +66,7 @@ function getHealthUrl(apiBaseUrl) {
 
 export function normalizeServerUrl(rawInput, options = {}) {
   const raw = cleanUrl(rawInput);
-  const allowLocalhost = options.allowLocalhost ?? __DEV__;
+  const allowLocalhost = options.allowLocalhost ?? defaultAllowsLocalhost();
 
   if (!raw) {
     throw new Error('Enter a server IP address, hostname, or URL.');
@@ -105,9 +114,9 @@ export function deriveApiBaseUrl(rawInput, options = {}) {
   return normalizeServerUrl(rawInput, options).apiBaseUrl;
 }
 
-export async function validateHealth(apiBaseUrl) {
-  const normalized = normalizeServerUrl(apiBaseUrl, { allowLocalhost: true }).apiBaseUrl;
-  const healthUrl = getHealthUrl(normalized);
+export async function validateHealth(apiBaseUrl, options = {}) {
+  const normalized = normalizeServerUrl(apiBaseUrl, options).apiBaseUrl;
+  const healthUrl = getHealthUrl(normalized, options);
   const response = await axios.get(healthUrl, { timeout: HEALTH_TIMEOUT_MS });
   const payload = response.data || {};
 
@@ -138,6 +147,8 @@ export function parseServerConfigQr(rawValue) {
     lanWebBaseUrl: cleanString(parsed.lanWebBaseUrl),
     domainApiBaseUrl: cleanString(parsed.domainApiBaseUrl),
     domainWebBaseUrl: cleanString(parsed.domainWebBaseUrl),
+    manualApiBaseUrl: cleanString(parsed.manualApiBaseUrl),
+    manualWebBaseUrl: cleanString(parsed.manualWebBaseUrl),
     healthUrl: cleanString(parsed.healthUrl),
     raw,
   };
@@ -175,11 +186,12 @@ export async function saveServerConfig(input, options = {}) {
     preferred: source.preferred || source.mode || normalized.mode,
     apiBaseUrl: normalized.apiBaseUrl,
     manualApiBaseUrl: source.manualApiBaseUrl || (source.mode === 'manual' ? normalized.apiBaseUrl : ''),
+    manualWebBaseUrl: cleanString(source.manualWebBaseUrl),
     lanApiBaseUrl: source.lanApiBaseUrl || (normalized.mode === 'lan' ? normalized.apiBaseUrl : ''),
     lanWebBaseUrl: cleanString(source.lanWebBaseUrl),
     domainApiBaseUrl: source.domainApiBaseUrl || (normalized.mode === 'domain' ? normalized.apiBaseUrl : ''),
     domainWebBaseUrl: cleanString(source.domainWebBaseUrl),
-    healthUrl: getHealthUrl(normalized.apiBaseUrl),
+    healthUrl: getHealthUrl(normalized.apiBaseUrl, options),
     updatedAt: now,
   };
 
@@ -206,7 +218,9 @@ export async function saveConfigFromQr(rawValue) {
   const preferredUrl =
     parsed.preferred === 'domain' && parsed.domainApiBaseUrl
       ? parsed.domainApiBaseUrl
-      : parsed.lanApiBaseUrl || parsed.domainApiBaseUrl;
+      : parsed.preferred === 'manual' && parsed.manualApiBaseUrl
+        ? parsed.manualApiBaseUrl
+        : parsed.lanApiBaseUrl || parsed.domainApiBaseUrl || parsed.manualApiBaseUrl;
 
   const health = await validateHealth(preferredUrl);
   return saveServerConfig(
@@ -215,7 +229,7 @@ export async function saveConfigFromQr(rawValue) {
       apiBaseUrl: health.apiBaseUrl,
       mode: parsed.preferred,
     },
-    { allowLocalhost: true }
+    {}
   );
 }
 
@@ -304,8 +318,7 @@ export async function discoverAndValidateServer() {
           lanApiBaseUrl: health.apiBaseUrl,
           mode: 'lan',
           preferred: 'lan',
-        },
-        { allowLocalhost: true }
+        }
       );
       await writeJson(STORAGE_KEYS.LAST_DISCOVERED_SERVER, server);
       return { config, servers };
@@ -332,6 +345,7 @@ export async function resolveStartupServerConfig() {
       const config = await saveServerConfig({
         apiBaseUrl: health.apiBaseUrl,
         domainApiBaseUrl: health.apiBaseUrl,
+        domainWebBaseUrl: DOMAIN_WEB_BASE_URL,
         mode: 'domain',
         preferred: 'domain',
       });
@@ -349,7 +363,7 @@ export async function resolveStartupServerConfig() {
     config: {
       apiBaseUrl: API_BASE_URL,
       domainApiBaseUrl: DOMAIN_API_BASE_URL,
-      domainWebBaseUrl: '',
+      domainWebBaseUrl: DOMAIN_WEB_BASE_URL,
       lanWebBaseUrl: WEB_BASE_URL,
       mode: 'development',
       preferred: 'development',

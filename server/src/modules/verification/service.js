@@ -163,9 +163,13 @@ async function loadNetworkSettingsForVerifierLinks() {
 }
 
 async function resolveVerifyBaseUrl(payload = {}) {
+  const networkSettings = await loadNetworkSettingsForVerifierLinks();
+  const deployment = buildDeploymentInfo(networkSettings);
   const configured = [
     env.verificationWebBaseUrl,
+    deployment.domainWebBaseUrl,
     env.domainWebBaseUrl,
+    env.publicDomain ? `https://${env.publicDomain}` : '',
     env.webBaseUrl,
     process.env.WEB_CLIENT_URL,
     process.env.CLIENT_URL,
@@ -179,8 +183,11 @@ async function resolveVerifyBaseUrl(payload = {}) {
   const explicitPayloadBase = toVerifyBaseUrl(payload?.verifyBaseUrl || payload?.verifyUrl);
   if (explicitPayloadBase) return explicitPayloadBase;
 
-  const deployment = buildDeploymentInfo(await loadNetworkSettingsForVerifierLinks());
-  const lanBase = toVerifyBaseUrl(deployment.preferredWebBaseUrl || deployment.lanWebBaseUrls[0]);
+  const lanBase = toVerifyBaseUrl(
+    deployment.manualWebBaseUrl ||
+      deployment.lanWebBaseUrls[0] ||
+      deployment.preferredWebBaseUrl
+  );
   if (lanBase) return lanBase;
 
   if (env.nodeEnv === 'development') {

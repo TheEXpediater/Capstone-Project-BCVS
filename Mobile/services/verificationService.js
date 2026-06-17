@@ -1,5 +1,13 @@
-import { API_ORIGIN, ENDPOINTS, WEB_BASE_URL } from '@/constants/config';
-import { api, apiErrorMessage } from '@/services/apiClient';
+import {
+  API_ORIGIN,
+  CONFIGURED_WEB_BASE_URL,
+  DOMAIN_WEB_BASE_URL,
+  ENDPOINTS,
+  VERIFICATION_WEB_BASE_URL,
+  WEB_BASE_URL
+} from '@/constants/config';
+import { api, apiErrorMessage, getApiBaseUrl } from '@/services/apiClient';
+import { getSavedServerConfig } from '@/services/serverConfigService';
 import { getCredentialRecordId } from '@/utils/credentialUtils';
 
 function appendImage(formData, name, asset, fallbackName) {
@@ -21,8 +29,43 @@ function stripLegacyVerifierPath(value) {
     .replace(/\/verify\/?$/i, '');
 }
 
-function resolveWebBase() {
-  const configured = stripLegacyVerifierPath(WEB_BASE_URL);
+function deriveWebBaseFromApi(apiBaseUrl) {
+  try {
+    const url = new URL(apiBaseUrl || API_ORIGIN);
+    url.pathname = '';
+    url.search = '';
+    url.hash = '';
+
+    if (url.protocol === 'http:' && (!url.port || url.port === '5000')) {
+      url.port = '5173';
+    }
+
+    return stripLegacyVerifierPath(url.toString());
+  } catch {
+    return '';
+  }
+}
+
+function firstWebBase(...values) {
+  return values.map(stripLegacyVerifierPath).find(Boolean) || '';
+}
+
+function resolveWebBaseFromConfig(config = null) {
+  return firstWebBase(
+    VERIFICATION_WEB_BASE_URL,
+    config?.domainWebBaseUrl,
+    DOMAIN_WEB_BASE_URL,
+    CONFIGURED_WEB_BASE_URL,
+    config?.manualWebBaseUrl,
+    config?.lanWebBaseUrl,
+    deriveWebBaseFromApi(config?.apiBaseUrl || getApiBaseUrl()),
+    WEB_BASE_URL
+  );
+}
+
+async function resolveWebBase() {
+  const config = await getSavedServerConfig().catch(() => null);
+  const configured = resolveWebBaseFromConfig(config);
 
   if (configured) return configured;
 
@@ -35,16 +78,16 @@ function resolveWebBase() {
   }
 }
 
-function buildVerifierPortalUrl(sessionId, nonce = '') {
+function buildVerifierPortalUrl(sessionId, nonce = '', webBase = '') {
   if (!sessionId) return '';
 
   const suffix = nonce ? `?nonce=${encodeURIComponent(nonce)}` : '';
-  return `${resolveWebBase()}/verify/${encodeURIComponent(sessionId)}${suffix}`;
+  return `${stripLegacyVerifierPath(webBase)}/verify/${encodeURIComponent(sessionId)}${suffix}`;
 }
 
-function normalizeReturnedVerifierUrl(value, sessionId, nonce = '') {
+function normalizeReturnedVerifierUrl(value, sessionId, nonce = '', webBase = '') {
   const cleanValue = String(value || '').trim();
-  const expected = buildVerifierPortalUrl(sessionId, nonce);
+  const expected = buildVerifierPortalUrl(sessionId, nonce, webBase);
 
   if (!cleanValue) return expected;
 
@@ -142,7 +185,8 @@ export async function createShareSession({ credential, ttlHours = 168 }) {
   if (!credentialId) throw new Error('Credential is missing an id');
 
   const credentialType = getCredentialType(credential);
-  const verifyBaseUrl = `${resolveWebBase()}/verify`;
+  const webBase = await resolveWebBase();
+  const verifyBaseUrl = `${webBase}/verify`;
 
   try {
     const response = await api.post(ENDPOINTS.verification.createSession, {
@@ -163,7 +207,8 @@ export async function createShareSession({ credential, ttlHours = 168 }) {
     const verifyUrl = normalizeReturnedVerifierUrl(
       data?.verifyUrl || data?.verificationUrl || data?.url,
       sessionId,
-      nonce
+      nonce,
+      webBase
     );
 
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -189,7 +234,7 @@ export function buildVerifierShareUrl(credential) {
   if (!credentialId) throw new Error('Credential is missing an id');
 
   const credentialType = getCredentialType(credential);
-  const base = `${resolveWebBase()}/verify`;
+  const base = `${resolveWebBaseFromConfig()}/verify`;
   if (!base) {
     throw new Error('Verifier web portal URL is not configured');
   }

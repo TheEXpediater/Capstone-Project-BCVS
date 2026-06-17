@@ -618,7 +618,7 @@ async function main() {
   });
 
   console.log('\nBCVS registrar seed completed.');
-  console.log(`Web users created/skipped: ${users.created}/${users.skipped} of ${users.total}`);
+  console.log(`Web users created/skipped: ${users.created}/${users.skipped}`);
   console.log(`Curricula imported/upserted: ${curricula.curricula.length}`);
   if (curricula.skipped.length) {
     console.log(`Curricula skipped: ${curricula.skipped.length}`);
