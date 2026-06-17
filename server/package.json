@@ -7,6 +7,8 @@
     "test": "node --test",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "seed:registrar": "node src/script/seed_registrar_demo.js",
+    "seed:students-grades": "node src/script/seed_registrar_demo.js",
     "generate:grade-template": "node src/script/students/generate_grade_import_template.js",
     "generate:grade-import-db": "node src/script/students/generate_grade_import_from_db.js",
     "generate:manual-test-imports": "node src/script/students/generate_manual_test_imports_from_curricula.js",
@@ -19,6 +21,7 @@
   "type": "module",
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "bonjour-service": "^1.4.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",

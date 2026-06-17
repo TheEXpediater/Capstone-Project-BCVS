@@ -44,6 +44,8 @@ export const env = {
   publicDomain: cleanString(process.env.PUBLIC_DOMAIN),
   domainApiBaseUrl: cleanString(process.env.DOMAIN_API_BASE_URL),
   domainWebBaseUrl: cleanString(process.env.DOMAIN_WEB_BASE_URL),
+  webBaseUrl: cleanString(process.env.WEB_BASE_URL),
+  verificationWebBaseUrl: cleanString(process.env.VERIFICATION_WEB_BASE_URL),
   preferredDeploymentMode: ['lan', 'domain'].includes(
     cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'lan').toLowerCase()
   )

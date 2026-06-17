@@ -5,6 +5,7 @@ import express from 'express';
 import { env } from './config/env.js';
 import routes from './routes/index.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/error.middleware.js';
+import { buildDeploymentInfo } from './shared/utils/networkInfo.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,25 +35,33 @@ app.get('/', (_req, res) => {
   });
 });
 
-function resolveVerifierWebBase(req) {
-  const configured = String(
-    process.env.VERIFICATION_WEB_BASE_URL ||
-      process.env.DOMAIN_WEB_BASE_URL ||
-      process.env.WEB_CLIENT_URL ||
-      process.env.WEB_BASE_URL ||
-      process.env.CLIENT_URL ||
-      process.env.FRONTEND_URL ||
-      ''
-  )
+function normalizeVerifierWebBase(value) {
+  return String(value || '')
     .trim()
     .replace(/\/+$/, '')
     .replace(/\/verification-portal\/verify$/i, '')
     .replace(/\/verification-portal$/i, '')
     .replace(/\/verify$/i, '');
+}
+
+function resolveVerifierWebBase(req) {
+  const configured = [
+    env.verificationWebBaseUrl,
+    env.domainWebBaseUrl,
+    env.webBaseUrl,
+    process.env.WEB_CLIENT_URL,
+    process.env.CLIENT_URL,
+    process.env.FRONTEND_URL,
+  ]
+    .map(normalizeVerifierWebBase)
+    .find(Boolean);
 
   if (configured) return configured;
 
-  const host = String(req.get('host') || 'localhost:5000').replace(/:\d+$/, ':5173');
+  const lanWebBaseUrl = buildDeploymentInfo().lanWebBaseUrls[0] || '';
+  if (lanWebBaseUrl) return lanWebBaseUrl;
+
+  const host = String(req.get('host') || 'localhost:5000').replace(/:\d+$/, `:${env.webPort || 5173}`);
   return `${req.protocol}://${host}`;
 }
 

@@ -103,6 +103,11 @@ const studentSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    seedMeta: {
+      source: { type: String, default: '', trim: true },
+      curriculumYear: { type: String, default: '', trim: true },
+      generatedAt: { type: Date, default: null },
+    },
 
     importedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -120,6 +125,7 @@ const studentSchema = new mongoose.Schema(
 );
 
 studentSchema.index({ programCode: 1, graduated: 1 });
+studentSchema.index({ 'seedMeta.source': 1, 'seedMeta.curriculumYear': 1 });
 
 const studentGradeSchema = new mongoose.Schema(
   {
@@ -187,6 +193,11 @@ const studentGradeSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    seedMeta: {
+      source: { type: String, default: '', trim: true },
+      curriculumYear: { type: String, default: '', trim: true },
+      generatedAt: { type: Date, default: null },
+    },
     importedBy: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -201,6 +212,8 @@ const studentGradeSchema = new mongoose.Schema(
     collection: 'student_grades',
   }
 );
+
+studentGradeSchema.index({ 'seedMeta.source': 1, 'seedMeta.curriculumYear': 1 });
 
 studentGradeSchema.index(
   {

@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { Types } from 'mongoose';
+import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
+import { buildDeploymentInfo } from '../../shared/utils/networkInfo.js';
 import {
   buildMerkleLeaf,
   CANONICALIZATION_ALGORITHM,
@@ -17,6 +19,7 @@ import { normalizeCredentialType, isSupportedCredentialType } from '../credentia
 import { getCredentialDraftModel } from '../credentials/model.js';
 import { getExplorerBaseUrl, verifyMerkleRootOnChain } from '../contracts/service.js';
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
+import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getStudentModel } from '../students/model.js';
 import { notifyStudentByStudentNo } from '../notifications/service.js';
 import { getVerificationSessionModel, getVerificationSubmissionModel } from './model.js';
@@ -136,14 +139,55 @@ function generateNonce() {
   return randomBytes(18).toString('base64url');
 }
 
-function resolveVerifyBaseUrl(payload = {}) {
-  return cleanString(
-    payload?.verifyBaseUrl ||
-      payload?.verifyUrl ||
-      process.env.VERIFICATION_WEB_BASE_URL ||
-      process.env.WEB_BASE_URL ||
-      ''
-  );
+function normalizeVerifierWebBase(value) {
+  return cleanString(value)
+    .replace(/\/+$/, '')
+    .replace(/\/verification-portal\/verify\/?$/i, '')
+    .replace(/\/verification-portal\/?$/i, '')
+    .replace(/\/verify\/?$/i, '');
+}
+
+function toVerifyBaseUrl(value) {
+  const base = normalizeVerifierWebBase(value);
+  return base ? `${base}/verify` : '';
+}
+
+async function loadNetworkSettingsForVerifierLinks() {
+  try {
+    const SystemSetting = getSystemSettingModel();
+    const settings = await SystemSetting.findOne({ code: 'main' }, { network: 1 }).lean();
+    return settings?.network || {};
+  } catch {
+    return {};
+  }
+}
+
+async function resolveVerifyBaseUrl(payload = {}) {
+  const configured = [
+    env.verificationWebBaseUrl,
+    env.domainWebBaseUrl,
+    env.webBaseUrl,
+    process.env.WEB_CLIENT_URL,
+    process.env.CLIENT_URL,
+    process.env.FRONTEND_URL,
+  ]
+    .map(toVerifyBaseUrl)
+    .find(Boolean);
+
+  if (configured) return configured;
+
+  const explicitPayloadBase = toVerifyBaseUrl(payload?.verifyBaseUrl || payload?.verifyUrl);
+  if (explicitPayloadBase) return explicitPayloadBase;
+
+  const deployment = buildDeploymentInfo(await loadNetworkSettingsForVerifierLinks());
+  const lanBase = toVerifyBaseUrl(deployment.preferredWebBaseUrl || deployment.lanWebBaseUrls[0]);
+  if (lanBase) return lanBase;
+
+  if (env.nodeEnv === 'development') {
+    return `http://localhost:${env.webPort || 5173}/verify`;
+  }
+
+  return '';
 }
 
 function buildVerifyUrl(baseUrl, sessionId, nonce) {
@@ -1112,7 +1156,7 @@ export async function createVerificationSession(payload = {}, actor = null) {
   };
   const now = new Date();
   const nonce = cleanString(payload?.nonce) || generateNonce();
-  const verifyBaseUrl = resolveVerifyBaseUrl(payload);
+  const verifyBaseUrl = await resolveVerifyBaseUrl(payload);
   const expiresAt = addHours(now, ttlHours);
   const VerificationSession = getVerificationSessionModel();
 
