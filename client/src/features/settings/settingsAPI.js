@@ -10,6 +10,16 @@ export async function updateBusinessSettings(payload) {
   return response.data.data;
 }
 
+export async function fetchNetworkInfo() {
+  const response = await api.get('/network-info');
+  return response.data;
+}
+
+export async function updateNetworkSettings(payload) {
+  const response = await api.put('/settings/network', payload);
+  return response.data.data;
+}
+
 export async function updateSystemLocks(payload) {
   const response = await api.put('/settings/locks', payload);
   return response.data.data;

@@ -50,6 +50,15 @@ export const updateBusinessSettings = asyncHandler(async (req, res) => {
   });
 });
 
+export const updateNetworkSettings = asyncHandler(async (req, res) => {
+  const data = await settingService.updateNetworkSettings(req.body, req.user);
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Network settings updated successfully.',
+  });
+});
+
 export const updateSystemLocks = asyncHandler(async (req, res) => {
   const data = await settingService.updateSystemLocks(req.body, req.user);
   res.status(200).json({

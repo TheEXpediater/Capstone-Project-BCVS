@@ -9,6 +9,16 @@ dotenv.config({
   path: path.resolve(__dirname, '../../.env'),
 });
 
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['true', '1', 'yes', 'y', 'on'].includes(String(value).trim().toLowerCase());
+}
+
+function cleanString(value, fallback = '') {
+  const cleaned = String(value || '').trim();
+  return cleaned || fallback;
+}
+
 const required = [
   'MONGO_URI_IDENTITY',
   'MONGO_URI_CREDENTIALS',
@@ -26,10 +36,25 @@ for (const key of required) {
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT || 5000),
+  webPort: Number(process.env.WEB_PORT || 5173),
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean),
+  publicDomain: cleanString(process.env.PUBLIC_DOMAIN),
+  domainApiBaseUrl: cleanString(process.env.DOMAIN_API_BASE_URL),
+  domainWebBaseUrl: cleanString(process.env.DOMAIN_WEB_BASE_URL),
+  preferredDeploymentMode: ['lan', 'domain'].includes(
+    cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'lan').toLowerCase()
+  )
+    ? cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'lan').toLowerCase()
+    : 'lan',
+  discovery: {
+    enabled: toBoolean(process.env.DISCOVERY_ENABLED, true),
+    serviceName: cleanString(process.env.DISCOVERY_SERVICE_NAME, 'BCVS Registrar Server'),
+    serviceType: cleanString(process.env.DISCOVERY_SERVICE_TYPE, 'bcvs-api'),
+    serviceProtocol: cleanString(process.env.DISCOVERY_SERVICE_PROTOCOL, 'tcp'),
+  },
   mongo: {
     identity: process.env.MONGO_URI_IDENTITY,
     credentials: process.env.MONGO_URI_CREDENTIALS,

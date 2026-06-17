@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   activateIssuerKey,
   createIssuerKey,
   deleteIssuerKey,
+  fetchNetworkInfo,
   getSettingsDashboard,
   rotateIssuerKey,
   updateActiveContract,
   updateAdminPermissions,
   updateBusinessSettings,
   updateIssuerKey,
+  updateNetworkSettings,
   updateSystemLocks,
 } from '../settingsAPI';
 import { checkAnchorReadiness } from '../../contracts/contractsAPI';
@@ -18,6 +21,7 @@ const TABS = [
   'Issuer Key Vault',
   'Business Rules',
   'MIS Technical Locks',
+  'Network & Mobile',
   'Blockchain / Contract',
 ];
 
@@ -70,6 +74,18 @@ const EMPTY_SETTINGS = {
     issuerKeyRotationLocked: false,
     paymentConfirmationLocked: false,
   },
+  network: {
+    manualApiBaseUrl: '',
+    manualWebBaseUrl: '',
+    domainApiBaseUrl: '',
+    domainWebBaseUrl: '',
+    preferredMode: 'lan',
+    discoveryEnabled: true,
+    preferredServerIp: '',
+    apiPort: 5000,
+    webPort: 5173,
+    qrPairingEnabled: true,
+  },
 };
 
 const EMPTY_WALLET = {
@@ -86,6 +102,8 @@ const EMPTY_ACCESS = {
   canEditBusinessSettings: false,
   canEditSystemLocks: false,
   canEditPermissions: false,
+  canViewNetworkSettings: false,
+  canManageNetworkSettings: false,
   canViewBlockchain: false,
   canViewIssuerKeys: false,
   canManageIssuerKeys: false,
@@ -104,6 +122,35 @@ function shortText(value, start = 18, end = 8) {
   if (!text) return 'Not available';
   if (text.length <= start + end + 3) return text;
   return `${text.slice(0, start)}...${text.slice(-end)}`;
+}
+
+function cleanUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function normalizeApiBaseUrl(value) {
+  const cleaned = cleanUrl(value);
+  if (!cleaned) return '';
+  return /\/api$/i.test(cleaned) ? cleaned : `${cleaned}/api`;
+}
+
+function healthUrlFor(apiBaseUrl) {
+  return normalizeApiBaseUrl(apiBaseUrl).replace(/\/api\/?$/i, '/api/health');
+}
+
+function copyToClipboard(value, setFeedback) {
+  const text = String(value || '').trim();
+  if (!text) return;
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => setFeedback({ type: 'success', text: 'Copied to clipboard.' }))
+      .catch(() => setFeedback({ type: 'warning', text: 'Copy failed. Select and copy the URL manually.' }));
+    return;
+  }
+
+  setFeedback({ type: 'warning', text: 'Clipboard is unavailable. Select and copy the URL manually.' });
 }
 
 function contractRecordKey(contract) {
@@ -353,6 +400,10 @@ export default function SystemSettingsPage() {
   const [textAction, setTextAction] = useState(null);
   const [readinessCheck, setReadinessCheck] = useState(null);
   const [checkingContractId, setCheckingContractId] = useState('');
+  const [networkInfo, setNetworkInfo] = useState(null);
+  const [networkBusy, setNetworkBusy] = useState(false);
+  const [networkTest, setNetworkTest] = useState({ status: 'idle', message: '' });
+  const [qrDataUrl, setQrDataUrl] = useState('');
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
     activate: true,
@@ -414,11 +465,67 @@ export default function SystemSettingsPage() {
     settings.blockchain,
     wallet?.activeContract,
   ]);
+  const effectiveNetwork = useMemo(() => {
+    const saved = settings.network || {};
+    const envInfo = networkInfo?.environment || {};
+    const network = networkInfo?.network || {};
+
+    return {
+      ...EMPTY_SETTINGS.network,
+      ...saved,
+      domainApiBaseUrl: saved.domainApiBaseUrl || envInfo.domainApiBaseUrl || '',
+      domainWebBaseUrl: saved.domainWebBaseUrl || envInfo.domainWebBaseUrl || '',
+      preferredMode: saved.preferredMode || envInfo.preferredMode || 'lan',
+      discoveryEnabled:
+        typeof saved.discoveryEnabled === 'boolean'
+          ? saved.discoveryEnabled
+          : Boolean(networkInfo?.discovery?.enabled),
+      apiPort: saved.apiPort || network.port || 5000,
+      webPort: saved.webPort || network.webPort || 5173,
+    };
+  }, [settings.network, networkInfo]);
+  const selectedLanApiUrl =
+    effectiveNetwork.manualApiBaseUrl ||
+    networkInfo?.network?.suggestedLanApiUrls?.[0] ||
+    networkInfo?.environment?.lanApiBaseUrls?.[0] ||
+    '';
+  const selectedLanWebUrl =
+    effectiveNetwork.manualWebBaseUrl ||
+    networkInfo?.network?.suggestedLanWebUrls?.[0] ||
+    networkInfo?.environment?.lanWebBaseUrls?.[0] ||
+    '';
+  const selectedApiForTest =
+    effectiveNetwork.preferredMode === 'domain' && effectiveNetwork.domainApiBaseUrl
+      ? effectiveNetwork.domainApiBaseUrl
+      : selectedLanApiUrl;
+  const qrPayload = useMemo(
+    () => ({
+      type: 'BCVS_SERVER_CONFIG',
+      system: 'BCVS',
+      preferred: effectiveNetwork.preferredMode || 'lan',
+      lanApiBaseUrl: selectedLanApiUrl,
+      lanWebBaseUrl: selectedLanWebUrl,
+      domainApiBaseUrl: effectiveNetwork.domainApiBaseUrl || '',
+      domainWebBaseUrl: effectiveNetwork.domainWebBaseUrl || '',
+      healthUrl: healthUrlFor(selectedApiForTest || selectedLanApiUrl),
+    }),
+    [
+      effectiveNetwork.domainApiBaseUrl,
+      effectiveNetwork.domainWebBaseUrl,
+      effectiveNetwork.preferredMode,
+      selectedApiForTest,
+      selectedLanApiUrl,
+      selectedLanWebUrl,
+    ]
+  );
 
   async function loadDashboard() {
     try {
       setLoading(true);
-      const data = await getSettingsDashboard();
+      const [data, network] = await Promise.all([
+        getSettingsDashboard(),
+        fetchNetworkInfo().catch(() => null),
+      ]);
       setSettings({ ...EMPTY_SETTINGS, ...(data.settings || {}) });
       setAdmins(data.admins || []);
       setIssuerKeys(data.issuerKeys || []);
@@ -426,6 +533,7 @@ export default function SystemSettingsPage() {
       setWallet(data.wallet || EMPTY_WALLET);
       setAvailableContracts(data.availableContracts || []);
       setAccess(data.access || EMPTY_ACCESS);
+      setNetworkInfo(network);
       setSelectedContractId(data.settings?.blockchain?.selectedContractId || '');
       setFeedback({ type: '', text: '' });
     } catch (error) {
@@ -444,6 +552,26 @@ export default function SystemSettingsPage() {
   useEffect(() => {
     loadDashboard();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    QRCode.toDataURL(JSON.stringify(qrPayload), {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 220,
+    })
+      .then((url) => {
+        if (active) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (active) setQrDataUrl('');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [qrPayload]);
 
   function closeActionModals() {
     setConfirmAction(null);
@@ -554,6 +682,59 @@ export default function SystemSettingsPage() {
         setFeedback({ type: 'success', text: 'Technical locks saved.' });
       },
     });
+  }
+
+  function confirmSaveNetwork() {
+    setConfirmAction({
+      title: 'Save network settings?',
+      body: 'Mobile devices will use these LAN/domain preferences for pairing and runtime server selection.',
+      confirmLabel: 'Save Network Settings',
+      run: async () => {
+        const updated = await updateNetworkSettings({ network: effectiveNetwork });
+        setSettings((prev) => ({
+          ...prev,
+          network: {
+            ...(prev.network || {}),
+            ...updated,
+          },
+        }));
+        const network = await fetchNetworkInfo().catch(() => null);
+        setNetworkInfo(network);
+        setFeedback({ type: 'success', text: 'Network settings saved.' });
+      },
+    });
+  }
+
+  async function testSelectedApiUrl(apiBaseUrl = selectedApiForTest) {
+    const target = normalizeApiBaseUrl(apiBaseUrl);
+
+    if (!target) {
+      setNetworkTest({ status: 'danger', message: 'Select or enter an API URL first.' });
+      return;
+    }
+
+    try {
+      setNetworkBusy(true);
+      setNetworkTest({ status: 'idle', message: 'Testing connection...' });
+      const response = await fetch(healthUrlFor(target), { cache: 'no-store' });
+      const payload = await response.json();
+
+      if (!response.ok || payload?.system !== 'BCVS' || payload?.service !== 'bcvs-api') {
+        throw new Error('The server responded, but it is not a BCVS API health endpoint.');
+      }
+
+      setNetworkTest({
+        status: 'success',
+        message: `Connected to ${target}.`,
+      });
+    } catch (error) {
+      setNetworkTest({
+        status: 'danger',
+        message: error.message || 'Connection test failed.',
+      });
+    } finally {
+      setNetworkBusy(false);
+    }
   }
 
   function confirmSaveContract(contract = selectedContractOption) {
@@ -1037,6 +1218,273 @@ export default function SystemSettingsPage() {
     );
   }
 
+  function renderUrlList(items = []) {
+    const urls = (items || []).filter(Boolean);
+
+    if (!urls.length) {
+      return <div className="text-muted small">No LAN address detected yet.</div>;
+    }
+
+    return (
+      <div className="d-flex flex-column gap-2">
+        {urls.map((url) => (
+          <div
+            className="d-flex flex-wrap align-items-center justify-content-between gap-2 border rounded-3 p-2 bg-light"
+            key={url}
+          >
+            <span className="small text-break">{url}</span>
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              onClick={() => copyToClipboard(url, setFeedback)}
+            >
+              Copy
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderNetworkMobile() {
+    const canEdit = access.canManageNetworkSettings;
+    const lanApiUrls =
+      networkInfo?.network?.suggestedLanApiUrls || networkInfo?.environment?.lanApiBaseUrls || [];
+    const lanWebUrls =
+      networkInfo?.network?.suggestedLanWebUrls || networkInfo?.environment?.lanWebBaseUrls || [];
+    const ipv4 = networkInfo?.network?.ipv4 || [];
+
+    return (
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+            <div>
+              <h2 className="h5 mb-1">Network & Mobile Connection</h2>
+              <p className="text-muted mb-0">
+                Use this section to connect mobile devices to the local BCVS server without rebuilding the app.
+              </p>
+            </div>
+            <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+
+          <div className="alert alert-warning">
+            Automatic discovery requires the mobile device and server to be on the same LAN/VLAN with multicast allowed.
+            If discovery fails, use QR pairing or manual server setup.
+          </div>
+
+          <div className="row g-3 mb-4">
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">Server hostname</div>
+                <div className="fw-semibold text-break">{networkInfo?.network?.hostname || 'Not available'}</div>
+              </div>
+            </div>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">IPv4 candidates</div>
+                <div className="fw-semibold text-break">
+                  {ipv4.length ? ipv4.join(', ') : 'No LAN IPv4 detected'}
+                </div>
+              </div>
+            </div>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">Preferred mode</div>
+                <div className="fw-semibold text-uppercase">{effectiveNetwork.preferredMode}</div>
+              </div>
+            </div>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">Discovery status</div>
+                <div className="fw-semibold">
+                  {effectiveNetwork.discoveryEnabled ? 'Enabled' : 'Disabled'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="row g-4">
+            <div className="col-lg-7">
+              <div className="d-flex flex-column gap-3">
+                <div>
+                  <h3 className="h6">Suggested LAN API URLs</h3>
+                  {renderUrlList(lanApiUrls)}
+                </div>
+                <div>
+                  <h3 className="h6">Suggested LAN Web URLs</h3>
+                  {renderUrlList(lanWebUrls)}
+                </div>
+                <div className="row g-3">
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold">Domain API URL</label>
+                    <input
+                      className="form-control"
+                      value={effectiveNetwork.domainApiBaseUrl}
+                      disabled={!canEdit}
+                      placeholder="https://psau-credentials.cfd/api"
+                      onChange={(event) => updateNested('network', 'domainApiBaseUrl', event.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold">Domain Web URL</label>
+                    <input
+                      className="form-control"
+                      value={effectiveNetwork.domainWebBaseUrl}
+                      disabled={!canEdit}
+                      placeholder="https://psau-credentials.cfd"
+                      onChange={(event) => updateNested('network', 'domainWebBaseUrl', event.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold">Manual mobile API URL</label>
+                    <input
+                      className="form-control"
+                      value={effectiveNetwork.manualApiBaseUrl}
+                      disabled={!canEdit}
+                      placeholder={lanApiUrls[0] || 'http://SERVER_IP:5000/api'}
+                      onChange={(event) => updateNested('network', 'manualApiBaseUrl', event.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold">Manual web URL</label>
+                    <input
+                      className="form-control"
+                      value={effectiveNetwork.manualWebBaseUrl}
+                      disabled={!canEdit}
+                      placeholder={lanWebUrls[0] || 'http://SERVER_IP:5173'}
+                      onChange={(event) => updateNested('network', 'manualWebBaseUrl', event.target.value)}
+                    />
+                  </div>
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold">Preferred deployment mode</label>
+                    <select
+                      className="form-select"
+                      value={effectiveNetwork.preferredMode}
+                      disabled={!canEdit}
+                      onChange={(event) => updateNested('network', 'preferredMode', event.target.value)}
+                    >
+                      <option value="lan">LAN</option>
+                      <option value="domain">DOMAIN</option>
+                    </select>
+                  </div>
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold">API port</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="65535"
+                      className="form-control"
+                      value={effectiveNetwork.apiPort}
+                      disabled={!canEdit}
+                      onChange={(event) => updateNested('network', 'apiPort', Number(event.target.value || 5000))}
+                    />
+                  </div>
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold">Web port</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="65535"
+                      className="form-control"
+                      value={effectiveNetwork.webPort}
+                      disabled={!canEdit}
+                      onChange={(event) => updateNested('network', 'webPort', Number(event.target.value || 5173))}
+                    />
+                  </div>
+                </div>
+
+                <div className="d-flex flex-wrap gap-3">
+                  <label className="form-check form-switch d-flex align-items-center gap-2">
+                    <Toggle
+                      checked={effectiveNetwork.discoveryEnabled}
+                      disabled={!canEdit}
+                      onChange={(value) => updateNested('network', 'discoveryEnabled', value)}
+                    />
+                    <span className="fw-semibold">Discovery enabled</span>
+                  </label>
+                  <label className="form-check form-switch d-flex align-items-center gap-2">
+                    <Toggle
+                      checked={effectiveNetwork.qrPairingEnabled}
+                      disabled={!canEdit}
+                      onChange={(value) => updateNested('network', 'qrPairingEnabled', value)}
+                    />
+                    <span className="fw-semibold">QR pairing enabled</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="col-lg-5">
+              <div className="border rounded-3 p-3 h-100">
+                <h3 className="h6 mb-3">Mobile pairing QR</h3>
+                <div className="d-flex flex-column align-items-center gap-3">
+                  {qrDataUrl ? (
+                    <img src={qrDataUrl} alt="BCVS mobile server setup QR" width="220" height="220" />
+                  ) : (
+                    <div className="border rounded-3 p-4 text-muted">QR unavailable</div>
+                  )}
+                  <div className="w-100">
+                    <div className="small text-muted">Selected API</div>
+                    <div className="fw-semibold text-break">{selectedApiForTest || 'Not configured'}</div>
+                  </div>
+                  <div className="d-flex flex-wrap gap-2 w-100">
+                    <button
+                      type="button"
+                      className="btn btn-outline-primary btn-sm"
+                      onClick={() => copyToClipboard(selectedApiForTest, setFeedback)}
+                      disabled={!selectedApiForTest}
+                    >
+                      Copy API URL
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary btn-sm"
+                      onClick={() => copyToClipboard(selectedLanWebUrl, setFeedback)}
+                      disabled={!selectedLanWebUrl}
+                    >
+                      Copy Web URL
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-success btn-sm"
+                      onClick={() => testSelectedApiUrl()}
+                      disabled={networkBusy || !selectedApiForTest}
+                    >
+                      {networkBusy ? 'Testing...' : 'Test Connection'}
+                    </button>
+                  </div>
+                  {networkTest.message ? (
+                    <div className={`alert alert-${networkTest.status} py-2 w-100 mb-0`}>
+                      {networkTest.message}
+                    </div>
+                  ) : (
+                    <div className="alert alert-light border py-2 w-100 mb-0">
+                      Health endpoint: {selectedApiForTest ? healthUrlFor(selectedApiForTest) : 'Not configured'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {canEdit ? (
+            <div className="mt-4 d-flex justify-content-end">
+              <button className="btn btn-primary" onClick={confirmSaveNetwork}>
+                Save Network Settings
+              </button>
+            </div>
+          ) : (
+            <div className="alert alert-light border mt-4 mb-0">
+              Network settings are read only for your role.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderBlockchain() {
     return (
       <div className="card border-0 shadow-sm">
@@ -1181,6 +1629,7 @@ export default function SystemSettingsPage() {
     if (activeTab === 'Issuer Key Vault') return renderIssuerKeys();
     if (activeTab === 'Business Rules') return renderBusinessRules();
     if (activeTab === 'MIS Technical Locks') return renderLocks();
+    if (activeTab === 'Network & Mobile') return renderNetworkMobile();
     if (activeTab === 'Blockchain / Contract') return renderBlockchain();
     return renderPermissions();
   }
@@ -1204,6 +1653,7 @@ export default function SystemSettingsPage() {
           {TABS.filter((tab) => {
             if (tab === 'Issuer Key Vault') return access.canViewIssuerKeys;
             if (tab === 'Blockchain / Contract') return access.canViewBlockchain;
+            if (tab === 'Network & Mobile') return access.canViewNetworkSettings;
             return true;
           }).map((tab) => (
             <button

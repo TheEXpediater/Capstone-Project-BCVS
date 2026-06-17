@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import { refreshApiBaseUrl, setApiBaseUrl } from '@/services/apiClient';
+import { resolveStartupServerConfig } from '@/services/serverConfigService';
 import { useAppStore } from '@/store/useAppStore';
 
 export function useBootstrap() {
@@ -7,9 +9,17 @@ export function useBootstrap() {
 
   useEffect(() => {
     if (!bootstrapped) {
-      bootstrap().catch((error) => {
-        useAppStore.getState().setError(error?.message || 'Failed to start app');
-      });
+      resolveStartupServerConfig()
+        .then((result) => {
+          if (result?.config?.apiBaseUrl) {
+            setApiBaseUrl(result.config.apiBaseUrl);
+          }
+          return refreshApiBaseUrl();
+        })
+        .then(() => bootstrap())
+        .catch((error) => {
+          useAppStore.getState().setError(error?.message || 'Failed to start app');
+        });
     }
   }, [bootstrapped, bootstrap]);
 

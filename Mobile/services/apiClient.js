@@ -1,13 +1,32 @@
 import axios from 'axios';
 import { API_BASE_URL } from '@/constants/config';
+import { getActiveApiBaseUrl as readActiveApiBaseUrl } from '@/services/serverConfigService';
 import { getSessionToken } from '@/utils/storage';
 
+let activeApiBaseUrl = API_BASE_URL;
+
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: activeApiBaseUrl,
   timeout: 25000
 });
 
+export function setApiBaseUrl(url) {
+  activeApiBaseUrl = String(url || API_BASE_URL).trim().replace(/\/+$/, '') || API_BASE_URL;
+  api.defaults.baseURL = activeApiBaseUrl;
+  return activeApiBaseUrl;
+}
+
+export function getApiBaseUrl() {
+  return activeApiBaseUrl;
+}
+
+export async function refreshApiBaseUrl() {
+  const nextUrl = await readActiveApiBaseUrl();
+  return setApiBaseUrl(nextUrl || API_BASE_URL);
+}
+
 api.interceptors.request.use(async (config) => {
+  const baseURL = await refreshApiBaseUrl();
   const token = await getSessionToken();
   const headers = {
     Accept: 'application/json',
@@ -19,10 +38,11 @@ api.interceptors.request.use(async (config) => {
   }
 
   config.headers = headers;
+  config.baseURL = baseURL;
 
   if (__DEV__) {
     console.log('[BCVS API]', {
-      baseURL: API_BASE_URL,
+      baseURL,
       method: String(config.method || 'GET').toUpperCase(),
       url: config.url
     });
@@ -36,7 +56,7 @@ api.interceptors.response.use(
   (error) => {
     if (__DEV__ && !error?.response) {
       console.log('[BCVS API network error]', {
-        baseURL: API_BASE_URL,
+        baseURL: error?.config?.baseURL || activeApiBaseUrl,
         method: String(error?.config?.method || 'GET').toUpperCase(),
         url: error?.config?.url,
         code: error?.code,
@@ -60,7 +80,7 @@ export function clearApiAuthState() {
 export function apiErrorMessage(error, fallback = 'Request failed') {
   if (isNetworkError(error)) {
     if (__DEV__) {
-      return `Cannot reach the BCVS server. Active API URL: ${API_BASE_URL}. Check that the server is running and this device is on the same network.`;
+      return `Cannot reach the BCVS server. Active API URL: ${activeApiBaseUrl}. Check that the server is running and this device is on the same network.`;
     }
 
     return 'Cannot reach the BCVS server. Check your connection and try again.';

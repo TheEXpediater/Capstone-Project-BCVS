@@ -11,6 +11,7 @@ import {
   updateAdminPermissions,
   updateBusinessSettings,
   updateIssuerKey,
+  updateNetworkSettings,
   updateSystemLocks,
 } from './setting.controller.js';
 
@@ -28,6 +29,7 @@ router.delete('/issuer-keys/:keyId', protect({ kind: 'web' }), allowRoles('devel
 router.put('/blockchain/active-contract', protect({ kind: 'web' }), allowRoles('developer'), updateActiveContract);
 
 router.put('/business', protect({ kind: 'web' }), allowRoles('super_admin'), updateBusinessSettings);
+router.put('/network', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), updateNetworkSettings);
 router.put('/locks', protect({ kind: 'web' }), allowRoles('developer'), updateSystemLocks);
 router.put('/admin-permissions/:userId', protect({ kind: 'web' }), allowRoles('developer'), updateAdminPermissions);
 

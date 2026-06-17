@@ -132,10 +132,63 @@ function buildAccess(actor) {
     canEditBusinessSettings: actor.role === 'super_admin',
     canEditSystemLocks: actor.role === 'developer',
     canEditPermissions: actor.role === 'developer',
+    canViewNetworkSettings: ['admin', 'super_admin', 'developer'].includes(actor.role),
+    canManageNetworkSettings: ['super_admin', 'developer'].includes(actor.role),
     canViewBlockchain: ['super_admin', 'developer'].includes(actor.role),
     canViewIssuerKeys: ['admin', 'super_admin', 'developer'].includes(actor.role),
     canManageIssuerKeys: actor.role === 'developer',
     canManageActiveContract: actor.role === 'developer',
+  };
+}
+
+function cleanUrl(value) {
+  return cleanString(value).replace(/\/+$/, '');
+}
+
+function normalizeApiBaseUrl(value) {
+  const cleaned = cleanUrl(value);
+  if (!cleaned) return '';
+  return /\/api$/i.test(cleaned) ? cleaned : `${cleaned}/api`;
+}
+
+function normalizeWebBaseUrl(value) {
+  return cleanUrl(value)
+    .replace(/\/verification-portal\/verify\/?$/i, '')
+    .replace(/\/verification-portal\/?$/i, '')
+    .replace(/\/verify\/?$/i, '');
+}
+
+function positivePort(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+function serializeNetworkSettings(network = {}) {
+  return {
+    manualApiBaseUrl: normalizeApiBaseUrl(network.manualApiBaseUrl),
+    manualWebBaseUrl: normalizeWebBaseUrl(network.manualWebBaseUrl),
+    domainApiBaseUrl: normalizeApiBaseUrl(network.domainApiBaseUrl || env.domainApiBaseUrl),
+    domainWebBaseUrl: normalizeWebBaseUrl(
+      network.domainWebBaseUrl || env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : '')
+    ),
+    preferredMode: ['lan', 'domain'].includes(cleanString(network.preferredMode).toLowerCase())
+      ? cleanString(network.preferredMode).toLowerCase()
+      : env.preferredDeploymentMode || 'lan',
+    discoveryEnabled:
+      typeof network.discoveryEnabled === 'boolean' ? network.discoveryEnabled : env.discovery.enabled,
+    preferredServerIp: cleanString(network.preferredServerIp),
+    apiPort: positivePort(network.apiPort, env.port || 5000),
+    webPort: positivePort(network.webPort, env.webPort || 5173),
+    qrPairingEnabled:
+      typeof network.qrPairingEnabled === 'boolean' ? network.qrPairingEnabled : true,
+  };
+}
+
+function serializeSettings(settings) {
+  const plain = settings?.toObject ? settings.toObject() : { ...(settings || {}) };
+  return {
+    ...plain,
+    network: serializeNetworkSettings(plain.network),
   };
 }
 
@@ -378,6 +431,7 @@ export async function getDashboard(actor) {
           activeAnchorContractCapabilities:
             settings.blockchain?.activeAnchorContractCapabilities || EMPTY_MERKLE_CAPABILITIES,
         },
+        network: serializeNetworkSettings(settings.network),
       },
       admins: [],
       wallet: null,
@@ -399,7 +453,7 @@ export async function getDashboard(actor) {
   const activeIssuerKey = issuerKeys.find((item) => item.isActive) || null;
 
   return {
-    settings,
+    settings: serializeSettings(settings),
     admins,
     wallet: buildWalletResponse(settings, contractsDashboard),
     availableContracts: contractsDashboard.contracts || [],
@@ -639,6 +693,52 @@ export async function updateBusinessSettings(payload, actor) {
 
   await settings.save();
   return settings;
+}
+
+export async function updateNetworkSettings(payload, actor) {
+  if (!actor || !['developer', 'super_admin'].includes(actor.role)) {
+    throw new ApiError(403, 'Only the MIS developer or super admin can edit network settings');
+  }
+
+  const settings = await ensureMainSettings();
+  const next = payload?.network || payload || {};
+  const mode = cleanString(next.preferredMode || settings.network.preferredMode, 'lan').toLowerCase();
+
+  settings.network.manualApiBaseUrl =
+    typeof next.manualApiBaseUrl === 'string'
+      ? normalizeApiBaseUrl(next.manualApiBaseUrl)
+      : settings.network.manualApiBaseUrl;
+  settings.network.manualWebBaseUrl =
+    typeof next.manualWebBaseUrl === 'string'
+      ? normalizeWebBaseUrl(next.manualWebBaseUrl)
+      : settings.network.manualWebBaseUrl;
+  settings.network.domainApiBaseUrl =
+    typeof next.domainApiBaseUrl === 'string'
+      ? normalizeApiBaseUrl(next.domainApiBaseUrl)
+      : settings.network.domainApiBaseUrl;
+  settings.network.domainWebBaseUrl =
+    typeof next.domainWebBaseUrl === 'string'
+      ? normalizeWebBaseUrl(next.domainWebBaseUrl)
+      : settings.network.domainWebBaseUrl;
+  settings.network.preferredMode = ['lan', 'domain'].includes(mode) ? mode : 'lan';
+  settings.network.discoveryEnabled =
+    typeof next.discoveryEnabled === 'boolean'
+      ? next.discoveryEnabled
+      : settings.network.discoveryEnabled;
+  settings.network.preferredServerIp =
+    typeof next.preferredServerIp === 'string'
+      ? cleanString(next.preferredServerIp)
+      : settings.network.preferredServerIp;
+  settings.network.apiPort = positivePort(next.apiPort, settings.network.apiPort || env.port || 5000);
+  settings.network.webPort = positivePort(next.webPort, settings.network.webPort || env.webPort || 5173);
+  settings.network.qrPairingEnabled =
+    typeof next.qrPairingEnabled === 'boolean'
+      ? next.qrPairingEnabled
+      : settings.network.qrPairingEnabled;
+  settings.updatedBy = actor._id;
+
+  await settings.save();
+  return serializeNetworkSettings(settings.network);
 }
 
 export async function updateSystemLocks(payload, actor) {

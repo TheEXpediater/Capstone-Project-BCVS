@@ -8,6 +8,7 @@ import mobileCredentialRoutes from '../modules/credentials/mobile.routes.js';
 import credentialRoutes from '../modules/credentials/routes.js';
 import curriculumRoutes from '../modules/curriculum/routes.js';
 import notificationRoutes from '../modules/notifications/routes.js';
+import { getHealth, getNetworkInfo } from '../modules/network/controller.js';
 import uploadRoutes from '../modules/uploads/routes.js';
 import verificationRoutes from '../modules/verification/routes.js';
 import settingRoutes from '../modules/settings/setting.routes.js';
@@ -16,12 +17,8 @@ import { allowRoles, protect } from '../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
-router.get('/health', (_req, res) => {
-  res.json({
-    success: true,
-    message: 'Backend reachable',
-  });
-});
+router.get('/health', getHealth);
+router.get('/network-info', getNetworkInfo);
 
 router.get(
   '/users',

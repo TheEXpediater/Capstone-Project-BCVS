@@ -57,6 +57,22 @@ const settingSchema = new mongoose.Schema(
       networkLabel: { type: String, default: 'Local Chain' },
       walletBalance: { type: String, default: '0.0000' },
     },
+    network: {
+      manualApiBaseUrl: { type: String, default: '' },
+      manualWebBaseUrl: { type: String, default: '' },
+      domainApiBaseUrl: { type: String, default: '' },
+      domainWebBaseUrl: { type: String, default: '' },
+      preferredMode: {
+        type: String,
+        enum: ['lan', 'domain'],
+        default: 'lan',
+      },
+      discoveryEnabled: { type: Boolean, default: true },
+      preferredServerIp: { type: String, default: '' },
+      apiPort: { type: Number, default: 5000 },
+      webPort: { type: Number, default: 5173 },
+      qrPairingEnabled: { type: Boolean, default: true },
+    },
     locks: {
       anchorLocked: { type: Boolean, default: false },
       qrEmailLocked: { type: Boolean, default: false },

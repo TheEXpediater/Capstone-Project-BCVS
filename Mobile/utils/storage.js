@@ -10,7 +10,11 @@ export const STORAGE_KEYS = {
   LAST_SEEN_AT: '@bvcs.lastSeenAt',
   DEVICE_ID: '@bvcs.deviceId',
   BIOMETRICS_ENABLED: '@bvcs.biometricsEnabled',
-  BIOMETRICS_PROMPTED: '@bvcs.biometricsPrompted'
+  BIOMETRICS_PROMPTED: '@bvcs.biometricsPrompted',
+  SERVER_CONFIG: '@bcvs.serverConfig',
+  ACTIVE_API_BASE_URL: '@bcvs.activeApiBaseUrl',
+  LAST_DISCOVERED_SERVER: '@bcvs.lastDiscoveredServer',
+  PREFERRED_SERVER_MODE: '@bcvs.preferredServerMode'
 };
 
 async function storageSet(key, value) {

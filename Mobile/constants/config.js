@@ -44,6 +44,10 @@ export const API_ORIGIN = trimSlashes(configuredOrigin);
 export const API_BASE_URL = /\/api$/.test(API_ORIGIN)
   ? API_ORIGIN
   : `${API_ORIGIN}/api`;
+export const DOMAIN_API_BASE_URL = firstValue(
+  process.env.EXPO_PUBLIC_DOMAIN_API_BASE_URL,
+  extra.DOMAIN_API_BASE_URL
+);
 
 function normalizeWebBase(value) {
   const cleaned = trimSlashes(value)
@@ -60,6 +64,10 @@ export const WEB_BASE_URL = normalizeWebBase(firstValue(
   extra.WEB_URL,
   extra.WEB_BASE,
   localDevOrigin(5173)
+));
+export const DOMAIN_WEB_BASE_URL = normalizeWebBase(firstValue(
+  process.env.EXPO_PUBLIC_DOMAIN_WEB_BASE_URL,
+  extra.DOMAIN_WEB_BASE_URL
 ));
 
 export const EAS_PROJECT_ID =

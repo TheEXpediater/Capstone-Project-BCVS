@@ -3,9 +3,20 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { router } from 'expo-router';
+import QRScanner from '@/components/qr/QRScanner';
 import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
+import TextField from '@/components/ui/TextField';
 import { colors, radius, spacing } from '@/constants/theme';
+import { getApiBaseUrl, setApiBaseUrl } from '@/services/apiClient';
+import {
+  clearServerConfig,
+  discoverServers,
+  getSavedServerConfig,
+  saveConfigFromQr,
+  saveServerConfig,
+  validateHealth
+} from '@/services/serverConfigService';
 import { useAppStore } from '@/store/useAppStore';
 import {
   getBiometricsEnabled,
@@ -14,7 +25,7 @@ import {
   setBiometricsPrompted
 } from '@/utils/storage';
 
-const TABS = ['Account', 'Student Info', 'Security', 'Help'];
+const TABS = ['Account', 'Student Info', 'Security', 'Server', 'Help'];
 
 function displayName(user) {
   return user?.fullName || user?.name || user?.username || 'Student';
@@ -198,6 +209,13 @@ export default function SettingsScreen() {
   const [biometricsEnabledState, setBiometricsEnabledState] = useState(false);
   const [biometricsLoading, setBiometricsLoading] = useState(true);
   const [biometricsBusy, setBiometricsBusy] = useState(false);
+  const [serverConfig, setServerConfig] = useState(null);
+  const [activeServerUrl, setActiveServerUrl] = useState(getApiBaseUrl());
+  const [manualServerUrl, setManualServerUrl] = useState('');
+  const [serverStatus, setServerStatus] = useState({ state: 'idle', message: 'Not tested' });
+  const [serverBusy, setServerBusy] = useState(false);
+  const [serverScanVisible, setServerScanVisible] = useState(false);
+  const [discoveredServers, setDiscoveredServers] = useState([]);
 
   const status = accountStatus(user);
   const verified = status === 'verified';
@@ -226,6 +244,30 @@ export default function SettingsScreen() {
     }
 
     loadBiometrics();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadServer() {
+      const [config] = await Promise.all([getSavedServerConfig()]);
+      const currentUrl = getApiBaseUrl();
+
+      if (!active) return;
+      setServerConfig(config);
+      setActiveServerUrl(currentUrl);
+      setManualServerUrl(config?.manualApiBaseUrl || config?.apiBaseUrl || currentUrl || '');
+      setServerStatus({
+        state: config?.apiBaseUrl ? 'saved' : 'fallback',
+        message: config?.apiBaseUrl ? 'Saved server loaded.' : 'Using development fallback.',
+      });
+    }
+
+    loadServer().catch(() => {});
 
     return () => {
       active = false;
@@ -272,6 +314,151 @@ export default function SettingsScreen() {
       Alert.alert('Biometrics unavailable', error.message || 'Could not update biometric login.');
     } finally {
       setBiometricsBusy(false);
+    }
+  }
+
+  async function refreshServerState(config) {
+    const current = config?.apiBaseUrl || getApiBaseUrl();
+    if (config?.apiBaseUrl) {
+      setApiBaseUrl(config.apiBaseUrl);
+    }
+    setServerConfig(config || (await getSavedServerConfig()));
+    setActiveServerUrl(current);
+    setManualServerUrl(config?.manualApiBaseUrl || config?.apiBaseUrl || current || '');
+  }
+
+  async function testServer(url = activeServerUrl) {
+    const target = String(url || '').trim();
+
+    if (!target) {
+      Alert.alert('Server required', 'Enter or select a BCVS server URL first.');
+      return;
+    }
+
+    try {
+      setServerBusy(true);
+      setServerStatus({ state: 'testing', message: 'Testing server health...' });
+      const result = await validateHealth(target);
+      setApiBaseUrl(result.apiBaseUrl);
+      setActiveServerUrl(result.apiBaseUrl);
+      setServerStatus({ state: 'connected', message: `Connected to ${result.apiBaseUrl}` });
+    } catch (error) {
+      setServerStatus({
+        state: 'error',
+        message: error.message || 'Could not reach the BCVS server.',
+      });
+      Alert.alert('Connection failed', error.message || 'Could not reach the BCVS server.');
+    } finally {
+      setServerBusy(false);
+    }
+  }
+
+  async function saveManualServer() {
+    try {
+      setServerBusy(true);
+      setServerStatus({ state: 'testing', message: 'Validating manual server...' });
+      const health = await validateHealth(manualServerUrl);
+      const config = await saveServerConfig({
+        manualApiBaseUrl: health.apiBaseUrl,
+        apiBaseUrl: health.apiBaseUrl,
+        mode: 'manual',
+        preferred: 'manual',
+      });
+      await refreshServerState(config);
+      setServerStatus({ state: 'connected', message: `Saved ${health.apiBaseUrl}` });
+      Alert.alert('Server saved', 'Mobile requests will now use this BCVS server.');
+    } catch (error) {
+      setServerStatus({ state: 'error', message: error.message || 'Manual server setup failed.' });
+      Alert.alert('Server not saved', error.message || 'Manual server setup failed.');
+    } finally {
+      setServerBusy(false);
+    }
+  }
+
+  async function scanServerQr(raw) {
+    try {
+      setServerBusy(true);
+      const config = await saveConfigFromQr(raw);
+      await refreshServerState(config);
+      setServerScanVisible(false);
+      setServerStatus({ state: 'connected', message: `Configured from QR: ${config.apiBaseUrl}` });
+      Alert.alert('Server configured', 'BCVS mobile server pairing is complete.');
+    } catch (error) {
+      Alert.alert('QR setup failed', error.message || 'This QR code is not a valid BCVS server setup code.');
+    } finally {
+      setServerBusy(false);
+    }
+  }
+
+  async function chooseDiscoveredServer(server) {
+    try {
+      setServerBusy(true);
+      const health = await validateHealth(server.apiBaseUrl);
+      const config = await saveServerConfig({
+        ...server,
+        apiBaseUrl: health.apiBaseUrl,
+        lanApiBaseUrl: health.apiBaseUrl,
+        mode: 'lan',
+        preferred: 'lan',
+      });
+      await refreshServerState(config);
+      setDiscoveredServers([]);
+      setServerStatus({ state: 'connected', message: `Discovered ${health.apiBaseUrl}` });
+      Alert.alert('Server selected', 'The discovered BCVS server is now active.');
+    } catch (error) {
+      Alert.alert('Discovery result failed', error.message || 'This discovered server did not pass health validation.');
+    } finally {
+      setServerBusy(false);
+    }
+  }
+
+  async function autoDiscoverServer() {
+    try {
+      setServerBusy(true);
+      setDiscoveredServers([]);
+      setServerStatus({ state: 'testing', message: 'Searching for BCVS servers on the LAN...' });
+      const servers = await discoverServers();
+      const uniqueServers = servers.filter((server) => server?.apiBaseUrl);
+
+      if (!uniqueServers.length) {
+        setServerStatus({
+          state: 'error',
+          message: 'No BCVS server was discovered. Use QR pairing or manual setup.',
+        });
+        Alert.alert('No server found', 'Use QR pairing or manual server setup if multicast is blocked.');
+        return;
+      }
+
+      if (uniqueServers.length === 1) {
+        await chooseDiscoveredServer(uniqueServers[0]);
+        return;
+      }
+
+      setDiscoveredServers(uniqueServers);
+      setServerStatus({
+        state: 'found',
+        message: `${uniqueServers.length} BCVS servers found. Select one below.`,
+      });
+    } catch (error) {
+      setServerStatus({ state: 'error', message: error.message || 'Auto-discovery failed.' });
+      Alert.alert('Auto-discovery failed', error.message || 'Use QR pairing or manual setup.');
+    } finally {
+      setServerBusy(false);
+    }
+  }
+
+  async function clearSavedServer() {
+    try {
+      await clearServerConfig();
+      const fallbackUrl = setApiBaseUrl('');
+      setServerConfig(null);
+      setDiscoveredServers([]);
+      setActiveServerUrl(fallbackUrl);
+      setManualServerUrl('');
+      setServerStatus({ state: 'fallback', message: 'Saved server configuration was cleared.' });
+      Alert.alert('Server cleared', 'The app will use the development fallback until a server is configured.');
+    } catch (error) {
+      Alert.alert('Clear failed', error.message || 'Could not clear saved server configuration.');
     }
   }
 
@@ -384,6 +571,102 @@ export default function SettingsScreen() {
     );
   }
 
+  function renderServer() {
+    const statusColor =
+      serverStatus.state === 'connected'
+        ? colors.primary
+        : serverStatus.state === 'error'
+          ? colors.danger
+          : colors.muted;
+
+    return (
+      <View style={styles.sectionCard}>
+        <SectionTitle
+          icon="server-outline"
+          title="Server Connection"
+          body="Connect this development build to a BCVS LAN or domain server without rebuilding the app."
+        />
+
+        <InfoRow label="Active API server" value={activeServerUrl} />
+        <InfoRow label="Selected mode" value={serverConfig?.mode || serverConfig?.preferred || 'development'} />
+        <InfoRow label="Domain API URL" value={serverConfig?.domainApiBaseUrl || 'Not configured'} />
+
+        <View style={styles.statusPanel}>
+          <Ionicons name="pulse-outline" size={18} color={statusColor} />
+          <Text style={[styles.statusText, { color: statusColor }]}>{serverStatus.message}</Text>
+        </View>
+
+        <Button
+          title={serverBusy ? 'Testing...' : 'Test Connection'}
+          onPress={() => testServer(activeServerUrl)}
+          loading={serverBusy && serverStatus.state === 'testing'}
+          variant="outline"
+        />
+
+        <TextField
+          label="Manual server URL"
+          value={manualServerUrl}
+          onChangeText={setManualServerUrl}
+          placeholder="192.168.1.50:5000 or https://psau-credentials.cfd/api"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Button
+          title="Save Manual Server"
+          onPress={saveManualServer}
+          loading={serverBusy}
+        />
+
+        <View style={styles.serverActions}>
+          <Button
+            title="Scan Server QR"
+            onPress={() => setServerScanVisible(true)}
+            variant="outline"
+            style={styles.serverActionButton}
+          />
+          <Button
+            title="Auto-discover"
+            onPress={autoDiscoverServer}
+            loading={serverBusy && serverStatus.state === 'testing'}
+            variant="outline"
+            style={styles.serverActionButton}
+          />
+        </View>
+
+        {discoveredServers.length ? (
+          <View style={styles.discoveredList}>
+            {discoveredServers.map((server) => (
+              <Pressable
+                key={server.apiBaseUrl}
+                style={styles.discoveredItem}
+                disabled={serverBusy}
+                onPress={() => chooseDiscoveredServer(server)}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.discoveredTitle}>{server.name || 'BCVS Registrar Server'}</Text>
+                  <Text style={styles.discoveredText}>{server.apiBaseUrl}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
+        <Button
+          title="Clear Saved Server"
+          onPress={clearSavedServer}
+          variant="danger"
+          disabled={serverBusy}
+        />
+
+        <Text style={styles.sectionBody}>
+          Automatic discovery requires the phone and server to be on the same LAN/VLAN with multicast allowed. QR pairing
+          and manual setup remain available when discovery is blocked.
+        </Text>
+      </View>
+    );
+  }
+
   function renderHelp() {
     return (
       <View style={styles.sectionCard}>
@@ -409,8 +692,18 @@ export default function SettingsScreen() {
   function renderActiveSection() {
     if (activeTab === 'Student Info') return renderStudentInfo();
     if (activeTab === 'Security') return renderSecurity();
+    if (activeTab === 'Server') return renderServer();
     if (activeTab === 'Help') return renderHelp();
     return renderAccount();
+  }
+
+  if (serverScanVisible) {
+    return (
+      <QRScanner
+        onScan={scanServerQr}
+        onCancel={() => setServerScanVisible(false)}
+      />
+    );
   }
 
   return (

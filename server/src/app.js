@@ -37,6 +37,7 @@ app.get('/', (_req, res) => {
 function resolveVerifierWebBase(req) {
   const configured = String(
     process.env.VERIFICATION_WEB_BASE_URL ||
+      process.env.DOMAIN_WEB_BASE_URL ||
       process.env.WEB_CLIENT_URL ||
       process.env.WEB_BASE_URL ||
       process.env.CLIENT_URL ||
