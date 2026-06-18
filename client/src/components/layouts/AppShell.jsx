@@ -14,7 +14,6 @@ import {
   FaBook,
   FaUserGraduate,
   FaFileSignature,
-  FaClipboardList,
 } from 'react-icons/fa';
 import { signOut } from '../../features/auth/authSlice';
 import {
@@ -48,7 +47,6 @@ const PAGE_TITLES = [
   { path: '/contracts', title: 'Contract Manager' },
   { path: '/system-settings', title: 'System Settings' },
   { path: '/', title: 'Dashboard' },
-  { path: '/audit-logs', title: 'Action Logs' },
 ];
 
 function getPageTitle(pathname) {
@@ -147,7 +145,6 @@ export default function AppShell({ children }) {
   const isDeveloper = user?.role === 'developer';
   
   const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
-  const canSeeAuditLogs = ['developer', 'super_admin'].includes(user?.role);
   const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
   const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);
@@ -205,13 +202,6 @@ export default function AppShell({ children }) {
         icon: <FaCog />,
       });
     }
-    if (canSeeAuditLogs) {
-  items.push({
-    to: '/audit-logs',
-    label: 'Action Logs',
-    icon: <FaClipboardList />,
-  });
-}
     
 
   return items;
@@ -222,7 +212,6 @@ export default function AppShell({ children }) {
     canSeeCurriculum,
     canSeeContracts,
     canSeeSettings,
-    canSeeAuditLogs,
   ]);
 
   return (

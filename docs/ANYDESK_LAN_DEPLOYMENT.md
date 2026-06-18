@@ -47,7 +47,7 @@ DOMAIN_WEB_BASE_URL=https://psau-credentials.cfd
 VERIFICATION_WEB_BASE_URL=https://psau-credentials.cfd
 PREFERRED_DEPLOYMENT_MODE=lan
 
-DISCOVERY_ENABLED=true
+DISCOVERY_ENABLED=false
 DISCOVERY_SERVICE_NAME=BCVS Registrar Server
 DISCOVERY_SERVICE_TYPE=bcvs-api
 DISCOVERY_SERVICE_PROTOCOL=tcp
@@ -58,7 +58,7 @@ ANCHOR_CHAIN_ID=80002
 ANCHOR_CONFIRMATIONS=2
 ```
 
-Domain values are optional. If the domain does not resolve, LAN mode still works.
+Domain values are optional. If the domain does not resolve, LAN mode still works. Discovery is disabled by default and should be enabled only by MIS/developers during testing.
 
 ## Install Dependencies
 
@@ -148,6 +148,8 @@ Use this panel to:
 - Save network settings.
 - Show the mobile pairing QR code from `/api/network-qr`.
 
+This QR code is the primary mobile connection method for university LAN use.
+
 ## Mobile Scan Setup
 
 Install the Expo development APK, open the mobile app, and scan the MIS pairing QR from the main Scan tab or the Settings tab.
@@ -160,6 +162,15 @@ When the QR payload has `type: "BCVS_SERVER_CONFIG"`, the app:
 - Saves the QR server config.
 - Refreshes the active API base URL.
 - Uses the saved server without rebuilding the APK.
+
+Credential claim QR codes and verification QR codes remain separate flows. The app only treats a QR as server setup when the JSON payload clearly contains:
+
+```json
+{
+  "type": "BCVS_SERVER_CONFIG",
+  "system": "BCVS"
+}
+```
 
 ## Manual IP Fallback
 
@@ -186,7 +197,7 @@ The app normalizes domain input to:
 https://psau-credentials.cfd/api
 ```
 
-Startup fallback order is saved QR config, saved manual config, configured domain if healthy, optional mDNS discovery, then development fallback from `EXPO_PUBLIC_API_URL`.
+Startup fallback order is saved QR config, saved manual config, configured domain if healthy, then development fallback from `EXPO_PUBLIC_API_URL`. mDNS discovery is not part of normal student startup.
 
 ## Domain Fallback
 
@@ -235,21 +246,21 @@ eas build --profile development --platform android
 
 There are no preview, production, AAB, or CI/CD mobile build profiles.
 
-## mDNS Limitation
+## mDNS/Zeroconf Limitation
 
-mDNS/Zeroconf advertises `_bcvs-api._tcp.local` only when discovery is enabled and `bonjour-service` is available. University Wi-Fi may block multicast or isolate VLANs. QR pairing and manual setup are the reliable fallback paths.
+mDNS/Zeroconf advertises `_bcvs-api._tcp.local` only when discovery is enabled and `bonjour-service` is available. It is for developer/testing use only. University Wi-Fi may block multicast or isolate VLANs, so students should not use discovery tools. QR pairing and manual setup are the reliable paths.
 
 ## Action Logs Usage
 
 Open:
 
 ```text
-Action Logs
+System Settings -> Action Logs
 ```
 
 Only `developer` and `super_admin` can view or delete audit logs. Logs include web login, mobile login, user creation, credential draft actions, payment confirmation, claim QR generation, mobile credential request/claim, verification create/check/approve/deny, settings updates, and network setting updates.
 
-The table supports search, module, action, actor kind, role, status, date range, detail view, single delete, bulk delete, and pagination.
+The Action Logs table now uses readable action labels, search by default, a filter/settings modal for module, actor type, role, date range, and status, plus detail view, single delete, bulk delete, and pagination.
 
 ## Audit Retention and Deletion Guidance
 
@@ -259,7 +270,8 @@ Audit logs are operational records. Delete only for cleanup, storage management,
 
 - If `npm` is blocked in PowerShell, run `npm.cmd`.
 - If the phone cannot connect, verify both devices are on the same LAN/VLAN and Windows Firewall allows ports 5000 and 5173.
-- If QR pairing fails, use manual server setup in the mobile Settings tab.
-- If auto-discovery fails, assume multicast is blocked and use QR/manual setup.
+- If a QR scan says network error, check that the server is running, the phone and server are on the same Wi-Fi, Windows Firewall allows port 5000, and `http://SERVER_IP_HERE:5000/api/health` returns `system: "BCVS"` and `service: "bcvs-api"`.
+- If QR pairing fails, use manual server setup in the mobile Settings tab with the workstation LAN IP.
+- If auto-discovery fails during developer testing, assume multicast is blocked and use QR/manual setup.
 - If backend startup fails, check `server\.env`, MongoDB service status, and port conflicts.
 - If blockchain anchoring fails because env or contract settings are missing, credential proof preparation should fail gracefully rather than crashing the API.

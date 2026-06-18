@@ -15,6 +15,7 @@ import {
   updateNetworkSettings,
   updateSystemLocks,
 } from '../settingsAPI';
+import AuditLogsPage from '../../audit/pages/AuditLogsPage';
 import { checkAnchorReadiness } from '../../contracts/contractsAPI';
 
 const TABS = [
@@ -23,6 +24,7 @@ const TABS = [
   'Business Rules',
   'MIS Technical Locks',
   'Network & Mobile',
+  'Action Logs',
   'Blockchain / Contract',
 ];
 
@@ -1661,6 +1663,7 @@ export default function SystemSettingsPage() {
     if (activeTab === 'Business Rules') return renderBusinessRules();
     if (activeTab === 'MIS Technical Locks') return renderLocks();
     if (activeTab === 'Network & Mobile') return renderNetworkMobile();
+    if (activeTab === 'Action Logs') return <AuditLogsPage embedded />;
     if (activeTab === 'Blockchain / Contract') return renderBlockchain();
     return renderPermissions();
   }

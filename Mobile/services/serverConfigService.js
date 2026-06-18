@@ -173,6 +173,43 @@ function configCandidateForMode(config) {
   return '';
 }
 
+function uniqueValues(values = []) {
+  return [...new Set(values.map(cleanString).filter(Boolean))];
+}
+
+function candidateUrlsForConfig(config = {}) {
+  const preferred = config?.preferred || config?.mode || 'lan';
+  const byMode = {
+    lan: [config.lanApiBaseUrl, config.apiBaseUrl],
+    domain: [config.domainApiBaseUrl, config.apiBaseUrl],
+    manual: [config.manualApiBaseUrl, config.apiBaseUrl],
+    development: [config.apiBaseUrl],
+  };
+
+  return uniqueValues([
+    ...(byMode[preferred] || []),
+    config.lanApiBaseUrl,
+    config.manualApiBaseUrl,
+    config.domainApiBaseUrl,
+    config.apiBaseUrl,
+  ]);
+}
+
+async function firstHealthyCandidate(config = {}, options = {}) {
+  const candidates = candidateUrlsForConfig(config);
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    try {
+      return await validateHealth(candidate, options);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('No BCVS API URL is available to validate.');
+}
+
 export async function getSavedServerConfig() {
   return readJson(STORAGE_KEYS.SERVER_CONFIG, null);
 }
@@ -190,15 +227,18 @@ export async function getActiveApiBaseUrl() {
   return cleanUrl(saved || API_BASE_URL);
 }
 
-export async function saveServerConfig(input, options = {}) {
+export async function saveServerConfig(input, sourceOrOptions = {}, maybeOptions = {}) {
+  const explicitSource = typeof sourceOrOptions === 'string' ? sourceOrOptions : '';
+  const options = typeof sourceOrOptions === 'string' ? maybeOptions : sourceOrOptions;
   const source = typeof input === 'string' ? { manualApiBaseUrl: input, mode: 'manual' } : input || {};
   const candidate = source.apiBaseUrl || configCandidateForMode(source);
   const normalized = normalizeServerUrl(candidate, options);
   const now = new Date().toISOString();
+  const sourceName = explicitSource || source.source || (source.mode === 'manual' ? 'manual' : normalized.mode);
   const config = {
     type: SERVER_CONFIG_TYPE,
     system: 'BCVS',
-    source: source.source || (source.mode === 'manual' ? 'manual' : 'saved'),
+    source: ['qr', 'manual', 'domain', 'development'].includes(sourceName) ? sourceName : 'manual',
     mode: source.mode || source.preferred || normalized.mode,
     preferred: source.preferred || source.mode || normalized.mode,
     apiBaseUrl: normalized.apiBaseUrl,
@@ -209,6 +249,7 @@ export async function saveServerConfig(input, options = {}) {
     domainApiBaseUrl: source.domainApiBaseUrl || (normalized.mode === 'domain' ? normalized.apiBaseUrl : ''),
     domainWebBaseUrl: cleanString(source.domainWebBaseUrl),
     healthUrl: getHealthUrl(normalized.apiBaseUrl, options),
+    savedAt: now,
     updatedAt: now,
   };
 
@@ -244,14 +285,7 @@ export async function clearServerConfig() {
 
 export async function saveConfigFromQr(rawValue) {
   const parsed = parseServerConfigQr(rawValue);
-  const preferredUrl =
-    parsed.preferred === 'domain' && parsed.domainApiBaseUrl
-      ? parsed.domainApiBaseUrl
-      : parsed.preferred === 'manual' && parsed.manualApiBaseUrl
-        ? parsed.manualApiBaseUrl
-        : parsed.lanApiBaseUrl || parsed.domainApiBaseUrl || parsed.manualApiBaseUrl;
-
-  const health = await validateHealth(preferredUrl);
+  const health = await firstHealthyCandidate(parsed);
   return saveServerConfig(
     {
       ...parsed,
@@ -259,7 +293,7 @@ export async function saveConfigFromQr(rawValue) {
       mode: parsed.preferred,
       source: 'qr',
     },
-    {}
+    'qr'
   );
 }
 
@@ -348,7 +382,8 @@ export async function discoverAndValidateServer() {
           lanApiBaseUrl: health.apiBaseUrl,
           mode: 'lan',
           preferred: 'lan',
-        }
+        },
+        'manual'
       );
       await writeJson(STORAGE_KEYS.LAST_DISCOVERED_SERVER, server);
       return { config, servers };
@@ -381,11 +416,11 @@ export async function resolveStartupServerConfig() {
 
   const saved = await getSavedServerConfig();
 
-  if (saved?.apiBaseUrl) {
+  if (saved?.apiBaseUrl && ['qr', 'manual'].includes(saved.source || 'manual')) {
     try {
       await validateHealth(saved.apiBaseUrl);
       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_API_BASE_URL, saved.apiBaseUrl);
-      return { config: saved, status: 'saved' };
+      return { config: saved, status: 'saved_legacy' };
     } catch {}
   }
 
@@ -398,27 +433,27 @@ export async function resolveStartupServerConfig() {
         domainWebBaseUrl: DOMAIN_WEB_BASE_URL,
         mode: 'domain',
         preferred: 'domain',
-      });
+      }, 'domain');
       return { config, status: 'domain' };
     } catch {}
-  }
-
-  const discovered = await discoverAndValidateServer();
-  if (discovered.config) {
-    return { config: discovered.config, status: 'discovered', servers: discovered.servers };
   }
 
   await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_API_BASE_URL, API_BASE_URL);
   return {
     config: {
+      type: SERVER_CONFIG_TYPE,
+      system: 'BCVS',
+      source: 'development',
       apiBaseUrl: API_BASE_URL,
       domainApiBaseUrl: DOMAIN_API_BASE_URL,
       domainWebBaseUrl: DOMAIN_WEB_BASE_URL,
       lanWebBaseUrl: WEB_BASE_URL,
       mode: 'development',
       preferred: 'development',
+      healthUrl: getHealthUrl(API_BASE_URL, { allowLocalhost: true }),
+      savedAt: new Date().toISOString(),
     },
     status: 'fallback',
-    servers: discovered.servers,
+    servers: [],
   };
 }

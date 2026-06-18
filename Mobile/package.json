@@ -11,7 +11,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build:dev": "eas build --profile development --platform android",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "validate:config": "node scripts/validate-config.mjs",
+    "validate:qr": "node scripts/validate-qr-parser.mjs",
+    "validate:server-config": "node scripts/validate-server-config.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

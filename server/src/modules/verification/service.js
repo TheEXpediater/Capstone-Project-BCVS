@@ -169,7 +169,6 @@ async function resolveVerifyBaseUrl(payload = {}) {
     env.verificationWebBaseUrl,
     env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : ''),
     networkSettings.domainWebBaseUrl,
-    env.publicDomain ? `https://${env.publicDomain}` : '',
     env.webBaseUrl,
   ]
     .map(toVerifyBaseUrl)

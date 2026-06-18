@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 import QRScanner from '@/components/qr/QRScanner';
-import { setApiBaseUrl } from '@/services/apiClient';
+import { refreshApiBaseUrl, setApiBaseUrl } from '@/services/apiClient';
 import { saveConfigFromQr } from '@/services/serverConfigService';
 import { parseQrPayload } from '@/utils/qrParser';
 import { useAppStore } from '@/store/useAppStore';
@@ -16,7 +16,8 @@ export default function ScanScreen() {
       try {
         const config = await saveConfigFromQr(parsed.raw);
         setApiBaseUrl(config.apiBaseUrl);
-        Alert.alert('Server configured', `Mobile requests will use ${config.apiBaseUrl}`);
+        await refreshApiBaseUrl();
+        Alert.alert('Server connected', `Mobile requests will use ${config.apiBaseUrl}`);
       } catch (error) {
         Alert.alert(
           'Server setup failed',

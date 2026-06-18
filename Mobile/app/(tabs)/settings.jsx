@@ -26,6 +26,8 @@ import {
 } from '@/utils/storage';
 
 const TABS = ['Account', 'Student Info', 'Security', 'Server', 'Help'];
+const showDiscoveryTools =
+  __DEV__ || process.env.EXPO_PUBLIC_SHOW_DISCOVERY_TOOLS === 'true';
 
 function displayName(user) {
   return user?.fullName || user?.name || user?.username || 'Student';
@@ -363,7 +365,7 @@ export default function SettingsScreen() {
         apiBaseUrl: health.apiBaseUrl,
         mode: 'manual',
         preferred: 'manual',
-      });
+      }, 'manual');
       await refreshServerState(config);
       setServerStatus({ state: 'connected', message: `Saved ${health.apiBaseUrl}` });
       Alert.alert('Server saved', 'Mobile requests will now use this BCVS server.');
@@ -400,7 +402,7 @@ export default function SettingsScreen() {
         lanApiBaseUrl: health.apiBaseUrl,
         mode: 'lan',
         preferred: 'lan',
-      });
+      }, 'manual');
       await refreshServerState(config);
       setDiscoveredServers([]);
       setServerStatus({ state: 'connected', message: `Discovered ${health.apiBaseUrl}` });
@@ -584,85 +586,94 @@ export default function SettingsScreen() {
         <SectionTitle
           icon="server-outline"
           title="Server Connection"
-          body="Connect this development build to a BCVS LAN or domain server without rebuilding the app."
+          body="If the app cannot connect, scan the server QR code from the registrar system or enter the server address provided by MIS."
         />
 
         <InfoRow label="Active API server" value={activeServerUrl} />
-        <InfoRow label="Selected mode" value={serverConfig?.mode || serverConfig?.preferred || 'development'} />
-        <InfoRow label="Domain API URL" value={serverConfig?.domainApiBaseUrl || 'Not configured'} />
+        <InfoRow label="Connection source" value={serverConfig?.source || serverConfig?.preferred || 'development'} />
 
         <View style={styles.statusPanel}>
           <Ionicons name="pulse-outline" size={18} color={statusColor} />
           <Text style={[styles.statusText, { color: statusColor }]}>{serverStatus.message}</Text>
         </View>
 
-        <Button
-          title={serverBusy ? 'Testing...' : 'Test Connection'}
-          onPress={() => testServer(activeServerUrl)}
-          loading={serverBusy && serverStatus.state === 'testing'}
-          variant="outline"
-        />
-
-        <TextField
-          label="Manual server URL"
-          value={manualServerUrl}
-          onChangeText={setManualServerUrl}
-          placeholder="192.168.1.50:5000 or https://psau-credentials.cfd/api"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <Button
-          title="Save Manual Server"
-          onPress={saveManualServer}
-          loading={serverBusy}
-        />
-
         <View style={styles.serverActions}>
+          <Button
+            title={serverBusy ? 'Testing...' : 'Test Connection'}
+            onPress={() => testServer(activeServerUrl)}
+            loading={serverBusy && serverStatus.state === 'testing'}
+            variant="outline"
+            style={styles.serverActionButton}
+          />
           <Button
             title="Scan Server QR"
             onPress={() => setServerScanVisible(true)}
             variant="outline"
             style={styles.serverActionButton}
           />
-          <Button
-            title="Auto-discover"
-            onPress={autoDiscoverServer}
-            loading={serverBusy && serverStatus.state === 'testing'}
-            variant="outline"
-            style={styles.serverActionButton}
-          />
         </View>
 
-        {discoveredServers.length ? (
-          <View style={styles.discoveredList}>
-            {discoveredServers.map((server) => (
-              <Pressable
-                key={server.apiBaseUrl}
-                style={styles.discoveredItem}
-                disabled={serverBusy}
-                onPress={() => chooseDiscoveredServer(server)}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.discoveredTitle}>{server.name || 'BCVS Registrar Server'}</Text>
-                  <Text style={styles.discoveredText}>{server.apiBaseUrl}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.muted} />
-              </Pressable>
-            ))}
+        <View style={styles.advancedPanel}>
+          <Text style={styles.advancedTitle}>Advanced connection setup</Text>
+          <TextField
+            label="Manual server URL"
+            value={manualServerUrl}
+            onChangeText={setManualServerUrl}
+            placeholder="192.168.1.50:5000 or https://psau-credentials.cfd/api"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <View style={styles.serverActions}>
+            <Button
+              title="Save Manual Server"
+              onPress={saveManualServer}
+              loading={serverBusy}
+              style={styles.serverActionButton}
+            />
+            <Button
+              title="Clear Saved Server"
+              onPress={clearSavedServer}
+              variant="danger"
+              disabled={serverBusy}
+              style={styles.serverActionButton}
+            />
           </View>
-        ) : null}
+        </View>
 
-        <Button
-          title="Clear Saved Server"
-          onPress={clearSavedServer}
-          variant="danger"
-          disabled={serverBusy}
-        />
+        {showDiscoveryTools && (
+          <View style={styles.advancedPanel}>
+            <Text style={styles.advancedTitle}>Developer discovery tools</Text>
+            <Button
+              title="Auto-discover"
+              onPress={autoDiscoverServer}
+              loading={serverBusy && serverStatus.state === 'testing'}
+              variant="outline"
+            />
 
-        <Text style={styles.sectionBody}>
-          Automatic discovery requires the phone and server to be on the same LAN/VLAN with multicast allowed. QR pairing
-          and manual setup remain available when discovery is blocked.
-        </Text>
+            {discoveredServers.length ? (
+              <View style={styles.discoveredList}>
+                {discoveredServers.map((server) => (
+                  <Pressable
+                    key={server.apiBaseUrl}
+                    style={styles.discoveredItem}
+                    disabled={serverBusy}
+                    onPress={() => chooseDiscoveredServer(server)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.discoveredTitle}>{server.name || 'BCVS Registrar Server'}</Text>
+                      <Text style={styles.discoveredText}>{server.apiBaseUrl}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
+            <Text style={styles.sectionBody}>
+              Zeroconf discovery is for MIS testing only. It may fail when campus Wi-Fi blocks multicast.
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -973,5 +984,16 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginTop: 2,
     lineHeight: 19
+  },
+  advancedPanel: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: spacing.md,
+    gap: spacing.md
+  },
+  advancedTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900'
   }
 });

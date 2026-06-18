@@ -62,7 +62,6 @@ async function resolveVerifierWebBase(req) {
     env.verificationWebBaseUrl,
     env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : ''),
     networkSettings.domainWebBaseUrl,
-    env.publicDomain ? `https://${env.publicDomain}` : '',
     env.webBaseUrl,
   ]
     .map(normalizeVerifierWebBase)

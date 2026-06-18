@@ -52,7 +52,7 @@ export const env = {
     ? cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'lan').toLowerCase()
     : 'lan',
   discovery: {
-    enabled: toBoolean(process.env.DISCOVERY_ENABLED, true),
+    enabled: toBoolean(process.env.DISCOVERY_ENABLED, false),
     serviceName: cleanString(process.env.DISCOVERY_SERVICE_NAME, 'BCVS Registrar Server'),
     serviceType: cleanString(process.env.DISCOVERY_SERVICE_TYPE, 'bcvs-api'),
     serviceProtocol: cleanString(process.env.DISCOVERY_SERVICE_PROTOCOL, 'tcp'),

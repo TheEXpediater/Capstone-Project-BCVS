@@ -78,14 +78,18 @@ function parseServerConfigJson(json, raw) {
   return {
     kind: 'server_config',
     raw,
-    preferred: String(json.preferred || 'lan'),
-    lanApiBaseUrl: String(json.lanApiBaseUrl || ''),
-    lanWebBaseUrl: String(json.lanWebBaseUrl || ''),
-    domainApiBaseUrl: String(json.domainApiBaseUrl || ''),
-    domainWebBaseUrl: String(json.domainWebBaseUrl || ''),
-    manualApiBaseUrl: String(json.manualApiBaseUrl || ''),
-    manualWebBaseUrl: String(json.manualWebBaseUrl || ''),
-    healthUrl: String(json.healthUrl || '')
+    config: {
+      type: 'BCVS_SERVER_CONFIG',
+      system: 'BCVS',
+      preferred: String(json.preferred || 'lan'),
+      lanApiBaseUrl: String(json.lanApiBaseUrl || ''),
+      lanWebBaseUrl: String(json.lanWebBaseUrl || ''),
+      domainApiBaseUrl: String(json.domainApiBaseUrl || ''),
+      domainWebBaseUrl: String(json.domainWebBaseUrl || ''),
+      manualApiBaseUrl: String(json.manualApiBaseUrl || ''),
+      manualWebBaseUrl: String(json.manualWebBaseUrl || ''),
+      healthUrl: String(json.healthUrl || '')
+    }
   };
 }
 
