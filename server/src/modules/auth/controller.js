@@ -77,6 +77,31 @@ export const loginMobile = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+export const requestMobileEmailOtp = asyncHandler(async (req, res) => {
+  const result = await authService.requestMobileEmailOtp(req.body || {});
+  res.status(200).json(result);
+});
+
+export const verifyMobileEmailOtp = asyncHandler(async (req, res) => {
+  const result = await authService.verifyMobileEmailOtp(req.body || {});
+  res.status(200).json(result);
+});
+
+export const requestMobilePasswordResetOtp = asyncHandler(async (req, res) => {
+  const result = await authService.requestMobilePasswordResetOtp(req.body || {});
+  res.status(200).json(result);
+});
+
+export const verifyMobilePasswordResetOtp = asyncHandler(async (req, res) => {
+  const result = await authService.verifyMobilePasswordResetOtp(req.body || {});
+  res.status(200).json(result);
+});
+
+export const resetMobilePassword = asyncHandler(async (req, res) => {
+  const result = await authService.resetMobilePassword(req.body || {});
+  res.status(200).json(result);
+});
+
 export const getWebMe = asyncHandler(async (req, res) => {
   const result = await authService.getMe(req.user._id.toString());
   res.status(200).json(result);

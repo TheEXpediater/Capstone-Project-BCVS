@@ -547,6 +547,54 @@ function DraftActionMenu({ actions, isOpen, onToggle, onClose }) {
   );
 }
 
+function BulkActionMenu({ actions, selectedCount, loading, isOpen, onToggle, onClose }) {
+  if (!actions?.length || selectedCount === 0) {
+    return (
+      <button type="button" className="btn btn-success btn-sm flex-fill" disabled>
+        Bulk Actions ({selectedCount})
+      </button>
+    );
+  }
+
+  return (
+    <FloatingActionMenu
+      isOpen={isOpen}
+      onToggle={onToggle}
+      onClose={onClose}
+      buttonClassName="btn btn-success btn-sm flex-fill"
+      buttonContent={
+        <span className="d-inline-flex align-items-center gap-2">
+          <FaCog />
+          <span>Bulk Actions ({selectedCount})</span>
+        </span>
+      }
+      ariaLabel="Bulk credential actions"
+      menuWidth={260}
+    >
+      <div className="list-group list-group-flush">
+        {actions.map((action) => (
+          <button
+            key={action.key}
+            type="button"
+            className={`list-group-item list-group-item-action ${
+              action.variant === 'danger' ? 'text-danger' : ''
+            }`}
+            onClick={() => {
+              onClose();
+              action.onClick();
+            }}
+            disabled={loading || action.disabled}
+            title={action.title || ''}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        ))}
+      </div>
+    </FloatingActionMenu>
+  );
+}
+
 function ModalShell({ title, subtitle, children, footer, onClose, size = '', scrollable = false }) {
   return (
     <>
@@ -1779,14 +1827,18 @@ function VcProcessingTable({
   onToggleSelected,
   onTogglePage,
   onPage,
-  onBulkSubmit,
+  canSelectRow,
+  bulkActions,
+  bulkMenuOpen,
+  onToggleBulkMenu,
+  onCloseBulkMenu,
   getActions,
   actionMenuOpenId,
   onToggleActionMenu,
   onCloseActionMenu,
 }) {
   const selectableIds = rows
-    .filter((item) => cleanText(item.status).toLowerCase() === 'draft')
+    .filter((item) => canSelectRow(item))
     .map((item) => item._id);
   const allPageSelected =
     selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
@@ -1832,13 +1884,14 @@ function VcProcessingTable({
             <button className="btn btn-outline-secondary btn-sm flex-fill" onClick={onRefresh} disabled={loading}>
               Refresh
             </button>
-            <button
-              className="btn btn-success btn-sm flex-fill"
-              onClick={onBulkSubmit}
-              disabled={loading || selectedCount === 0}
-            >
-              Bulk Actions ({selectedCount})
-            </button>
+            <BulkActionMenu
+              actions={bulkActions}
+              selectedCount={selectedCount}
+              loading={loading}
+              isOpen={bulkMenuOpen}
+              onToggle={onToggleBulkMenu}
+              onClose={onCloseBulkMenu}
+            />
           </div>
         </div>
       }
@@ -1857,7 +1910,7 @@ function VcProcessingTable({
                   }}
                   onChange={(event) => onTogglePage(selectableIds, event.target.checked)}
                   disabled={selectableIds.length === 0}
-                  aria-label="Select visible draft credentials"
+                  aria-label="Select visible credentials"
                 />
               </th>
               <th>Student</th>
@@ -1870,7 +1923,7 @@ function VcProcessingTable({
           </thead>
           <tbody>
             {rows.map((item) => {
-              const selectable = cleanText(item.status).toLowerCase() === 'draft';
+              const selectable = canSelectRow(item);
               return (
                 <tr key={item._id}>
                   <td>
@@ -1919,7 +1972,7 @@ function VcProcessingTable({
         </table>
         <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-3">
           <div className="small text-muted">
-            Select up to {MAX_BULK_SELECTION} drafts for bulk submission.
+            Select up to {MAX_BULK_SELECTION} credentials for status-appropriate bulk actions.
           </div>
           <div className="btn-group btn-group-sm" role="group" aria-label="VC pagination">
             <button
@@ -2243,7 +2296,7 @@ function ClaimedCredentialsTable({
 
 export default function CredentialDraftsPage() {
   const auth = useMemo(() => hasValidStoredAuth(), []);
-  const currentUser = auth?.user || {};
+  const currentUser = useMemo(() => auth?.user || {}, [auth?.user]);
   const currentRole = currentUser?.role || '';
   const canSeePaymentsTab = PAYMENT_TAB_ROLES.has(currentRole);
   const canManageCredentials = MANAGE_CREDENTIAL_ROLES.has(currentRole);
@@ -2276,6 +2329,7 @@ export default function CredentialDraftsPage() {
   const [selectedVcIds, setSelectedVcIds] = useState(() => new Set());
   const [vcPage, setVcPage] = useState(1);
   const [rowActionMenuOpenId, setRowActionMenuOpenId] = useState('');
+  const [bulkActionMenuOpen, setBulkActionMenuOpen] = useState(false);
   const [claimQr, setClaimQr] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const [reasonAction, setReasonAction] = useState(null);
@@ -2380,6 +2434,10 @@ export default function CredentialDraftsPage() {
     setRowActionMenuOpenId('');
   }
 
+  function closeBulkActionMenu() {
+    setBulkActionMenuOpen(false);
+  }
+
   function toggleRowActionMenu(id) {
     setRowActionMenuOpenId((prev) => (prev === id ? '' : id));
   }
@@ -2416,11 +2474,18 @@ export default function CredentialDraftsPage() {
 
   async function refreshAfterAction(message) {
     setFeedback({ type: 'success', text: message });
-    await Promise.all([
-      loadDrafts(),
-      canSeePaymentsTab ? loadPayments() : Promise.resolve(),
-      loadAnchorSummary(),
-    ]);
+    const refreshJobs = [];
+
+    if (!cashierOnly) {
+      refreshJobs.push(loadDrafts());
+      refreshJobs.push(loadAnchorSummary());
+    }
+
+    if (canSeePaymentsTab || activeTab === 'payments') {
+      refreshJobs.push(loadPayments());
+    }
+
+    await Promise.all(refreshJobs);
   }
 
   async function openDraft(id) {
@@ -2752,6 +2817,111 @@ export default function CredentialDraftsPage() {
     });
   }
 
+  function confirmBulkDeleteSelected() {
+    const targets = selectedVcRows.filter((item) => canDeleteCredentialDraft(item));
+
+    if (!canManageCredentials) {
+      setFeedback({ type: 'warning', text: 'Only registrar users can delete drafts.' });
+      return;
+    }
+
+    if (targets.length === 0) {
+      setFeedback({ type: 'warning', text: 'Select at least one unsigned draft.' });
+      return;
+    }
+
+    setConfirmAction({
+      title: 'Delete selected drafts?',
+      subtitle: 'Only unsigned draft credentials will be deleted.',
+      details: `${targets.length} draft${targets.length === 1 ? '' : 's'} selected.`,
+      confirmLabel: 'Delete Selected',
+      variant: 'danger',
+      run: async () => {
+        for (const item of targets) {
+          setBusyId(item._id);
+          await deleteCredentialDraft(item._id);
+        }
+        setBusyId('');
+        setSelectedVcIds(new Set());
+        await refreshAfterAction(`${targets.length} draft${targets.length === 1 ? '' : 's'} deleted.`);
+      },
+    });
+  }
+
+  function confirmBulkSignSelected() {
+    const targets = selectedVcRows.filter(
+      (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
+    );
+
+    if (!canManageCredentials) {
+      setFeedback({ type: 'warning', text: 'Only registrar users can sign credentials.' });
+      return;
+    }
+
+    if (targets.length === 0) {
+      setFeedback({ type: 'warning', text: 'Select at least one signing-ready credential.' });
+      return;
+    }
+
+    const unpaidCount = targets.filter((item) => !isCredentialPaid(item)).length;
+    setConfirmAction({
+      title: unpaidCount ? 'Sign selected unpaid credentials?' : 'Sign selected credentials?',
+      subtitle: unpaidCount
+        ? `${unpaidCount} selected credential(s) are still unpaid. Continue only if this is intentional.`
+        : 'Each selected credential will be signed with the active issuer key.',
+      details: `${targets.length} credential${targets.length === 1 ? '' : 's'} selected.`,
+      confirmLabel: unpaidCount ? 'Sign Anyway' : 'Sign Selected',
+      variant: unpaidCount ? 'warning' : 'success',
+      run: async () => {
+        for (const item of targets) {
+          setBusyId(item._id);
+          await signCredentialDraft(item._id, isCredentialPaid(item) ? {} : { allowUnpaid: true });
+        }
+        setBusyId('');
+        setSelectedVcIds(new Set());
+        await refreshAfterAction(`${targets.length} credential${targets.length === 1 ? '' : 's'} signed.`);
+      },
+    });
+  }
+
+  function confirmBulkQueueAnchorSelected(mode) {
+    const targets = selectedVcRows.filter((item) => canQueueAnchor(item, currentUser));
+    const sameDay = mode === 'same_day';
+
+    if (!canManageCredentials) {
+      setFeedback({ type: 'warning', text: 'Only registrar users can schedule anchoring.' });
+      return;
+    }
+
+    if (targets.length === 0) {
+      setFeedback({ type: 'warning', text: 'Select at least one paid, signed credential.' });
+      return;
+    }
+
+    setConfirmAction({
+      title: sameDay ? 'Anchor selected today?' : 'Schedule selected for 7 days?',
+      subtitle: sameDay
+        ? 'Each selected credential will be queued for same-day anchoring.'
+        : 'Each selected credential will be queued for regular scheduled anchoring.',
+      details: `${targets.length} credential${targets.length === 1 ? '' : 's'} selected.`,
+      confirmLabel: sameDay ? 'Anchor Today' : 'Schedule 7 Days',
+      variant: 'warning',
+      run: async () => {
+        for (const item of targets) {
+          setBusyId(item._id);
+          await scheduleCredentialAnchor(item._id, { anchorMode: mode });
+        }
+        setBusyId('');
+        setSelectedVcIds(new Set());
+        await refreshAfterAction(
+          sameDay
+            ? `${targets.length} credential${targets.length === 1 ? '' : 's'} queued for today.`
+            : `${targets.length} credential${targets.length === 1 ? '' : 's'} scheduled for 7 days.`
+        );
+      },
+    });
+  }
+
   function viewQueueCredential(id) {
     setQueueModalOpen(false);
     openDraft(id);
@@ -2899,6 +3069,18 @@ export default function CredentialDraftsPage() {
     return actions;
   }
 
+  const canBulkSelectCredential = useCallback((item) => {
+    if (!canManageCredentials) return false;
+
+    const status = cleanText(item?.status).toLowerCase();
+    return (
+      status === 'draft' ||
+      status === 'for_signature' ||
+      canDeleteCredentialDraft(item) ||
+      canQueueAnchor(item, currentUser)
+    );
+  }, [canManageCredentials, currentUser]);
+
   const tabs = cashierOnly
     ? [{ key: 'payments', label: 'Payments' }]
     : [
@@ -2914,7 +3096,7 @@ export default function CredentialDraftsPage() {
       rows.filter((item) => {
         const status = cleanText(item.status).toLowerCase();
         const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
-        const isIntakeStatus = ['draft', 'signed', 'claim_ready'].includes(status);
+        const isIntakeStatus = ['draft', 'for_signature', 'signed', 'claim_ready'].includes(status);
         const isAlreadyQueued = ['queued', 'anchored'].includes(anchorStatus);
 
         return (
@@ -2938,19 +3120,70 @@ export default function CredentialDraftsPage() {
     () => vcRows.filter((item) => selectedVcIds.has(item._id)),
     [selectedVcIds, vcRows]
   );
+  const selectedDraftCount = selectedVcRows.filter(
+    (item) => cleanText(item.status).toLowerCase() === 'draft'
+  ).length;
+  const selectedDeletableCount = selectedVcRows.filter((item) => canDeleteCredentialDraft(item)).length;
+  const selectedSigningCount = selectedVcRows.filter(
+    (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
+  ).length;
+  const selectedAnchorableCount = selectedVcRows.filter((item) => canQueueAnchor(item, currentUser)).length;
+  const bulkActions = [
+    {
+      key: 'submit-selected',
+      label: `Submit drafts${selectedDraftCount ? ` (${selectedDraftCount})` : ''}`,
+      icon: <FaPaperPlane />,
+      onClick: confirmBulkSubmitSelected,
+      disabled: selectedDraftCount === 0,
+      title: selectedDraftCount ? '' : 'Select draft credentials to submit.',
+    },
+    {
+      key: 'delete-selected',
+      label: `Delete drafts${selectedDeletableCount ? ` (${selectedDeletableCount})` : ''}`,
+      icon: <FaTrash />,
+      variant: 'danger',
+      onClick: confirmBulkDeleteSelected,
+      disabled: selectedDeletableCount === 0,
+      title: selectedDeletableCount ? '' : 'Select unsigned drafts to delete.',
+    },
+    {
+      key: 'sign-selected',
+      label: `Sign ready${selectedSigningCount ? ` (${selectedSigningCount})` : ''}`,
+      icon: <FaSignature />,
+      onClick: confirmBulkSignSelected,
+      disabled: selectedSigningCount === 0,
+      title: selectedSigningCount ? '' : 'Use the Signing tab for signing-ready credentials.',
+    },
+    {
+      key: 'anchor-selected-today',
+      label: `Anchor today${selectedAnchorableCount ? ` (${selectedAnchorableCount})` : ''}`,
+      icon: <FaCalendarDay />,
+      onClick: () => confirmBulkQueueAnchorSelected('same_day'),
+      disabled: selectedAnchorableCount === 0,
+      title: selectedAnchorableCount ? '' : 'Select paid, signed credentials to anchor.',
+    },
+    {
+      key: 'anchor-selected-scheduled',
+      label: `Schedule 7 days${selectedAnchorableCount ? ` (${selectedAnchorableCount})` : ''}`,
+      icon: <FaCalendarAlt />,
+      onClick: () => confirmBulkQueueAnchorSelected('scheduled'),
+      disabled: selectedAnchorableCount === 0,
+      title: selectedAnchorableCount ? '' : 'Select paid, signed credentials to schedule.',
+    },
+  ];
 
   useEffect(() => {
     setVcPage((current) => Math.min(Math.max(current, 1), vcPageCount));
   }, [vcPageCount]);
 
   useEffect(() => {
-    const visibleIds = new Set(vcRows.map((item) => item._id));
+    const visibleIds = new Set(vcRows.filter(canBulkSelectCredential).map((item) => item._id));
     setSelectedVcIds((prev) => {
       const next = new Set([...prev].filter((id) => visibleIds.has(id)));
       if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
       return next;
     });
-  }, [vcRows]);
+  }, [canBulkSelectCredential, vcRows]);
 
   const signingRows = useMemo(
     () =>
@@ -3067,7 +3300,11 @@ export default function CredentialDraftsPage() {
             onToggleSelected={toggleVcSelection}
             onTogglePage={toggleVcPageSelection}
             onPage={setVcPage}
-            onBulkSubmit={confirmBulkSubmitSelected}
+            canSelectRow={canBulkSelectCredential}
+            bulkActions={bulkActions}
+            bulkMenuOpen={bulkActionMenuOpen}
+            onToggleBulkMenu={() => setBulkActionMenuOpen((value) => !value)}
+            onCloseBulkMenu={closeBulkActionMenu}
             getActions={buildDraftActions}
             actionMenuOpenId={rowActionMenuOpenId}
             onToggleActionMenu={toggleRowActionMenu}

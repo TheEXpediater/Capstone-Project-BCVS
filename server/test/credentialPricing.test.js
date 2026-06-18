@@ -34,6 +34,20 @@ test('credential pricing adds PHP 20 for Anchor Now priority queue requests', ()
   assert.equal(pricing.amount, 170);
 });
 
+test('blank client amount does not break Anchor Now default pricing', () => {
+  const pricing = buildCredentialPricing({
+    anchorMode: 'anchor_now',
+    anchorNow: true,
+    amount: '',
+    totalAmount: undefined,
+  });
+
+  assert.equal(pricing.anchorMode, 'anchor_now');
+  assert.equal(pricing.anchorNow, true);
+  assert.equal(pricing.totalAmount, 170);
+  assert.equal(pricing.amount, 170);
+});
+
 test('authorized staff can override the final payable amount with a positive value', () => {
   const pricing = buildCredentialPricing({ anchorMode: 'anchor_now', amount: '175.50' });
 

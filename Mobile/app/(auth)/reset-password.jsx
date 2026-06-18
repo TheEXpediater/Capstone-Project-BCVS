@@ -19,7 +19,14 @@ export default function ResetPasswordScreen() {
 
   async function sendCode() {
     try {
-      await requestOtp(email.trim().toLowerCase());
+      const result = await requestOtp(email.trim().toLowerCase());
+      if (result?.emailDisabled || result?.success === false) {
+        Alert.alert(
+          'Email OTP disabled',
+          result?.message || 'Password reset by email is currently disabled. Please contact the registrar or MIS.'
+        );
+        return;
+      }
       setStep('code');
     } catch (error) {
       Alert.alert('Could not send code', error.message);

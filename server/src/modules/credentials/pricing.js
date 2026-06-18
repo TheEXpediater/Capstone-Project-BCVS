@@ -22,7 +22,11 @@ export function normalizeAnchorMode(value, options = {}) {
 }
 
 export function normalizePaymentAmount(value, fallback = null) {
-  const raw = value ?? fallback;
+  const hasExplicitValue =
+    value !== undefined &&
+    value !== null &&
+    !(typeof value === 'string' && value.trim() === '');
+  const raw = hasExplicitValue ? value : fallback;
   const amount = Number(raw);
 
   if (!Number.isFinite(amount)) {

@@ -53,6 +53,14 @@ function uniqueById(items) {
   });
 }
 
+export function isUsefulNotification(item) {
+  const title = String(item?.title || '').trim();
+  const body = String(item?.body || item?.message || item?.desc || '').trim();
+  const request = item?.data?.request || item?.request || item?.credentialRequest || null;
+
+  return Boolean(title || body || request);
+}
+
 export function normalizeHistoryItem(item, source = 'remote') {
   const data = item?.data || item?.meta || item?.payload || {};
   const request = data?.request || item?.request || item?.credentialRequest || {};
@@ -67,7 +75,7 @@ export function normalizeHistoryItem(item, source = 'remote') {
       request?.created_at
     )
   );
-  const type = firstValue(item?.type, data?.type, request?.type, 'activity');
+  const type = firstValue(item?.type, data?.type, request?.type, 'unknown');
   const id = String(
     firstValue(
       item?.id,
@@ -86,7 +94,7 @@ export function normalizeHistoryItem(item, source = 'remote') {
   return {
     ...item,
     id,
-    title: firstValue(item?.title, data?.title, request?.title, 'Activity'),
+    title: firstValue(item?.title, data?.title, request?.title, ''),
     body: firstValue(item?.body, item?.desc, item?.message, data?.body, data?.message, ''),
     type,
     data: {
@@ -196,10 +204,14 @@ export async function filterDeletedNotifications(items = []) {
 
 export async function getLocalHistory() {
   const rows = await readJson(STORAGE_KEYS.NOTIFICATIONS, []);
-  return Array.isArray(rows) ? rows.map((item) => normalizeHistoryItem(item, 'local')) : [];
+  return Array.isArray(rows)
+    ? rows.map((item) => normalizeHistoryItem(item, 'local')).filter(isUsefulNotification)
+    : [];
 }
 
 export async function saveLocalEvent(event) {
+  if (!isUsefulNotification(event)) return null;
+
   const current = await getLocalHistory();
   const normalized = normalizeHistoryItem(
     {
@@ -212,6 +224,7 @@ export async function saveLocalEvent(event) {
     },
     'local'
   );
+  if (!isUsefulNotification(normalized)) return null;
   const next = [normalized, ...current.filter((item) => item.id !== normalized.id)].slice(
     0,
     MAX_LOCAL_HISTORY
@@ -238,7 +251,7 @@ export async function fetchHistory() {
         uniqueById([
           ...remote.map((item) => normalizeHistoryItem(item, 'remote')),
           ...local
-        ])
+        ]).filter(isUsefulNotification)
       )
     );
   } catch {
@@ -294,7 +307,7 @@ export function notificationToEvent(notification) {
   const content = notification?.request?.content || {};
   return {
     id: notification?.request?.identifier,
-    title: content.title || 'Notification',
+    title: content.title || '',
     body: content.body || '',
     type: content.data?.type || 'push',
     data: content.data || {},

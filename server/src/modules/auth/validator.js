@@ -42,6 +42,18 @@ export const mobileRegisterSchema = Joi.object({
   email,
   password,
   studentId: Joi.string().trim().max(100).optional().allow('', null),
+  contactNo: optionalString.optional(),
+  address: optionalString.optional(),
+  addressLine: optionalString.optional(),
+  cityMunicipality: optionalString.optional(),
+  province: optionalString.optional(),
+  program: optionalString.optional(),
+  yearGraduated: Joi.string().trim().max(20).optional().allow('', null),
+  graduationStatus: Joi.string()
+    .trim()
+    .valid('graduated', 'not_graduated_yet', 'pending', '')
+    .optional()
+    .allow('', null),
 });
 
 export const createMobileUserSchema = Joi.object({

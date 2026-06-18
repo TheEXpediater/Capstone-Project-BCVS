@@ -67,7 +67,8 @@ export const useAppStore = create((set, get) => ({
   },
 
   async bootstrap() {
-    const { token, sessionId, user } = await loadSession();
+    const { token, sessionId, user: savedUser } = await loadSession();
+    let user = savedUser;
     const localCredentials = await vcService.listCredentials();
     let credentials = localCredentials;
     let credentialRequests = [];
@@ -77,6 +78,14 @@ export const useAppStore = create((set, get) => ({
         credentials = await vcService.syncFromBackend();
       } catch {
         credentials = localCredentials;
+      }
+
+      try {
+        const freshUser = await authService.fetchMe();
+        await saveSession({ token, sessionId, user: freshUser });
+        user = freshUser;
+      } catch {
+        // Keep the saved profile when the API is temporarily unavailable.
       }
 
       try {
@@ -154,6 +163,7 @@ export const useAppStore = create((set, get) => ({
       error: ''
     });
 
+    get().refreshAccount().catch(() => {});
     get().loadCredentials({ sync: true }).catch(() => {});
     get().loadNotifications().catch(() => {});
 
@@ -374,6 +384,7 @@ export const useAppStore = create((set, get) => ({
 
   async addActivity(event) {
     const saved = await notificationService.saveLocalEvent(event);
+    if (!saved) return null;
     const notifications = [saved, ...get().notifications.filter((item) => item.id !== saved.id)];
     set({ notifications });
     return saved;

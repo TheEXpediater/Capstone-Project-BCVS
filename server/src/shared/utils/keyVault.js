@@ -25,6 +25,42 @@ export function encryptPrivateKey(privateKeyPem) {
   };
 }
 
+export function encryptSecret(value) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGORITHM, getMasterKey(), iv);
+  const encrypted = Buffer.concat([
+    cipher.update(String(value || ''), 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return {
+    ciphertext: encrypted.toString('base64'),
+    iv: iv.toString('base64'),
+    authTag: authTag.toString('base64'),
+  };
+}
+
+export function decryptSecret({ ciphertext, iv, authTag }) {
+  if (!ciphertext || !iv || !authTag) {
+    throw new Error('Encrypted secret payload is incomplete. Missing ciphertext, iv, or authTag.');
+  }
+
+  const decipher = crypto.createDecipheriv(
+    ALGORITHM,
+    getMasterKey(),
+    Buffer.from(iv, 'base64')
+  );
+  decipher.setAuthTag(Buffer.from(authTag, 'base64'));
+
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(ciphertext, 'base64')),
+    decipher.final(),
+  ]);
+
+  return decrypted.toString('utf8');
+}
+
 export function decryptPrivateKey({ ciphertext, iv, authTag }) {
   if (!ciphertext || !iv || !authTag) {
     throw new Error(

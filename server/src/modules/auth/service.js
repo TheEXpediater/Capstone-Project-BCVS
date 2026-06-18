@@ -6,6 +6,7 @@ import { signAccessToken } from '../../shared/utils/jwt.js';
 import { getRoleModel } from './role.model.js';
 import { getUserModel } from './user.model.js';
 import { getSessionModel } from './session.model.js';
+import { getEmailOtpStatus } from '../settings/setting.service.js';
 
 const DEFAULT_ROLES = [
   {
@@ -85,6 +86,14 @@ function sanitizeUser(user) {
     return {
       ...baseUser,
       studentId: user.studentId || '',
+      contactNo: user.contactNo || '',
+      address: user.address || '',
+      addressLine: user.addressLine || '',
+      cityMunicipality: user.cityMunicipality || '',
+      province: user.province || '',
+      program: user.program || '',
+      yearGraduated: user.yearGraduated || '',
+      graduationStatus: user.graduationStatus || '',
       verified:
         user.verified === true || String(user.verified || '').toLowerCase() === 'true'
           ? 'verified'
@@ -366,6 +375,14 @@ export async function registerMobile(payload, req) {
     email: payload.email.toLowerCase(),
     password: passwordHash,
     studentId: payload.studentId || '',
+    contactNo: payload.contactNo || '',
+    address: payload.address || '',
+    addressLine: payload.addressLine || '',
+    cityMunicipality: payload.cityMunicipality || '',
+    province: payload.province || '',
+    program: payload.program || '',
+    yearGraduated: payload.yearGraduated || '',
+    graduationStatus: payload.graduationStatus || '',
     verified: 'unverified',
     isActive: true,
   });
@@ -408,6 +425,82 @@ export async function loginWeb(payload, req) {
 
 export async function loginMobile(payload, req) {
   return loginByKind('mobile', payload, req);
+}
+
+export async function requestMobileEmailOtp(payload = {}) {
+  const email = cleanString(payload.email).toLowerCase();
+  if (!email) throw new ApiError(400, 'Email is required');
+
+  const status = await getEmailOtpStatus();
+  if (!status.enabled) {
+    return {
+      success: true,
+      emailDisabled: true,
+      bypassAllowed: true,
+      message: 'Email OTP is currently disabled by MIS.',
+    };
+  }
+
+  if (!status.configured) {
+    throw new ApiError(409, 'Email OTP is enabled but the email provider is not configured by MIS.');
+  }
+
+  throw new ApiError(501, 'Email OTP delivery is not available yet. Ask MIS to disable OTP for capstone testing or finish provider setup.');
+}
+
+export async function verifyMobileEmailOtp(payload = {}) {
+  const email = cleanString(payload.email).toLowerCase();
+  if (!email) throw new ApiError(400, 'Email is required');
+
+  const status = await getEmailOtpStatus();
+  if (!status.enabled) {
+    return {
+      success: true,
+      verified: true,
+      emailDisabled: true,
+      message: 'Email OTP is currently disabled by MIS.',
+    };
+  }
+
+  throw new ApiError(400, 'Email OTP verification requires a delivered code.');
+}
+
+export async function requestMobilePasswordResetOtp(payload = {}) {
+  const email = cleanString(payload.email).toLowerCase();
+  if (!email) throw new ApiError(400, 'Email is required');
+
+  const status = await getEmailOtpStatus();
+  if (!status.enabled) {
+    return {
+      success: false,
+      emailDisabled: true,
+      message: 'Email OTP is currently disabled by MIS. Please contact the registrar or MIS.',
+    };
+  }
+
+  if (!status.configured) {
+    throw new ApiError(409, 'Password reset email is enabled but the email provider is not configured by MIS.');
+  }
+
+  throw new ApiError(501, 'Password reset email delivery is not available yet.');
+}
+
+export async function verifyMobilePasswordResetOtp() {
+  const status = await getEmailOtpStatus();
+  if (!status.enabled) {
+    throw new ApiError(409, 'Email OTP is currently disabled by MIS. Please contact the registrar or MIS.');
+  }
+
+  throw new ApiError(400, 'Password reset OTP verification requires a delivered code.');
+}
+
+export async function resetMobilePassword() {
+  const status = await getEmailOtpStatus();
+  if (!status.enabled) {
+    throw new ApiError(409, 'Email OTP is currently disabled by MIS. Please contact the registrar or MIS.');
+  }
+
+  throw new ApiError(400, 'Password reset requires a verified reset session.');
 }
 
 export async function getMe(userId) {

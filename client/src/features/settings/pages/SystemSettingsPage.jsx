@@ -11,6 +11,7 @@ import {
   updateActiveContract,
   updateAdminPermissions,
   updateBusinessSettings,
+  updateEmailSettings,
   updateIssuerKey,
   updateNetworkSettings,
   updateSystemLocks,
@@ -85,6 +86,17 @@ const EMPTY_SETTINGS = {
     webPort: 5173,
     qrPairingEnabled: true,
   },
+  emailOtp: {
+    enabled: false,
+    provider: '',
+    senderEmail: '',
+    senderName: '',
+    smtpHost: '',
+    smtpPort: '',
+    smtpSecure: true,
+    secretConfigured: false,
+    secretMasked: '',
+  },
 };
 
 const EMPTY_WALLET = {
@@ -107,6 +119,8 @@ const EMPTY_ACCESS = {
   canViewIssuerKeys: false,
   canManageIssuerKeys: false,
   canManageActiveContract: false,
+  canViewEmailSettings: false,
+  canManageEmailSettings: false,
 };
 
 function formatDate(value) {
@@ -404,6 +418,7 @@ export default function SystemSettingsPage() {
   const [networkBusy, setNetworkBusy] = useState(false);
   const [networkTest, setNetworkTest] = useState({ status: 'idle', message: '' });
   const [qrDataUrl, setQrDataUrl] = useState('');
+  const [emailSecret, setEmailSecret] = useState('');
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
     activate: true,
@@ -724,6 +739,33 @@ export default function SystemSettingsPage() {
         setNetworkInfo(network);
         setNetworkQrConfig(networkQr);
         setFeedback({ type: 'success', text: 'Network settings saved.' });
+      },
+    });
+  }
+
+  function confirmSaveEmail() {
+    setConfirmAction({
+      title: 'Save email OTP settings?',
+      body: settings.emailOtp?.enabled
+        ? 'Email OTP will require configured provider details. Secret values are encrypted and never returned.'
+        : 'Registration will use the MIS-controlled OTP disabled flow for capstone testing.',
+      confirmLabel: 'Save Email Settings',
+      run: async () => {
+        const updated = await updateEmailSettings({
+          emailOtp: {
+            ...settings.emailOtp,
+            secret: emailSecret,
+          },
+        });
+        setSettings((prev) => ({
+          ...prev,
+          emailOtp: {
+            ...(prev.emailOtp || {}),
+            ...updated,
+          },
+        }));
+        setEmailSecret('');
+        setFeedback({ type: 'success', text: 'Email OTP settings saved.' });
       },
     });
   }
@@ -1186,6 +1228,141 @@ export default function SystemSettingsPage() {
           ) : (
             <div className="alert alert-light border mt-4 mb-0">
               Business rules are read only for your role.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderEmailSettings() {
+    const emailOtp = {
+      ...EMPTY_SETTINGS.emailOtp,
+      ...(settings.emailOtp || {}),
+    };
+    const canEdit = access.canManageEmailSettings;
+
+    return (
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+            <div>
+              <h2 className="h5 mb-1">Email / OTP</h2>
+              <p className="text-muted mb-0">
+                Control whether mobile registration requires delivered email OTP codes.
+              </p>
+            </div>
+            <span className={`badge ${emailOtp.enabled ? 'text-bg-success' : 'text-bg-secondary'}`}>
+              {emailOtp.enabled ? 'Enabled' : 'Disabled by MIS'}
+            </span>
+          </div>
+
+          <div className="alert alert-light border">
+            {emailOtp.enabled
+              ? 'When enabled, provider details must be configured before mobile users can request OTP codes.'
+              : 'When disabled, the mobile app will show a clear MIS-disabled message and allow capstone registration to continue.'}
+          </div>
+
+          <div className="row g-3">
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">Email OTP</label>
+              <select
+                className="form-select"
+                value={emailOtp.enabled ? 'enabled' : 'disabled'}
+                disabled={!canEdit}
+                onChange={(event) => updateNested('emailOtp', 'enabled', event.target.value === 'enabled')}
+              >
+                <option value="disabled">Disabled by MIS</option>
+                <option value="enabled">Enabled</option>
+              </select>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">Provider</label>
+              <select
+                className="form-select"
+                value={emailOtp.provider || ''}
+                disabled={!canEdit}
+                onChange={(event) => updateNested('emailOtp', 'provider', event.target.value)}
+              >
+                <option value="">Choose provider</option>
+                <option value="smtp">SMTP</option>
+                <option value="api">API provider</option>
+              </select>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">Secret</label>
+              <input
+                className="form-control"
+                value={emailSecret}
+                disabled={!canEdit}
+                type="password"
+                placeholder={emailOtp.secretMasked || (emailOtp.secretConfigured ? 'Configured' : 'API key or SMTP password')}
+                onChange={(event) => setEmailSecret(event.target.value)}
+              />
+              <div className="form-text">Leave blank to keep the current encrypted secret.</div>
+            </div>
+            <div className="col-md-6">
+              <label className="form-label fw-semibold">Sender Email</label>
+              <input
+                className="form-control"
+                value={emailOtp.senderEmail || ''}
+                disabled={!canEdit}
+                placeholder="registrar@psau.edu.ph"
+                onChange={(event) => updateNested('emailOtp', 'senderEmail', event.target.value)}
+              />
+            </div>
+            <div className="col-md-6">
+              <label className="form-label fw-semibold">Sender Name</label>
+              <input
+                className="form-control"
+                value={emailOtp.senderName || ''}
+                disabled={!canEdit}
+                placeholder="PSAU Registrar"
+                onChange={(event) => updateNested('emailOtp', 'senderName', event.target.value)}
+              />
+            </div>
+            <div className="col-md-5">
+              <label className="form-label fw-semibold">SMTP Host</label>
+              <input
+                className="form-control"
+                value={emailOtp.smtpHost || ''}
+                disabled={!canEdit}
+                placeholder="smtp.example.com"
+                onChange={(event) => updateNested('emailOtp', 'smtpHost', event.target.value)}
+              />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label fw-semibold">SMTP Port</label>
+              <input
+                type="number"
+                className="form-control"
+                value={emailOtp.smtpPort || ''}
+                disabled={!canEdit}
+                placeholder="465"
+                onChange={(event) => updateNested('emailOtp', 'smtpPort', event.target.value)}
+              />
+            </div>
+            <div className="col-md-4 d-flex align-items-end">
+              <label className="form-check form-switch d-flex align-items-center gap-2 mb-2">
+                <Toggle
+                  checked={emailOtp.smtpSecure}
+                  disabled={!canEdit}
+                  onChange={(value) => updateNested('emailOtp', 'smtpSecure', value)}
+                />
+                <span className="fw-semibold">Use TLS / SSL</span>
+              </label>
+            </div>
+          </div>
+
+          {canEdit ? (
+            <div className="mt-4 d-flex justify-content-end">
+              <button className="btn btn-primary" onClick={confirmSaveEmail}>
+                Save Email Settings
+              </button>
+            </div>
+          ) : (
+            <div className="alert alert-light border mt-4 mb-0">
+              Email OTP settings are read only for your role.
             </div>
           )}
         </div>
@@ -1767,6 +1944,12 @@ export default function SystemSettingsPage() {
   function renderAdvanced() {
     const panels = [
       { key: 'permissions', title: 'Permissions', visible: true, render: renderPermissions },
+      {
+        key: 'email',
+        title: 'Email / OTP',
+        visible: access.canViewEmailSettings,
+        render: renderEmailSettings,
+      },
       {
         key: 'issuer-keys',
         title: 'Issuer Key Vault',

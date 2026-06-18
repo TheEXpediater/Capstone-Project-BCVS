@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -35,6 +35,43 @@ export default function LoginScreen() {
   const [promptVisible, setPromptVisible] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [canUseBiometricLogin, setCanUseBiometricLogin] = useState(false);
+  const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [enableBiometricNext, setEnableBiometricNext] = useState(false);
+  const autoPromptedRef = useRef(false);
+
+  const runBiometricLogin = useCallback(async () => {
+    try {
+      setBiometricBusy(true);
+
+      const { token, user } = await loadSession();
+      if (!token || !user) {
+        setCanUseBiometricLogin(false);
+        Alert.alert('No saved session', 'Sign in with your password first.');
+        return;
+      }
+
+      if (!(await hasUsableBiometrics())) {
+        setCanUseBiometricLogin(false);
+        Alert.alert('Biometrics unavailable', 'Biometrics are not available on this device.');
+        return;
+      }
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Unlock CredPocket',
+        cancelLabel: 'Cancel',
+        disableDeviceFallback: false
+      });
+
+      if (!result.success) return;
+
+      await restoreSavedSession();
+      router.replace('/(tabs)/home');
+    } catch (error) {
+      Alert.alert('Biometric login failed', error.message || 'Please sign in with your password.');
+    } finally {
+      setBiometricBusy(false);
+    }
+  }, [restoreSavedSession]);
 
   useEffect(() => {
     let active = true;
@@ -48,9 +85,19 @@ export default function LoginScreen() {
         ]);
 
         if (!active) return;
+        setBiometricsAvailable(Boolean(available));
         setCanUseBiometricLogin(Boolean(enabled && available && session?.token && session?.user));
+        if (enabled && available && session?.token && session?.user && !autoPromptedRef.current) {
+          autoPromptedRef.current = true;
+          setTimeout(() => {
+            if (active) runBiometricLogin();
+          }, 300);
+        }
       } catch {
-        if (active) setCanUseBiometricLogin(false);
+        if (active) {
+          setBiometricsAvailable(false);
+          setCanUseBiometricLogin(false);
+        }
       }
     }
 
@@ -59,7 +106,7 @@ export default function LoginScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [runBiometricLogin]);
 
   async function shouldPromptForBiometrics() {
     const [available, prompted, enabled] = await Promise.all([
@@ -84,6 +131,10 @@ export default function LoginScreen() {
 
     try {
       await login({ email: email.trim().toLowerCase(), password });
+      if (enableBiometricNext && biometricsAvailable) {
+        await enableBiometricsFromLoginChoice();
+        return;
+      }
       if (await shouldPromptForBiometrics()) {
         setPromptVisible(true);
         return;
@@ -92,6 +143,31 @@ export default function LoginScreen() {
       goHome();
     } catch (error) {
       Alert.alert('Login failed', error.message);
+    }
+  }
+
+  async function enableBiometricsFromLoginChoice() {
+    try {
+      setBiometricBusy(true);
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Enable biometric login',
+        cancelLabel: 'Not now',
+        disableDeviceFallback: false
+      });
+
+      if (result.success) {
+        await setBiometricsEnabled(true);
+        await setBiometricsPrompted(true);
+      } else {
+        await setBiometricsPrompted(true);
+        Alert.alert('Biometrics not enabled', 'You can enable it later in Settings.');
+      }
+    } catch {
+      await setBiometricsPrompted(true);
+      Alert.alert('Biometrics not enabled', 'You can enable it later in Settings.');
+    } finally {
+      setBiometricBusy(false);
+      goHome();
     }
   }
 
@@ -128,40 +204,6 @@ export default function LoginScreen() {
     goHome();
   }
 
-  async function useBiometrics() {
-    try {
-      setBiometricBusy(true);
-
-      const { token, user } = await loadSession();
-      if (!token || !user) {
-        setCanUseBiometricLogin(false);
-        Alert.alert('No saved session', 'Sign in with your password first.');
-        return;
-      }
-
-      if (!(await hasUsableBiometrics())) {
-        setCanUseBiometricLogin(false);
-        Alert.alert('Biometrics unavailable', 'Biometrics are not available on this device.');
-        return;
-      }
-
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock CredPocket',
-        cancelLabel: 'Cancel',
-        disableDeviceFallback: false
-      });
-
-      if (!result.success) return;
-
-      await restoreSavedSession();
-      router.replace('/(tabs)/home');
-    } catch (error) {
-      Alert.alert('Biometric login failed', error.message || 'Please sign in with your password.');
-    } finally {
-      setBiometricBusy(false);
-    }
-  }
-
   return (
     <Screen>
       <View style={styles.center}>
@@ -185,10 +227,24 @@ export default function LoginScreen() {
           />
           <Button title="Login" loading={loading} onPress={submit} />
 
+          {biometricsAvailable && !canUseBiometricLogin ? (
+            <Pressable
+              style={styles.checkRow}
+              onPress={() => setEnableBiometricNext((value) => !value)}
+            >
+              <Ionicons
+                name={enableBiometricNext ? 'checkbox' : 'square-outline'}
+                size={22}
+                color={enableBiometricNext ? colors.primary : colors.muted}
+              />
+              <Text style={styles.checkText}>Use biometric login next time</Text>
+            </Pressable>
+          ) : null}
+
           {canUseBiometricLogin ? (
             <Pressable
               disabled={biometricBusy}
-              onPress={useBiometrics}
+              onPress={runBiometricLogin}
               style={[styles.biometricButton, biometricBusy && styles.biometricButtonDisabled]}
             >
               <Ionicons name="finger-print-outline" size={20} color={colors.primary} />
@@ -254,6 +310,16 @@ const styles = StyleSheet.create({
   biometricText: {
     color: colors.primary,
     fontWeight: '900'
+  },
+  checkRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm
+  },
+  checkText: {
+    color: colors.text,
+    fontWeight: '800'
   },
   link: {
     color: colors.primary,

@@ -19,7 +19,14 @@ export async function login({ email, password }) {
     const { data } = await api.post(ENDPOINTS.auth.login, { email, password });
     const session = normalizeAuthResponse(data);
     await saveSession(session);
-    return session;
+    try {
+      const freshUser = await fetchMe();
+      const freshSession = { ...session, user: freshUser };
+      await saveSession(freshSession);
+      return freshSession;
+    } catch {
+      return session;
+    }
   } catch (error) {
     throw new Error(apiErrorMessage(error, 'Login failed'));
   }
@@ -32,6 +39,9 @@ export async function register({
   password,
   studentId,
   address,
+  addressLine,
+  cityMunicipality,
+  province,
   program,
   yearGraduated,
   graduationStatus,
@@ -45,6 +55,9 @@ export async function register({
       password,
       studentId: studentId || '',
       address: address || '',
+      addressLine: addressLine || '',
+      cityMunicipality: cityMunicipality || '',
+      province: province || '',
       program: program || '',
       yearGraduated: yearGraduated || '',
       graduationStatus: graduationStatus || '',

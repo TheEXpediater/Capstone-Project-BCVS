@@ -10,6 +10,7 @@ import {
   updateActiveContract,
   updateAdminPermissions,
   updateBusinessSettings,
+  updateEmailSettings,
   updateIssuerKey,
   updateNetworkSettings,
   updateSystemLocks,
@@ -30,6 +31,7 @@ router.put('/blockchain/active-contract', protect({ kind: 'web' }), allowRoles('
 
 router.put('/business', protect({ kind: 'web' }), allowRoles('super_admin'), updateBusinessSettings);
 router.put('/network', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), updateNetworkSettings);
+router.put('/email', protect({ kind: 'web' }), allowRoles('super_admin', 'developer'), updateEmailSettings);
 router.put('/locks', protect({ kind: 'web' }), allowRoles('developer'), updateSystemLocks);
 router.put('/admin-permissions/:userId', protect({ kind: 'web' }), allowRoles('developer'), updateAdminPermissions);
 

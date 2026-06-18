@@ -979,10 +979,11 @@ function StudentActionMenu({
   );
 }
 
-function ConfirmActionModal({ action, busy, onCancel, onConfirm }) {
+function ConfirmActionModal({ action, busy, onCancel, onConfirm, onCredentialTypeChange }) {
   if (!action) return null;
 
   const isDelete = action.type === 'deleteStudent';
+  const isCreateVcDraft = action.type === 'createVcDraft';
   const title = isDelete ? 'Delete student record?' : 'Create VC draft?';
   const message = isDelete
     ? `This will delete ${action.student?.studentName || 'this student'} and all imported grade rows linked to this student. This cannot be undone.`
@@ -1002,14 +1003,34 @@ function ConfirmActionModal({ action, busy, onCancel, onConfirm }) {
             <div className="modal-body">
               <p className="mb-2">{message}</p>
               {action.student?.studentNo ? (
-                <div className="alert alert-light border mb-0 small">
+                <div className="alert alert-light border mb-3 small">
                   Student No: <strong>{action.student.studentNo}</strong>
+                </div>
+              ) : null}
+              {isCreateVcDraft ? (
+                <div>
+                  <label className="form-label fw-semibold">Credential Type</label>
+                  <select
+                    className="form-select"
+                    value={action.credentialType || ''}
+                    onChange={(event) => onCredentialTypeChange(event.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">Choose credential type</option>
+                    <option value="diploma">Diploma</option>
+                    <option value="tor">TOR</option>
+                  </select>
+                  <div className="form-text">New VC drafts require an explicit type.</div>
                 </div>
               ) : null}
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-              <button className={`btn ${buttonClass}`} onClick={onConfirm} disabled={busy}>
+              <button
+                className={`btn ${buttonClass}`}
+                onClick={onConfirm}
+                disabled={busy || (isCreateVcDraft && !action.credentialType)}
+              >
                 {busy ? 'Processing...' : confirmText}
               </button>
             </div>
@@ -1543,7 +1564,7 @@ export default function StudentImportManagerPage() {
   }
 
   function requestCreateVcDraft(student) {
-    setConfirmAction({ type: 'createVcDraft', student });
+    setConfirmAction({ type: 'createVcDraft', student, credentialType: '' });
   }
 
   function requestDeleteStudent(student) {
@@ -1573,9 +1594,18 @@ export default function StudentImportManagerPage() {
         return;
       }
 
+      if (confirmAction.type === 'createVcDraft' && !confirmAction.credentialType) {
+        setFeedback({
+          type: 'warning',
+          text: 'Choose Diploma or TOR before creating a VC draft.',
+          issues: [],
+        });
+        return;
+      }
+
       setCreatingVcDraftId(confirmAction.student._id);
       const data = await createCredentialDraftFromStudent(confirmAction.student._id, {
-        credentialType: 'student_record',
+        credentialType: confirmAction.credentialType,
         notes: '',
       });
 
@@ -1824,6 +1854,9 @@ export default function StudentImportManagerPage() {
         busy={busyAction}
         onCancel={() => setConfirmAction(null)}
         onConfirm={runConfirmedAction}
+        onCredentialTypeChange={(credentialType) =>
+          setConfirmAction((prev) => (prev ? { ...prev, credentialType } : prev))
+        }
       />
     </>
   );

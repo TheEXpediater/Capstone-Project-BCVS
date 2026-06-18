@@ -44,6 +44,11 @@ export async function updateNetworkSettings(payload) {
   return response.data.data;
 }
 
+export async function updateEmailSettings(payload) {
+  const response = await api.put('/settings/email', payload);
+  return response.data.data;
+}
+
 export async function saveNetworkSettings(payload) {
   return updateNetworkSettings(payload);
 }

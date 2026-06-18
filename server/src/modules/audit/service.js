@@ -19,6 +19,20 @@ const SENSITIVE_KEYS = [
   'auth_tag',
   'iv',
   'keyEncryptionSecret',
+  'idFront',
+  'idBack',
+  'validIdFront',
+  'validIdBack',
+  'idFrontUrl',
+  'idBackUrl',
+  'validIdFrontUrl',
+  'validIdBackUrl',
+  'selfie',
+  'selfieUrl',
+  'livenessImage',
+  'livenessImageUrl',
+  'imageBase64',
+  'dataUri',
 ];
 
 function cleanString(value, fallback = '') {

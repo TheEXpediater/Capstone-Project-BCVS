@@ -10,6 +10,11 @@ import {
   loginWeb,
   logout,
   registerMobile,
+  requestMobileEmailOtp,
+  requestMobilePasswordResetOtp,
+  resetMobilePassword,
+  verifyMobileEmailOtp,
+  verifyMobilePasswordResetOtp,
 } from './controller.js';
 import { validate } from '../../shared/middleware/validate.middleware.js';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
@@ -34,6 +39,11 @@ router.post('/mobile/users', protect({ kind: 'web' }), allowRoles('super_admin',
 
 router.post('/mobile/register', validate(mobileRegisterSchema), registerMobile);
 router.post('/mobile/login', validate(mobileLoginSchema), loginMobile);
+router.post('/mobile/otp/request', requestMobileEmailOtp);
+router.post('/mobile/otp/verify', verifyMobileEmailOtp);
+router.post('/mobile/password/forgot', requestMobilePasswordResetOtp);
+router.post('/mobile/password/verify', verifyMobilePasswordResetOtp);
+router.post('/mobile/password/reset', resetMobilePassword);
 router.get('/mobile/me', protect({ kind: 'mobile' }), getMobileMe);
 
 router.post('/logout', protect(), logout);

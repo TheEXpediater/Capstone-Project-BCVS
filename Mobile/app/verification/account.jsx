@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import Button from '@/components/ui/Button';
@@ -17,7 +17,8 @@ const PROGRAM_OPTIONS = [
   'BS Information Technology',
   'BS Computer Science',
   'BS Agribusiness',
-  'BS Forestry'
+  'BS Forestry',
+  'Other / Type manually'
 ];
 
 const YEAR_OPTIONS = [
@@ -30,7 +31,8 @@ const YEAR_OPTIONS = [
   '2021',
   '2020',
   '2019',
-  '2018'
+  '2018',
+  'Other / Type manually'
 ];
 
 const VALID_ID_TYPES = [
@@ -70,6 +72,39 @@ function SelectChip({ label, selected, onPress }) {
   );
 }
 
+function SelectField({ label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <View style={styles.selectWrap}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable style={styles.selectButton} onPress={() => setOpen(true)}>
+        <Text style={styles.selectText}>{value || 'Select'}</Text>
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            {options.map((item) => (
+              <Pressable
+                key={item}
+                style={styles.optionRow}
+                onPress={() => {
+                  onChange(item);
+                  setOpen(false);
+                }}
+              >
+                <Text style={styles.optionText}>{item}</Text>
+              </Pressable>
+            ))}
+            <Button title="Cancel" variant="outline" onPress={() => setOpen(false)} />
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
 function PhotoPicker({ title, body, asset, previewLabel, onCamera, onGallery }) {
   return (
     <View style={styles.uploadBlock}>
@@ -82,6 +117,31 @@ function PhotoPicker({ title, body, asset, previewLabel, onCamera, onGallery }) 
       </View>
     </View>
   );
+}
+
+function buildAddress(parts = {}) {
+  return [parts.addressLine, parts.cityMunicipality, parts.province]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+function resolveProgram(form = {}) {
+  return form.program === 'Other / Type manually'
+    ? String(form.programManual || '').trim()
+    : String(form.program || '').trim();
+}
+
+function resolveYearGraduated(form = {}) {
+  if (form.yearGraduated === 'Not graduated yet') return '';
+  if (form.yearGraduated === 'Other / Type manually') {
+    return String(form.yearManual || '').trim();
+  }
+  return String(form.yearGraduated || '').trim();
+}
+
+function graduationStatusFor(yearGraduated) {
+  return yearGraduated === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated';
 }
 
 export default function AccountVerificationScreen() {
@@ -106,18 +166,26 @@ export default function AccountVerificationScreen() {
     password: '',
     confirmPassword: '',
     fullName: '',
-    address: '',
+    addressLine: '',
+    cityMunicipality: '',
+    province: '',
     program: PROGRAM_OPTIONS[0],
+    programManual: '',
     yearGraduated: YEAR_OPTIONS[0],
+    yearManual: '',
     contactNo: ''
   });
 
   const [answers, setAnswers] = useState({
     studentNo: user?.studentId || '',
     fullName: user?.fullName || '',
-    address: '',
+    addressLine: '',
+    cityMunicipality: '',
+    province: '',
     program: PROGRAM_OPTIONS[0],
-    yearGraduated: '',
+    programManual: '',
+    yearGraduated: YEAR_OPTIONS[0],
+    yearManual: '',
     graduationStatus: 'not_graduated_yet',
     contactNo: '',
     validIdType: VALID_ID_TYPES[0].value,
@@ -163,11 +231,8 @@ export default function AccountVerificationScreen() {
   }
 
   function updateGraduation(value) {
-    updateAnswer('yearGraduated', value === 'Not graduated yet' ? '' : value);
-    updateAnswer(
-      'graduationStatus',
-      value === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated'
-    );
+    updateAnswer('yearGraduated', value);
+    updateAnswer('graduationStatus', graduationStatusFor(value));
   }
 
   function startVerification() {
@@ -195,12 +260,13 @@ export default function AccountVerificationScreen() {
         email,
         password: registerForm.password,
         fullName: registerForm.fullName,
-        address: registerForm.address,
-        program: registerForm.program,
-        yearGraduated:
-          registerForm.yearGraduated === 'Not graduated yet' ? '' : registerForm.yearGraduated,
-        graduationStatus:
-          registerForm.yearGraduated === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated',
+        address: buildAddress(registerForm),
+        addressLine: registerForm.addressLine,
+        cityMunicipality: registerForm.cityMunicipality,
+        province: registerForm.province,
+        program: resolveProgram(registerForm),
+        yearGraduated: resolveYearGraduated(registerForm),
+        graduationStatus: graduationStatusFor(registerForm.yearGraduated),
         contactNo: registerForm.contactNo
       }
     });
@@ -251,12 +317,12 @@ export default function AccountVerificationScreen() {
     }
 
     if (stepIndex === 1) {
-      if (!answers.address.trim() || !answers.program.trim()) {
+      if (!buildAddress(answers) || !resolveProgram(answers)) {
         Alert.alert('Personal information required', 'Address and program are required.');
         return false;
       }
 
-      if (answers.graduationStatus !== 'not_graduated_yet' && !answers.yearGraduated.trim()) {
+      if (answers.graduationStatus !== 'not_graduated_yet' && !resolveYearGraduated(answers)) {
         Alert.alert('Year graduated required', 'Choose your graduation year.');
         return false;
       }
@@ -318,18 +384,23 @@ export default function AccountVerificationScreen() {
   async function submitAfterLiveness(passedAt) {
     try {
       setSubmitting(true);
+      const resolvedAnswers = {
+        ...answers,
+        address: buildAddress(answers),
+        program: resolveProgram(answers),
+        yearGraduated: resolveYearGraduated(answers),
+        graduationStatus: graduationStatusFor(answers.yearGraduated),
+        confirmed: true,
+        livenessPassed: true,
+        livenessPassedAt: passedAt,
+        livenessMethod: 'faceVerifierLocal'
+      };
 
       await submitAccountVerification({
         idFront,
         idBack,
         selfie: livenessImage,
-        answers: {
-          ...answers,
-          confirmed: true,
-          livenessPassed: true,
-          livenessPassedAt: passedAt,
-          livenessMethod: 'faceVerifierLocal'
-        },
+        answers: resolvedAnswers,
         livenessPassed: true,
         livenessPassedAt: passedAt,
         livenessMethod: 'faceVerifierLocal'
@@ -414,33 +485,51 @@ export default function AccountVerificationScreen() {
           autoCapitalize="words"
         />
         <TextField
-          label="Address"
-          value={registerForm.address}
-          onChangeText={(value) => updateRegister('address', value)}
+          label="Street / Address line"
+          value={registerForm.addressLine}
+          onChangeText={(value) => updateRegister('addressLine', value)}
           autoCapitalize="words"
         />
-        <Text style={styles.fieldLabel}>Program</Text>
-        <View style={styles.chipRow}>
-          {PROGRAM_OPTIONS.map((item) => (
-            <SelectChip
-              key={item}
-              label={item}
-              selected={registerForm.program === item}
-              onPress={() => updateRegister('program', item)}
-            />
-          ))}
-        </View>
-        <Text style={styles.fieldLabel}>Year Graduated</Text>
-        <View style={styles.chipRow}>
-          {YEAR_OPTIONS.map((item) => (
-            <SelectChip
-              key={item}
-              label={item}
-              selected={registerForm.yearGraduated === item}
-              onPress={() => updateRegister('yearGraduated', item)}
-            />
-          ))}
-        </View>
+        <TextField
+          label="City / Municipality"
+          value={registerForm.cityMunicipality}
+          onChangeText={(value) => updateRegister('cityMunicipality', value)}
+          autoCapitalize="words"
+        />
+        <TextField
+          label="Province"
+          value={registerForm.province}
+          onChangeText={(value) => updateRegister('province', value)}
+          autoCapitalize="words"
+        />
+        <SelectField
+          label="Program"
+          value={registerForm.program}
+          options={PROGRAM_OPTIONS}
+          onChange={(value) => updateRegister('program', value)}
+        />
+        {registerForm.program === 'Other / Type manually' ? (
+          <TextField
+            label="Program / Course"
+            value={registerForm.programManual}
+            onChangeText={(value) => updateRegister('programManual', value)}
+            autoCapitalize="words"
+          />
+        ) : null}
+        <SelectField
+          label="Year Graduated"
+          value={registerForm.yearGraduated}
+          options={YEAR_OPTIONS}
+          onChange={(value) => updateRegister('yearGraduated', value)}
+        />
+        {registerForm.yearGraduated === 'Other / Type manually' ? (
+          <TextField
+            label="Year Graduated"
+            value={registerForm.yearManual}
+            onChangeText={(value) => updateRegister('yearManual', value)}
+            keyboardType="number-pad"
+          />
+        ) : null}
         <TextField
           label="Contact Number"
           value={registerForm.contactNo}
@@ -566,37 +655,51 @@ export default function AccountVerificationScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Personal Info</Text>
           <TextField
-            label="Address"
-            value={answers.address}
-            onChangeText={(value) => updateAnswer('address', value)}
+            label="Street / Address line"
+            value={answers.addressLine}
+            onChangeText={(value) => updateAnswer('addressLine', value)}
             autoCapitalize="words"
           />
-          <Text style={styles.fieldLabel}>Program</Text>
-          <View style={styles.chipRow}>
-            {PROGRAM_OPTIONS.map((item) => (
-              <SelectChip
-                key={item}
-                label={item}
-                selected={answers.program === item}
-                onPress={() => updateAnswer('program', item)}
-              />
-            ))}
-          </View>
-          <Text style={styles.fieldLabel}>Year Graduated</Text>
-          <View style={styles.chipRow}>
-            {YEAR_OPTIONS.map((item) => (
-              <SelectChip
-                key={item}
-                label={item}
-                selected={
-                  item === 'Not graduated yet'
-                    ? answers.graduationStatus === 'not_graduated_yet'
-                    : answers.yearGraduated === item
-                }
-                onPress={() => updateGraduation(item)}
-              />
-            ))}
-          </View>
+          <TextField
+            label="City / Municipality"
+            value={answers.cityMunicipality}
+            onChangeText={(value) => updateAnswer('cityMunicipality', value)}
+            autoCapitalize="words"
+          />
+          <TextField
+            label="Province"
+            value={answers.province}
+            onChangeText={(value) => updateAnswer('province', value)}
+            autoCapitalize="words"
+          />
+          <SelectField
+            label="Program"
+            value={answers.program}
+            options={PROGRAM_OPTIONS}
+            onChange={(value) => updateAnswer('program', value)}
+          />
+          {answers.program === 'Other / Type manually' ? (
+            <TextField
+              label="Program / Course"
+              value={answers.programManual}
+              onChangeText={(value) => updateAnswer('programManual', value)}
+              autoCapitalize="words"
+            />
+          ) : null}
+          <SelectField
+            label="Year Graduated"
+            value={answers.yearGraduated}
+            options={YEAR_OPTIONS}
+            onChange={updateGraduation}
+          />
+          {answers.yearGraduated === 'Other / Type manually' ? (
+            <TextField
+              label="Year Graduated"
+              value={answers.yearManual}
+              onChangeText={(value) => updateAnswer('yearManual', value)}
+              keyboardType="number-pad"
+            />
+          ) : null}
         </View>
       );
     }
@@ -658,13 +761,13 @@ export default function AccountVerificationScreen() {
           <Text style={styles.cardTitle}>Review</Text>
           <Text style={styles.reviewLine}>Full Name: {answers.fullName}</Text>
           <Text style={styles.reviewLine}>Contact Number: {answers.contactNo}</Text>
-          <Text style={styles.reviewLine}>Address: {answers.address}</Text>
-          <Text style={styles.reviewLine}>Program: {answers.program}</Text>
+          <Text style={styles.reviewLine}>Address: {buildAddress(answers)}</Text>
+          <Text style={styles.reviewLine}>Program: {resolveProgram(answers)}</Text>
           <Text style={styles.reviewLine}>
             Year Graduated:{' '}
             {answers.graduationStatus === 'not_graduated_yet'
               ? 'Not graduated yet'
-              : answers.yearGraduated}
+              : resolveYearGraduated(answers)}
           </Text>
           <Text style={styles.reviewLine}>Valid ID: {answers.validIdType}</Text>
           <View style={styles.row}>
@@ -867,6 +970,56 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontWeight: '700',
     fontSize: 13
+  },
+  selectWrap: {
+    gap: spacing.xs
+  },
+  selectButton: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md
+  },
+  selectText: {
+    color: colors.text,
+    fontWeight: '700'
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.sm
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: spacing.xs
+  },
+  optionRow: {
+    minHeight: 44,
+    borderRadius: radius.sm,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceMuted
+  },
+  optionText: {
+    color: colors.text,
+    fontWeight: '800'
   },
   successText: {
     color: colors.primary,

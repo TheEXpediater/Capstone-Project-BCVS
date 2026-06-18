@@ -25,11 +25,16 @@ import {
   setBiometricsPrompted
 } from '@/utils/storage';
 
-const TABS = ['Account', 'Student Info', 'Security', 'Server', 'Help'];
-const showConnectionTools =
-  __DEV__ || process.env.EXPO_PUBLIC_SHOW_CONNECTION_TOOLS === 'true';
-const showDiscoveryTools =
-  __DEV__ || process.env.EXPO_PUBLIC_SHOW_DISCOVERY_TOOLS === 'true';
+const showConnectionTools = process.env.EXPO_PUBLIC_SHOW_CONNECTION_TOOLS === 'true';
+const showDiscoveryTools = process.env.EXPO_PUBLIC_SHOW_DISCOVERY_TOOLS === 'true';
+const showServerTab = showConnectionTools || showDiscoveryTools;
+const TABS = [
+  'Account',
+  'Student Info',
+  'Security',
+  ...(showServerTab ? ['Server'] : []),
+  'Help'
+];
 
 function displayName(user) {
   return user?.fullName || user?.name || user?.username || 'Student';
@@ -708,7 +713,7 @@ export default function SettingsScreen() {
   function renderActiveSection() {
     if (activeTab === 'Student Info') return renderStudentInfo();
     if (activeTab === 'Security') return renderSecurity();
-    if (activeTab === 'Server') return renderServer();
+    if (activeTab === 'Server' && showServerTab) return renderServer();
     if (activeTab === 'Help') return renderHelp();
     return renderAccount();
   }

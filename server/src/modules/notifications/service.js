@@ -11,6 +11,10 @@ function cleanString(value, fallback = '') {
   return String(value).trim();
 }
 
+function hasVisibleContent(event = {}) {
+  return Boolean(cleanString(event.title) || cleanString(event.body) || cleanString(event.message));
+}
+
 function serializeNotification(doc) {
   const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
   return {
@@ -159,6 +163,7 @@ export async function listMobileNotifications(actor) {
 
 export async function notifyUser(userId, event = {}) {
   if (!Types.ObjectId.isValid(userId)) return null;
+  if (!hasVisibleContent(event)) return null;
 
   const normalized = normalizeEvent(event);
   const Notification = getNotificationModel();

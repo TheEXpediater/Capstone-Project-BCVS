@@ -51,6 +51,36 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    addressLine: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    cityMunicipality: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    province: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    program: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    yearGraduated: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    graduationStatus: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     profilePicture: {
       type: String,
       trim: true,

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
@@ -13,19 +13,42 @@ const PROGRAM_OPTIONS = [
   'BS Information Technology',
   'BS Computer Science',
   'BS Agribusiness',
-  'BS Forestry'
+  'BS Forestry',
+  'Other / Type manually'
 ];
 
-const YEAR_OPTIONS = ['Not graduated yet', '2026', '2025', '2024', '2023', '2022', '2021', '2020'];
+const YEAR_OPTIONS = ['Not graduated yet', '2026', '2025', '2024', '2023', '2022', '2021', '2020', 'Other / Type manually'];
 
-function SelectChip({ label, selected, onPress }) {
+function SelectField({ label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.chip, selected ? styles.chipSelected : null]}
-    >
-      <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]}>{label}</Text>
-    </Pressable>
+    <View style={styles.selectWrap}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable style={styles.selectButton} onPress={() => setOpen(true)}>
+        <Text style={styles.selectText}>{value || 'Select'}</Text>
+      </Pressable>
+      <Modal visible={open} animationType="fade" transparent>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            {options.map((item) => (
+              <Pressable
+                key={item}
+                style={styles.optionRow}
+                onPress={() => {
+                  onChange(item);
+                  setOpen(false);
+                }}
+              >
+                <Text style={styles.optionText}>{item}</Text>
+              </Pressable>
+            ))}
+            <Button title="Cancel" variant="outline" onPress={() => setOpen(false)} />
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -39,11 +62,15 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState(String(params.email || ''));
   const [password, setPassword] = useState(String(params.password || ''));
   const [confirmPassword, setConfirmPassword] = useState(String(params.password || ''));
-  const [address, setAddress] = useState(String(params.address || ''));
+  const [addressLine, setAddressLine] = useState(String(params.addressLine || params.address || ''));
+  const [cityMunicipality, setCityMunicipality] = useState(String(params.cityMunicipality || ''));
+  const [province, setProvince] = useState(String(params.province || ''));
   const [program, setProgram] = useState(String(params.program || PROGRAM_OPTIONS[0]));
+  const [programManual, setProgramManual] = useState('');
   const [yearGraduated, setYearGraduated] = useState(
     String(params.yearGraduated || '') || 'Not graduated yet'
   );
+  const [yearManual, setYearManual] = useState('');
   const [contactNo, setContactNo] = useState(String(params.contactNo || ''));
 
   async function submit() {
@@ -61,7 +88,7 @@ export default function RegisterScreen() {
     }
 
     try {
-      await requestEmailOtp(cleanEmail);
+      const otpResult = await requestEmailOtp(cleanEmail);
       router.push({
         pathname: '/(auth)/verify-email',
         params: {
@@ -70,11 +97,21 @@ export default function RegisterScreen() {
           studentId,
           email: cleanEmail,
           password,
-          address,
-          program,
-          yearGraduated: yearGraduated === 'Not graduated yet' ? '' : yearGraduated,
-          graduationStatus: yearGraduated === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated',
-          contactNo
+          address: [addressLine, cityMunicipality, province].filter(Boolean).join(', '),
+          addressLine,
+          cityMunicipality,
+          province,
+          program: program === 'Other / Type manually' ? programManual : program,
+          yearGraduated:
+            yearGraduated === 'Not graduated yet'
+              ? ''
+              : yearGraduated === 'Other / Type manually'
+                ? yearManual
+                : yearGraduated,
+          graduationStatus:
+            yearGraduated === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated',
+          contactNo,
+          otpDisabled: otpResult?.emailDisabled ? 'true' : ''
         }
       });
     } catch (error) {
@@ -96,24 +133,17 @@ export default function RegisterScreen() {
           secureTextEntry
         />
         <TextField label="Full name" value={fullName} onChangeText={setFullName} autoCapitalize="words" />
-        <TextField label="Address" value={address} onChangeText={setAddress} autoCapitalize="words" />
-        <Text style={styles.fieldLabel}>Program</Text>
-        <View style={styles.chipRow}>
-          {PROGRAM_OPTIONS.map((item) => (
-            <SelectChip key={item} label={item} selected={program === item} onPress={() => setProgram(item)} />
-          ))}
-        </View>
-        <Text style={styles.fieldLabel}>Year Graduated</Text>
-        <View style={styles.chipRow}>
-          {YEAR_OPTIONS.map((item) => (
-            <SelectChip
-              key={item}
-              label={item}
-              selected={yearGraduated === item}
-              onPress={() => setYearGraduated(item)}
-            />
-          ))}
-        </View>
+        <TextField label="Street / Address line" value={addressLine} onChangeText={setAddressLine} autoCapitalize="words" />
+        <TextField label="City / Municipality" value={cityMunicipality} onChangeText={setCityMunicipality} autoCapitalize="words" />
+        <TextField label="Province" value={province} onChangeText={setProvince} autoCapitalize="words" />
+        <SelectField label="Program" value={program} options={PROGRAM_OPTIONS} onChange={setProgram} />
+        {program === 'Other / Type manually' ? (
+          <TextField label="Program / Course" value={programManual} onChangeText={setProgramManual} autoCapitalize="words" />
+        ) : null}
+        <SelectField label="Year Graduated" value={yearGraduated} options={YEAR_OPTIONS} onChange={setYearGraduated} />
+        {yearGraduated === 'Other / Type manually' ? (
+          <TextField label="Year Graduated" value={yearManual} onChangeText={setYearManual} keyboardType="number-pad" />
+        ) : null}
         <TextField label="Contact number" value={contactNo} onChangeText={setContactNo} keyboardType="phone-pad" />
         <TextField label="Username (optional)" value={username} onChangeText={setUsername} />
         <TextField label="Student ID" value={studentId} onChangeText={setStudentId} />
@@ -151,28 +181,54 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm
+  selectWrap: {
+    gap: spacing.xs
   },
-  chip: {
+  selectButton: {
+    minHeight: 48,
     borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md
   },
-  chipSelected: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary
-  },
-  chipText: {
+  selectText: {
     color: colors.text,
     fontWeight: '700'
   },
-  chipTextSelected: {
-    color: colors.primary
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.sm
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: spacing.xs
+  },
+  optionRow: {
+    minHeight: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceMuted
+  },
+  optionText: {
+    color: colors.text,
+    fontWeight: '800'
   }
 });

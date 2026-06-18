@@ -5,6 +5,7 @@ import { ApiError } from '../../shared/utils/ApiError.js';
 import {
   buildIssuerKid,
   buildPublicKeyFingerprint,
+  encryptSecret,
   encryptPrivateKey,
 } from '../../shared/utils/keyVault.js';
 import { getUserModel } from '../auth/user.model.js';
@@ -138,6 +139,8 @@ function buildAccess(actor) {
     canViewIssuerKeys: ['admin', 'super_admin', 'developer'].includes(actor.role),
     canManageIssuerKeys: actor.role === 'developer',
     canManageActiveContract: actor.role === 'developer',
+    canViewEmailSettings: ['super_admin', 'developer'].includes(actor.role),
+    canManageEmailSettings: ['super_admin', 'developer'].includes(actor.role),
   };
 }
 
@@ -229,11 +232,50 @@ function serializeNetworkSettings(network = {}) {
   };
 }
 
+function maskSecretHint(value) {
+  const text = cleanString(value);
+  if (!text) return '';
+  if (text.length <= 4) return 'configured';
+  return `configured (${text.slice(-4)})`;
+}
+
+function serializeEmailOtpSettings(emailOtp = {}) {
+  return {
+    enabled: Boolean(emailOtp.enabled),
+    provider: cleanString(emailOtp.provider),
+    senderEmail: cleanString(emailOtp.senderEmail),
+    senderName: cleanString(emailOtp.senderName),
+    smtpHost: cleanString(emailOtp.smtpHost),
+    smtpPort: emailOtp.smtpPort ?? null,
+    smtpSecure: emailOtp.smtpSecure !== false,
+    secretConfigured: Boolean(emailOtp.secretCiphertext || emailOtp.secretHint),
+    secretMasked: maskSecretHint(emailOtp.secretHint),
+    updatedAt: emailOtp.updatedAt || null,
+  };
+}
+
+function isEmailProviderConfigured(emailOtp = {}) {
+  if (!emailOtp.enabled) return true;
+
+  const provider = cleanString(emailOtp.provider);
+  const senderEmail = cleanString(emailOtp.senderEmail);
+  const hasSecret = Boolean(emailOtp.secretCiphertext || emailOtp.secretHint);
+
+  if (!provider || !senderEmail || !hasSecret) return false;
+
+  if (provider === 'smtp') {
+    return Boolean(cleanString(emailOtp.smtpHost) && emailOtp.smtpPort);
+  }
+
+  return true;
+}
+
 function serializeSettings(settings) {
   const plain = settings?.toObject ? settings.toObject() : { ...(settings || {}) };
   return {
     ...plain,
     network: serializeNetworkSettings(plain.network),
+    emailOtp: serializeEmailOtpSettings(plain.emailOtp),
   };
 }
 
@@ -784,6 +826,76 @@ export async function updateNetworkSettings(payload, actor) {
 
   await settings.save();
   return serializeNetworkSettings(settings.network);
+}
+
+export async function updateEmailOtpSettings(payload, actor) {
+  if (!actor || !['developer', 'super_admin'].includes(actor.role)) {
+    throw new ApiError(403, 'Only MIS developer or super admin can edit email OTP settings');
+  }
+
+  const SystemSetting = getSystemSettingModel();
+  let settings = await SystemSetting.findOne({ code: 'main' }).select(
+    '+emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
+  );
+
+  if (!settings) {
+    settings = await SystemSetting.create({ code: 'main' });
+    settings = await SystemSetting.findOne({ code: 'main' }).select(
+      '+emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
+    );
+  }
+
+  const next = payload?.emailOtp || payload || {};
+  settings.emailOtp = settings.emailOtp || {};
+
+  if (typeof next.enabled === 'boolean') settings.emailOtp.enabled = next.enabled;
+  if (typeof next.provider === 'string') settings.emailOtp.provider = cleanString(next.provider).toLowerCase();
+  if (typeof next.senderEmail === 'string') settings.emailOtp.senderEmail = cleanString(next.senderEmail).toLowerCase();
+  if (typeof next.senderName === 'string') settings.emailOtp.senderName = cleanString(next.senderName);
+  if (typeof next.smtpHost === 'string') settings.emailOtp.smtpHost = cleanString(next.smtpHost);
+  if (next.smtpPort !== undefined) {
+    const port = Number(next.smtpPort);
+    settings.emailOtp.smtpPort = Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+  }
+  if (typeof next.smtpSecure === 'boolean') settings.emailOtp.smtpSecure = next.smtpSecure;
+
+  const secretValue = cleanString(next.secret || next.apiKey || next.smtpPassword);
+  if (secretValue) {
+    const encrypted = encryptSecret(secretValue);
+    settings.emailOtp.secretCiphertext = encrypted.ciphertext;
+    settings.emailOtp.secretIv = encrypted.iv;
+    settings.emailOtp.secretAuthTag = encrypted.authTag;
+    settings.emailOtp.secretHint = secretValue.slice(-4);
+  }
+
+  if (next.clearSecret === true) {
+    settings.emailOtp.secretCiphertext = '';
+    settings.emailOtp.secretIv = '';
+    settings.emailOtp.secretAuthTag = '';
+    settings.emailOtp.secretHint = '';
+  }
+
+  if (settings.emailOtp.enabled && !isEmailProviderConfigured(settings.emailOtp)) {
+    throw new ApiError(400, 'Email OTP cannot be enabled until provider, sender, and secret settings are configured');
+  }
+
+  settings.emailOtp.updatedAt = new Date();
+  settings.updatedBy = actor._id;
+  await settings.save();
+
+  return serializeEmailOtpSettings(settings.emailOtp);
+}
+
+export async function getEmailOtpStatus() {
+  const SystemSetting = getSystemSettingModel();
+  const settings =
+    (await SystemSetting.findOne({ code: 'main' }).select('+emailOtp.secretCiphertext')) ||
+    (await ensureMainSettings());
+  const emailOtp = settings.emailOtp || {};
+  return {
+    ...serializeEmailOtpSettings(emailOtp),
+    configured: isEmailProviderConfigured(emailOtp),
+  };
 }
 
 export async function updateSystemLocks(payload, actor) {

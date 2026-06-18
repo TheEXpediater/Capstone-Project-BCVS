@@ -116,6 +116,27 @@ export const updateNetworkSettings = asyncHandler(async (req, res) => {
   });
 });
 
+export const updateEmailSettings = asyncHandler(async (req, res) => {
+  const data = await settingService.updateEmailOtpSettings(req.body, req.user);
+  await logSettingsAction(req, {
+    action: data?.enabled ? 'EMAIL_SETTINGS_UPDATED' : 'EMAIL_DISABLED',
+    description: data?.enabled ? 'Updated email OTP settings' : 'Disabled email OTP sending',
+    metadata: {
+      emailEnabled: Boolean(data?.enabled),
+      provider: data?.provider || '',
+      senderEmail: data?.senderEmail || '',
+      smtpHost: data?.smtpHost || '',
+      smtpPort: data?.smtpPort || null,
+      secretConfigured: Boolean(data?.secretConfigured),
+    },
+  });
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Email OTP settings updated successfully.',
+  });
+});
+
 export const updateSystemLocks = asyncHandler(async (req, res) => {
   const data = await settingService.updateSystemLocks(req.body, req.user);
   await logSettingsAction(req, {

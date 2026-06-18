@@ -13,15 +13,18 @@ export default function VerifyEmailScreen() {
   const register = useAppStore((state) => state.register);
   const [code, setCode] = useState('');
   const email = useMemo(() => String(params.email || ''), [params.email]);
+  const otpDisabled = String(params.otpDisabled || '') === 'true';
 
   async function submit() {
-    if (code.trim().length < 6) {
+    if (!otpDisabled && code.trim().length < 6) {
       Alert.alert('Missing code', 'Enter the 6-digit code from your email.');
       return;
     }
 
     try {
-      await verifyEmailOtp({ email, code: code.trim() });
+      if (!otpDisabled) {
+        await verifyEmailOtp({ email, code: code.trim() });
+      }
       await register({
         username: String(params.username || ''),
         fullName: String(params.fullName || ''),
@@ -29,6 +32,9 @@ export default function VerifyEmailScreen() {
         email,
         password: String(params.password || ''),
         address: String(params.address || ''),
+        addressLine: String(params.addressLine || ''),
+        cityMunicipality: String(params.cityMunicipality || ''),
+        province: String(params.province || ''),
         program: String(params.program || ''),
         yearGraduated: String(params.yearGraduated || ''),
         graduationStatus: String(params.graduationStatus || ''),
@@ -43,15 +49,25 @@ export default function VerifyEmailScreen() {
   return (
     <Screen>
       <Text style={styles.title}>Verify Email</Text>
-      <Text style={styles.subtitle}>Enter the code sent to {email}.</Text>
-      <TextField
-        label="Verification code"
-        value={code}
-        onChangeText={setCode}
-        keyboardType="number-pad"
-        maxLength={6}
+      <Text style={styles.subtitle}>
+        {otpDisabled
+          ? 'Email OTP is currently disabled by MIS. Continue to create your account.'
+          : `Enter the code sent to ${email}.`}
+      </Text>
+      {otpDisabled ? null : (
+        <TextField
+          label="Verification code"
+          value={code}
+          onChangeText={setCode}
+          keyboardType="number-pad"
+          maxLength={6}
+        />
+      )}
+      <Button
+        title={otpDisabled ? 'Create Account' : 'Verify and Create'}
+        onPress={submit}
+        style={{ marginTop: spacing.md }}
       />
-      <Button title="Verify and Create" onPress={submit} style={{ marginTop: spacing.md }} />
     </Screen>
   );
 }
