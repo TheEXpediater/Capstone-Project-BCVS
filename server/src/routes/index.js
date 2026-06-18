@@ -13,6 +13,7 @@ import uploadRoutes from '../modules/uploads/routes.js';
 import verificationRoutes from '../modules/verification/routes.js';
 import settingRoutes from '../modules/settings/setting.routes.js';
 import studentRoutes from '../modules/students/routes.js';
+import auditRoutes from '../modules/audit/routes.js';
 import { allowRoles, protect } from '../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -34,10 +35,11 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/credentials', credentialRoutes);
 router.use('/curricula', curriculumRoutes);
 router.use('/mobile', mobileCredentialRoutes);
-router.use('/', notificationRoutes);
 router.use('/verification', verificationRoutes);
 router.use('/settings', settingRoutes);
 router.use('/students', studentRoutes);
 router.use('/uploads', uploadRoutes);
+router.use('/audit-logs', auditRoutes);
+router.use('/', notificationRoutes);
 
 export default router;
