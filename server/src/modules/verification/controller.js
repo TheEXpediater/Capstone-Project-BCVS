@@ -43,6 +43,16 @@ function buildSubmissionPayload(req) {
     ...req.body,
     idFrontUrl: firstFileUrl(req.files, 'idFront') || req.body?.idFrontUrl,
     idBackUrl: firstFileUrl(req.files, 'idBack') || req.body?.idBackUrl,
+    validIdFrontUrl:
+      firstFileUrl(req.files, 'validIdFront') ||
+      firstFileUrl(req.files, 'idFront') ||
+      req.body?.validIdFrontUrl ||
+      req.body?.idFrontUrl,
+    validIdBackUrl:
+      firstFileUrl(req.files, 'validIdBack') ||
+      firstFileUrl(req.files, 'idBack') ||
+      req.body?.validIdBackUrl ||
+      req.body?.idBackUrl,
     livenessImageUrl:
       firstFileUrl(req.files, 'selfie') ||
       firstFileUrl(req.files, 'liveness') ||
@@ -65,6 +75,32 @@ export const submitAccountVerification = asyncHandler(async (req, res) => {
     buildSubmissionPayload(req),
     req.user
   );
+
+  await logVerificationAction(
+    req,
+    'SUBMIT_VERIFICATION',
+    data,
+    'Submitted account verification',
+    {
+      validIdType: data?.validIdType || '',
+      livenessPassed: Boolean(data?.livenessPassed),
+      program: data?.program || '',
+      graduationStatus: data?.graduationStatus || '',
+    }
+  );
+
+  if (data?.livenessPassed) {
+    await logVerificationAction(
+      req,
+      'VERIFICATION_LIVENESS_PASSED',
+      data,
+      'Verification liveness passed',
+      {
+        livenessMethod: data?.livenessMethod || '',
+        livenessPassedAt: data?.livenessPassedAt || null,
+      }
+    );
+  }
 
   res.status(200).json({
     success: true,
@@ -98,6 +134,16 @@ export const approveVerificationSubmission = asyncHandler(async (req, res) => {
     req.user
   );
 
+  await logVerificationAction(
+    req,
+    'APPROVE_VERIFICATION',
+    data,
+    'Approved account verification',
+    {
+      linkedStudentNo: data?.linkedStudentNo || '',
+    }
+  );
+
   res.status(200).json({
     success: true,
     data,
@@ -110,6 +156,16 @@ export const rejectVerificationSubmission = asyncHandler(async (req, res) => {
     req.params.id,
     req.body || {},
     req.user
+  );
+
+  await logVerificationAction(
+    req,
+    'REJECT_VERIFICATION',
+    data,
+    'Rejected account verification',
+    {
+      reason: req.body?.reason || '',
+    }
   );
 
   res.status(200).json({

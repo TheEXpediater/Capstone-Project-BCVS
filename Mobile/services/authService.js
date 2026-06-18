@@ -25,14 +25,30 @@ export async function login({ email, password }) {
   }
 }
 
-export async function register({ username, fullName, email, password, studentId }) {
+export async function register({
+  username,
+  fullName,
+  email,
+  password,
+  studentId,
+  address,
+  program,
+  yearGraduated,
+  graduationStatus,
+  contactNo
+}) {
   try {
     const payload = {
       username,
       fullName: fullName || username,
       email,
       password,
-      studentId: studentId || ''
+      studentId: studentId || '',
+      address: address || '',
+      program: program || '',
+      yearGraduated: yearGraduated || '',
+      graduationStatus: graduationStatus || '',
+      contactNo: contactNo || ''
     };
     const { data } = await api.post(ENDPOINTS.auth.register, payload);
     const session = normalizeAuthResponse(data);

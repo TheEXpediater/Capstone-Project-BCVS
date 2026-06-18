@@ -25,6 +25,12 @@ import {
   getExplorerBaseUrl,
 } from '../contracts/service.js';
 import { notifyStudentByStudentNo, notifyUser } from '../notifications/service.js';
+import {
+  buildCredentialPricing,
+  normalizePaymentAmount,
+  normalizeReceiptNo,
+  pricingFromDraft,
+} from './pricing.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
 const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
@@ -347,10 +353,8 @@ async function generateUniquePaymentCode(CredentialDraft) {
 }
 
 async function generateUniqueReceiptNo(CredentialDraft) {
-  const stamp = compactDateStamp();
-
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const receiptNo = `RCPT-${stamp}-${randomCode(6)}`;
+    const receiptNo = randomCode(6);
     const exists = await CredentialDraft.exists({ receiptNo });
     if (!exists) return receiptNo;
   }
@@ -361,6 +365,18 @@ async function generateUniqueReceiptNo(CredentialDraft) {
 function normalizeAmount(value, fallback = 0) {
   const amount = Number(value ?? fallback);
   return Number.isFinite(amount) && amount >= 0 ? amount : fallback;
+}
+
+async function resolveReceiptNo(CredentialDraft, value) {
+  if (!cleanString(value)) return generateUniqueReceiptNo(CredentialDraft);
+
+  const receiptNo = normalizeReceiptNo(value);
+  const exists = await CredentialDraft.exists({ receiptNo });
+  return exists ? generateUniqueReceiptNo(CredentialDraft) : receiptNo;
+}
+
+function pricingFields(input = {}) {
+  return buildCredentialPricing(input);
 }
 
 function normalizeBoolean(value) {
@@ -554,7 +570,20 @@ async function buildBlockchainMetadata(draft) {
 
 function serializeDraft(doc) {
   const raw = typeof doc?.toObject === 'function' ? doc.toObject() : doc;
-  return clonePlain(raw);
+  const copy = clonePlain(raw);
+  const legacyScheduleMode = ['same_day', 'scheduled'].includes(cleanString(copy.anchorMode))
+    ? cleanString(copy.anchorMode)
+    : '';
+  const pricing = pricingFromDraft(copy);
+  return {
+    ...copy,
+    ...pricing,
+    anchorScheduleMode: copy.anchorScheduleMode || legacyScheduleMode,
+    paymentStatus: cleanString(copy.paymentStatus, 'unpaid'),
+    receiptNo: cleanString(copy.receiptNo),
+    paidAt: copy.paidAt || null,
+    paidBy: copy.paidBy || null,
+  };
 }
 
 function sanitizeDraftForNotification(doc) {
@@ -850,6 +879,29 @@ export async function updateCredentialDraft(id, payload = {}, actor) {
     draft.anchorPreference = normalizeAnchorPreference(payload.anchorPreference);
   }
 
+  if (
+    payload?.anchorMode !== undefined ||
+    payload?.anchorNow !== undefined ||
+    payload?.amount !== undefined ||
+    payload?.totalAmount !== undefined ||
+    payload?.baseAmount !== undefined ||
+    payload?.anchorNowFee !== undefined
+  ) {
+    const pricing = pricingFields({
+      baseAmount: payload?.baseAmount ?? draft.baseAmount,
+      anchorNowFee: payload?.anchorNowFee ?? draft.anchorNowFee,
+      amount: payload?.amount ?? payload?.totalAmount,
+      anchorMode: payload?.anchorMode ?? draft.anchorMode,
+      anchorNow: payload?.anchorNow ?? draft.anchorNow,
+    });
+    draft.anchorMode = pricing.anchorMode;
+    draft.anchorNow = pricing.anchorNow;
+    draft.baseAmount = pricing.baseAmount;
+    draft.anchorNowFee = pricing.anchorNowFee;
+    draft.amount = pricing.amount;
+    draft.totalAmount = pricing.totalAmount;
+  }
+
   if (draft.status === 'for_signature') {
     draft.rejectionReason = '';
   }
@@ -892,6 +944,7 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
   const notes = cleanString(payload?.notes);
   const paymentCode = await generateUniquePaymentCode(CredentialDraft);
   const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
+  const pricing = pricingFields(payload);
 
   const { student, grades } = await getStudentBundle(studentId);
 
@@ -930,11 +983,16 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
     remarks: notes,
     presetRemark: '',
     anchorPreference,
+    anchorMode: pricing.anchorMode,
+    anchorNow: pricing.anchorNow,
+    baseAmount: pricing.baseAmount,
+    anchorNowFee: pricing.anchorNowFee,
+    totalAmount: pricing.totalAmount,
     requestSource: 'web',
     requestedBy: actor?._id || null,
     paymentStatus: 'unpaid',
     paymentCode,
-    amount: normalizeAmount(payload?.amount, 0),
+    amount: pricing.amount,
     createdBy: actor?._id || null,
     status: 'draft',
   });
@@ -953,6 +1011,7 @@ export async function requestMobileCredential(payload = {}, actor) {
   const remarks = cleanString(payload?.remarks || payload?.notes);
   const presetRemark = cleanString(payload?.presetRemark);
   const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
+  const pricing = pricingFields(payload);
   const livenessPassed = normalizeBoolean(payload?.livenessPassed);
   const livenessMethod = cleanString(payload?.livenessMethod, 'faceVerifierLocal');
   const livenessPassedAt = toDateOrNull(payload?.livenessPassedAt) || new Date();
@@ -999,6 +1058,11 @@ export async function requestMobileCredential(payload = {}, actor) {
     remarks,
     presetRemark,
     anchorPreference,
+    anchorMode: pricing.anchorMode,
+    anchorNow: pricing.anchorNow,
+    baseAmount: pricing.baseAmount,
+    anchorNowFee: pricing.anchorNowFee,
+    totalAmount: pricing.totalAmount,
     livenessPassed,
     livenessMethod,
     livenessPassedAt,
@@ -1006,7 +1070,7 @@ export async function requestMobileCredential(payload = {}, actor) {
     requestedBy: actor?._id || null,
     paymentStatus: 'unpaid',
     paymentCode,
-    amount: normalizeAmount(payload?.amount, 0),
+    amount: pricing.amount,
     createdBy: actor?._id || null,
     status: 'draft',
   });
@@ -1016,7 +1080,7 @@ export async function requestMobileCredential(payload = {}, actor) {
   await notifyUser(actor._id, {
     type: 'credential_requested',
     title: 'Credential request submitted',
-    body: `Present payment code ${paymentCode} to the cashier.`,
+    body: `Present payment code ${paymentCode} to the cashier. Amount: PHP ${serializedDraft.amount}.`,
     data: {
       request: sanitizeDraftForNotification(draft),
       credentialId: draft._id.toString(),
@@ -1027,11 +1091,15 @@ export async function requestMobileCredential(payload = {}, actor) {
       receiptNo: serializedDraft.receiptNo,
       paidAt: serializedDraft.paidAt,
       amount: serializedDraft.amount,
+      baseAmount: serializedDraft.baseAmount,
+      anchorNowFee: serializedDraft.anchorNowFee,
+      totalAmount: serializedDraft.totalAmount,
       createdAt: serializedDraft.createdAt,
       processingNote: 'Processing may take up to 3 working days after payment.',
       credentialStatus: serializedDraft.status,
       anchorStatus: serializedDraft.anchorStatus,
       anchorMode: serializedDraft.anchorMode,
+      anchorNow: serializedDraft.anchorNow,
       scheduledAnchorAt: serializedDraft.scheduledAnchorAt,
       anchoredAt: serializedDraft.anchoredAt,
       anchorPreference,
@@ -1041,11 +1109,31 @@ export async function requestMobileCredential(payload = {}, actor) {
     },
   }).catch(() => null);
 
+  if (serializedDraft.anchorNow) {
+    await notifyUser(actor._id, {
+      type: 'anchor_now_requested',
+      title: 'Anchor Now requested',
+      body: 'Anchor Now adds PHP 20 and places your credential in the priority anchoring queue.',
+      data: {
+        request: sanitizeDraftForNotification(draft),
+        credentialId: draft._id.toString(),
+        credentialType: serializedDraft.credentialType,
+        amount: serializedDraft.amount,
+        anchorMode: serializedDraft.anchorMode,
+        anchorNow: serializedDraft.anchorNow,
+      },
+    }).catch(() => null);
+  }
+
   return {
     request: sanitizeDraftForNotification(draft),
     requestId: draft._id,
     paymentCode,
     paymentStatus: draft.paymentStatus,
+    amount: serializedDraft.amount,
+    totalAmount: serializedDraft.totalAmount,
+    anchorMode: serializedDraft.anchorMode,
+    anchorNow: serializedDraft.anchorNow,
     processingNote: 'Processing may take up to 3 working days after payment.',
     message: 'Processing may take up to 3 working days after payment.',
   };
@@ -1442,9 +1530,19 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   }
 
   const now = new Date();
+  const pricing = pricingFromDraft(draft);
+  const confirmedAmount = normalizePaymentAmount(
+    payload?.amount ?? payload?.totalAmount,
+    pricing.amount
+  );
   draft.paymentStatus = 'paid';
-  draft.receiptNo = await generateUniqueReceiptNo(CredentialDraft);
-  draft.amount = normalizeAmount(payload?.amount, draft.amount || 0);
+  draft.receiptNo = await resolveReceiptNo(CredentialDraft, payload?.receiptNo);
+  draft.baseAmount = pricing.baseAmount;
+  draft.anchorNowFee = pricing.anchorNowFee;
+  draft.totalAmount = confirmedAmount;
+  draft.amount = confirmedAmount;
+  draft.anchorMode = pricing.anchorMode;
+  draft.anchorNow = pricing.anchorNow;
   draft.paidAt = now;
   draft.paidBy = actor?._id || null;
   draft.paymentConfirmedAt = now;
@@ -1468,11 +1566,15 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
       receiptNo: serializedDraft.receiptNo,
       paidAt: serializedDraft.paidAt,
       amount: serializedDraft.amount,
+      baseAmount: serializedDraft.baseAmount,
+      anchorNowFee: serializedDraft.anchorNowFee,
+      totalAmount: serializedDraft.totalAmount,
       createdAt: serializedDraft.createdAt,
       processingNote: serializedDraft.paymentNotes || 'Processing may take up to 3 working days after payment.',
       credentialStatus: serializedDraft.status,
       anchorStatus: serializedDraft.anchorStatus,
       anchorMode: serializedDraft.anchorMode,
+      anchorNow: serializedDraft.anchorNow,
       scheduledAnchorAt: serializedDraft.scheduledAnchorAt,
       anchoredAt: serializedDraft.anchoredAt,
     },
@@ -1681,7 +1783,7 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
     }
   }
 
-  draft.anchorMode = requestedMode;
+  draft.anchorScheduleMode = requestedMode;
   draft.scheduledAnchorAt = scheduledAnchorAt;
   draft.anchorStatus = 'queued';
   if (!isCredentialClaimed(draft) && draft.status !== 'anchored') {

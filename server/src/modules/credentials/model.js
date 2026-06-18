@@ -124,8 +124,32 @@ const credentialDraftSchema = new mongoose.Schema(
 
     amount: {
       type: Number,
+      default: 150,
+      min: 0,
+    },
+
+    baseAmount: {
+      type: Number,
+      default: 150,
+      min: 0,
+    },
+
+    anchorNowFee: {
+      type: Number,
       default: 0,
       min: 0,
+    },
+
+    totalAmount: {
+      type: Number,
+      default: 150,
+      min: 0,
+    },
+
+    anchorNow: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
 
     paidAt: {
@@ -267,8 +291,15 @@ const credentialDraftSchema = new mongoose.Schema(
 
     anchorMode: {
       type: String,
-      enum: ['none', 'same_day', 'scheduled'],
-      default: 'none',
+      enum: ['none', 'default', 'anchor_now', 'same_day', 'scheduled'],
+      default: 'default',
+      index: true,
+    },
+
+    anchorScheduleMode: {
+      type: String,
+      enum: ['', 'same_day', 'scheduled'],
+      default: '',
     },
 
     scheduledAnchorAt: {

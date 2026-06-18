@@ -60,6 +60,8 @@ function handleVerificationUpload(req, res, next) {
   upload.fields([
     { name: 'idFront', maxCount: 1 },
     { name: 'idBack', maxCount: 1 },
+    { name: 'validIdFront', maxCount: 1 },
+    { name: 'validIdBack', maxCount: 1 },
     { name: 'selfie', maxCount: 1 },
     { name: 'liveness', maxCount: 1 },
   ])(req, res, (error) => {

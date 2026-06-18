@@ -39,11 +39,8 @@ const REMARK_LABELS = {
   personal_records: 'For personal records',
 };
 
-const ANCHOR_OPTIONS = [
-  { label: 'No anchor', value: 'none' },
-  { label: 'Anchor request', value: 'request' },
-  { label: 'Anchor after signing', value: 'after_signing' },
-];
+const BASE_CREDENTIAL_AMOUNT = 150;
+const ANCHOR_NOW_FEE = 20;
 
 function hasVerifiedStatus(user) {
   if (user?.verified === true) return true;
@@ -65,6 +62,10 @@ function getRemarkText(form) {
   return REMARK_LABELS[form.presetRemark] || '';
 }
 
+function getRequestTotal(form) {
+  return BASE_CREDENTIAL_AMOUNT + (form.anchorNow ? ANCHOR_NOW_FEE : 0);
+}
+
 function SelectChip({ label, selected, onPress }) {
   return (
     <Pressable
@@ -84,8 +85,11 @@ function RequestModal({
   submitting,
   onClose,
   onChange,
+  onHelp,
   onSubmit,
 }) {
+  const total = getRequestTotal(form);
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalBackdrop}>
@@ -118,16 +122,41 @@ function RequestModal({
             </View>
 
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Anchor Option</Text>
-              <View style={styles.chipRow}>
-                {ANCHOR_OPTIONS.map((item) => (
-                  <SelectChip
-                    key={item.value}
-                    label={item.label}
-                    selected={form.anchorPreference === item.value}
-                    onPress={() => onChange('anchorPreference', item.value)}
-                  />
-                ))}
+              <View style={styles.anchorTitleRow}>
+                <Text style={styles.sectionLabel}>Anchor Option</Text>
+                <Pressable onPress={onHelp} hitSlop={10} style={styles.helpButton}>
+                  <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
+                </Pressable>
+              </View>
+              <Pressable
+                onPress={() => onChange('anchorNow', !form.anchorNow)}
+                style={[styles.anchorToggle, form.anchorNow ? styles.anchorToggleOn : null]}
+              >
+                <View style={[styles.checkbox, form.anchorNow ? styles.checkboxOn : null]}>
+                  {form.anchorNow ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.anchorToggleTitle}>Anchor Now</Text>
+                  <Text style={styles.anchorToggleText}>
+                    Anchor Now adds ₱20 and places your credential in the priority anchoring queue.
+                  </Text>
+                </View>
+              </Pressable>
+              <View style={styles.priceBox}>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Credential request</Text>
+                  <Text style={styles.priceValue}>₱{BASE_CREDENTIAL_AMOUNT}</Text>
+                </View>
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Anchor Now</Text>
+                  <Text style={styles.priceValue}>
+                    {form.anchorNow ? `₱${ANCHOR_NOW_FEE}` : '₱0'}
+                  </Text>
+                </View>
+                <View style={[styles.priceRow, styles.totalRow]}>
+                  <Text style={styles.totalLabel}>Total</Text>
+                  <Text style={styles.totalValue}>₱{total}</Text>
+                </View>
               </View>
             </View>
 
@@ -213,7 +242,7 @@ export default function HomeScreen() {
   const [lastRequest, setLastRequest] = useState(null);
   const [form, setForm] = useState({
     credentialType: 'tor',
-    anchorPreference: 'after_signing',
+    anchorNow: false,
     presetRemark: 'employment',
     customRemark: '',
   });
@@ -270,7 +299,11 @@ export default function HomeScreen() {
       setSubmitting(true);
       const result = await requestCredential({
         credentialType: form.credentialType,
-        anchorPreference: form.anchorPreference,
+        anchorPreference: form.anchorNow ? 'anchor_now' : 'after_signing',
+        anchorMode: form.anchorNow ? 'anchor_now' : 'default',
+        anchorNow: form.anchorNow,
+        amount: getRequestTotal(form),
+        totalAmount: getRequestTotal(form),
         presetRemark: form.presetRemark,
         remarks,
         livenessPassed: true,
@@ -366,6 +399,10 @@ export default function HomeScreen() {
         submitting={submitting}
         onClose={() => setRequestVisible(false)}
         onChange={updateField}
+        onHelp={() => {
+          setRequestVisible(false);
+          router.push('/help');
+        }}
         onSubmit={beginLivenessCheck}
       />
     </Screen>
@@ -523,6 +560,91 @@ const styles = StyleSheet.create({
   sectionLabel: {
     color: colors.text,
     fontWeight: '800',
+  },
+  anchorTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  helpButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+  },
+  anchorToggle: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    gap: spacing.md,
+    alignItems: 'flex-start',
+  },
+  anchorToggleOn: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  anchorToggleTitle: {
+    color: colors.text,
+    fontWeight: '900',
+  },
+  anchorToggleText: {
+    color: colors.muted,
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  priceBox: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+    backgroundColor: colors.bg,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  priceLabel: {
+    color: colors.muted,
+    fontWeight: '700',
+  },
+  priceValue: {
+    color: colors.text,
+    fontWeight: '800',
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  totalLabel: {
+    color: colors.text,
+    fontWeight: '900',
+  },
+  totalValue: {
+    color: colors.primary,
+    fontWeight: '900',
   },
   chipRow: {
     flexDirection: 'row',

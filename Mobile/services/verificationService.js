@@ -160,11 +160,20 @@ export async function submitAccountVerification({
     const formData = new FormData();
     appendImage(formData, 'idFront', idFront, 'id-front.jpg');
     appendImage(formData, 'idBack', idBack, 'id-back.jpg');
+    appendImage(formData, 'validIdFront', idFront, 'valid-id-front.jpg');
+    appendImage(formData, 'validIdBack', idBack, 'valid-id-back.jpg');
     appendImage(formData, 'selfie', selfie, 'selfie.jpg');
+    appendImage(formData, 'liveness', selfie, 'liveness.jpg');
     formData.append('answers', JSON.stringify(answers || {}));
     formData.append('submittedStudentNo', answers?.studentNo || '');
     formData.append('fullName', answers?.fullName || '');
-    formData.append('livenessPassed', livenessPassed || answers?.livenessPassed ? 'true' : 'false');
+    formData.append('address', answers?.address || '');
+    formData.append('program', answers?.program || '');
+    formData.append('yearGraduated', answers?.yearGraduated || '');
+    formData.append('graduationStatus', answers?.graduationStatus || '');
+    formData.append('contactNo', answers?.contactNo || '');
+    formData.append('validIdType', answers?.validIdType || '');
+    formData.append('livenessPassed', (livenessPassed || answers?.livenessPassed) ? 'true' : 'false');
     formData.append('livenessPassedAt', livenessPassedAt || answers?.livenessPassedAt || '');
     formData.append('livenessMethod', livenessMethod || answers?.livenessMethod || '');
 

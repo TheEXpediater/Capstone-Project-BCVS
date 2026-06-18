@@ -101,6 +101,10 @@ export async function requestCredential(payload = {}) {
     const { data } = await api.post(ENDPOINTS.credentials.request, {
       credentialType: payload.credentialType || 'student_record',
       anchorPreference: payload.anchorPreference || 'after_signing',
+      anchorMode: payload.anchorMode || (payload.anchorNow ? 'anchor_now' : 'default'),
+      anchorNow: payload.anchorNow === true,
+      amount: payload.amount,
+      totalAmount: payload.totalAmount || payload.amount,
       remarks: payload.remarks || payload.notes || '',
       presetRemark: payload.presetRemark || '',
       livenessPassed: payload.livenessPassed === true,

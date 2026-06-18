@@ -27,7 +27,12 @@ export default function VerifyEmailScreen() {
         fullName: String(params.fullName || ''),
         studentId: String(params.studentId || ''),
         email,
-        password: String(params.password || '')
+        password: String(params.password || ''),
+        address: String(params.address || ''),
+        program: String(params.program || ''),
+        yearGraduated: String(params.yearGraduated || ''),
+        graduationStatus: String(params.graduationStatus || ''),
+        contactNo: String(params.contactNo || '')
       });
       router.replace('/(tabs)/home');
     } catch (error) {

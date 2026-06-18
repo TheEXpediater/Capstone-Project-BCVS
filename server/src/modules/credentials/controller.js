@@ -138,6 +138,12 @@ export const createCredentialDraftFromStudent = asyncHandler(async (req, res) =>
     'Created credential draft from student record',
     {
       studentId: req.params.studentId,
+      amount: data?.amount || 0,
+      baseAmount: data?.baseAmount || 0,
+      anchorNowFee: data?.anchorNowFee || 0,
+      totalAmount: data?.totalAmount || data?.amount || 0,
+      anchorMode: data?.anchorMode || '',
+      anchorNow: Boolean(data?.anchorNow),
     }
   );
 
@@ -172,6 +178,10 @@ export const requestMobileCredential = asyncHandler(async (req, res) => {
       studentNo: data?.request?.studentNo || req.user?.studentId || '',
       credentialStatus: data?.request?.status || '',
       credentialType: data?.request?.credentialType || '',
+      amount: data?.request?.amount || data?.amount || 0,
+      totalAmount: data?.request?.totalAmount || data?.totalAmount || data?.request?.amount || 0,
+      anchorMode: data?.request?.anchorMode || data?.anchorMode || '',
+      anchorNow: Boolean(data?.request?.anchorNow || data?.anchorNow),
     },
   });
 
@@ -192,7 +202,13 @@ export const submitCredentialDraft = asyncHandler(async (req, res) => {
     req,
     'SUBMIT_DRAFT',
     data,
-    'Submitted credential draft for review'
+    'Submitted credential draft for review',
+    {
+      amount: data?.amount || 0,
+      totalAmount: data?.totalAmount || data?.amount || 0,
+      anchorMode: data?.anchorMode || '',
+      anchorNow: Boolean(data?.anchorNow),
+    }
   );
 
   res.status(200).json({
@@ -308,8 +324,15 @@ export const markCredentialPaymentPaid = asyncHandler(async (req, res) => {
     'Marked credential payment as paid',
     {
       amount: data?.amount || 0,
+      totalAmount: data?.totalAmount || data?.amount || 0,
+      baseAmount: data?.baseAmount || 0,
+      anchorNowFee: data?.anchorNowFee || 0,
       receiptNo: data?.receiptNo || '',
       paymentStatus: data?.paymentStatus || '',
+      anchorMode: data?.anchorMode || '',
+      anchorNow: Boolean(data?.anchorNow),
+      cashierEditedAmount:
+        req.body?.amount !== undefined || req.body?.totalAmount !== undefined,
     }
   );
 
@@ -335,6 +358,7 @@ export const scheduleCredentialAnchor = asyncHandler(async (req, res) => {
     {
       anchorStatus: data?.anchorStatus || '',
       anchorMode: data?.anchorMode || '',
+      anchorScheduleMode: data?.anchorScheduleMode || '',
       scheduledAnchorAt: data?.scheduledAnchorAt || null,
     }
   );

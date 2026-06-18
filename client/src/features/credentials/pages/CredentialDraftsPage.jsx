@@ -35,6 +35,10 @@ const CLAIMABLE_STATUSES = new Set(['signed', 'claim_ready', 'queued_for_anchor'
 const PAYMENT_TAB_ROLES = new Set(['cashier']);
 const MANAGE_CREDENTIAL_ROLES = new Set(['admin', 'super_admin', 'developer']);
 const OVERRIDE_QR_ROLES = new Set(['admin', 'super_admin', 'developer']);
+const BASE_CREDENTIAL_AMOUNT = 150;
+const ANCHOR_NOW_FEE = 20;
+const VC_PAGE_SIZE = 10;
+const MAX_BULK_SELECTION = 10;
 
 function formatDate(value) {
   if (!value) return 'Not available';
@@ -57,6 +61,32 @@ function formatCurrency(value) {
     style: 'currency',
     currency: 'PHP',
   }).format(amount);
+}
+
+function normalizeAnchorMode(value, anchorNow = false) {
+  const mode = cleanText(value).toLowerCase();
+  if (anchorNow || ['anchor_now', 'anchor-now', 'same_day', 'today', 'priority'].includes(mode)) {
+    return 'anchor_now';
+  }
+  return 'default';
+}
+
+function priceForAnchorMode(mode) {
+  return mode === 'anchor_now' ? BASE_CREDENTIAL_AMOUNT + ANCHOR_NOW_FEE : BASE_CREDENTIAL_AMOUNT;
+}
+
+function anchorModeLabel(mode) {
+  return normalizeAnchorMode(mode) === 'anchor_now' ? 'Anchor Now' : 'Default';
+}
+
+function anchorNowText(mode) {
+  return normalizeAnchorMode(mode) === 'anchor_now'
+    ? 'Anchor Now adds PHP 20 and places the request in the priority anchoring queue.'
+    : 'Default uses the regular scheduled anchoring queue.';
+}
+
+function generateReceiptNo() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function titleCase(value) {
@@ -195,11 +225,20 @@ function credentialLabel(value) {
   return titleCase(value || 'credential');
 }
 
-function matchesStudentName(draft, search) {
+function matchesCredentialSearch(draft, search) {
   const query = cleanText(search).toLowerCase();
   if (!query) return true;
-  return cleanText(draft?.studentName).toLowerCase().includes(query);
+  return [
+    draft?.studentName,
+    draft?.studentNo,
+    draft?.credentialType,
+    draft?.status,
+    draft?.paymentStatus,
+    draft?.anchorStatus,
+  ].some((value) => cleanText(value).toLowerCase().includes(query));
 }
+
+const matchesStudentName = matchesCredentialSearch;
 
 function matchesPaymentStatus(draft, status) {
   const selected = cleanText(status).toLowerCase();
@@ -208,10 +247,11 @@ function matchesPaymentStatus(draft, status) {
 }
 
 function anchorScheduleLabel(draft) {
-  const mode = cleanText(draft?.anchorMode).toLowerCase();
+  const mode = cleanText(draft?.anchorScheduleMode || draft?.anchorMode).toLowerCase();
   const preference = cleanText(draft?.anchorPreference).toLowerCase();
 
   if (mode === 'same_day' || preference === 'request') return 'Today';
+  if (draft?.anchorNow || cleanText(draft?.anchorMode).toLowerCase() === 'anchor_now') return 'Priority';
   return '7 Days';
 }
 
@@ -1383,6 +1423,173 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
   );
 }
 
+function PaymentConfirmModal({ draft, busy, onClose, onConfirm }) {
+  const initialMode = normalizeAnchorMode(draft?.anchorMode, draft?.anchorNow);
+  const [amount, setAmount] = useState(
+    draft ? String(draft.amount || draft.totalAmount || priceForAnchorMode(initialMode)) : ''
+  );
+  const [receiptNo, setReceiptNo] = useState(draft ? generateReceiptNo() : '');
+  const [localError, setLocalError] = useState('');
+
+  if (!draft) return null;
+
+  const mode = normalizeAnchorMode(draft.anchorMode, draft.anchorNow);
+
+  function submit() {
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setLocalError('Amount must be numeric and greater than 0.');
+      return;
+    }
+    if (!/^\d{6}$/.test(receiptNo)) {
+      setLocalError('Receipt number must be 6 digits.');
+      return;
+    }
+    setLocalError('');
+    onConfirm({ amount: numericAmount, receiptNo });
+  }
+
+  return (
+    <ModalShell
+      title="Confirm Payment"
+      subtitle="Review the payment details before marking this request as paid."
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="btn btn-success" onClick={submit} disabled={busy}>
+            {busy ? 'Saving...' : 'Confirm Payment'}
+          </button>
+        </>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        {localError ? <div className="alert alert-danger mb-0">{localError}</div> : null}
+        <div className="row g-3">
+          <FieldValue label="Student" className="col-md-6">{draft.studentName}</FieldValue>
+          <FieldValue label="Student Number" className="col-md-6">{draft.studentNo}</FieldValue>
+          <FieldValue label="Credential Type" className="col-md-6">{credentialLabel(draft.credentialType)}</FieldValue>
+          <FieldValue label="Anchor Mode" className="col-md-6">{anchorModeLabel(mode)}</FieldValue>
+        </div>
+        <div className="alert alert-light border mb-0">
+          {anchorNowText(mode)}
+        </div>
+        <div className="row g-3">
+          <div className="col-md-6">
+            <label className="form-label fw-semibold">Receipt Number</label>
+            <input
+              className="form-control"
+              value={receiptNo}
+              onChange={(event) => setReceiptNo(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              inputMode="numeric"
+              maxLength={6}
+            />
+          </div>
+          <div className="col-md-6">
+            <label className="form-label fw-semibold">Amount</label>
+            <input
+              className="form-control"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              inputMode="decimal"
+            />
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function DraftSubmitModal({ draft, busy, onClose, onConfirm }) {
+  const initialMode = normalizeAnchorMode(draft?.anchorMode, draft?.anchorNow);
+  const [credentialType, setCredentialType] = useState(draft?.credentialType || 'tor');
+  const [anchorMode, setAnchorMode] = useState(initialMode);
+  const [amount, setAmount] = useState(
+    draft ? String(draft.amount || draft.totalAmount || priceForAnchorMode(initialMode)) : '150'
+  );
+  const [localError, setLocalError] = useState('');
+
+  if (!draft) return null;
+
+  function changeAnchorMode(nextMode) {
+    setAnchorMode(nextMode);
+    setAmount(String(priceForAnchorMode(nextMode)));
+  }
+
+  function submit() {
+    const numericAmount = Number(amount);
+    if (!['tor', 'diploma'].includes(credentialType)) {
+      setLocalError('Credential type must be Diploma or TOR.');
+      return;
+    }
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setLocalError('Price must be numeric and greater than 0.');
+      return;
+    }
+    setLocalError('');
+    onConfirm({
+      credentialType,
+      anchorMode,
+      anchorNow: anchorMode === 'anchor_now',
+      amount: numericAmount,
+      totalAmount: numericAmount,
+    });
+  }
+
+  return (
+    <ModalShell
+      title="Submit Credential Draft"
+      subtitle="Set pricing and anchor handling before sending the draft to the signing queue."
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>
+            {busy ? 'Submitting...' : 'Submit Draft'}
+          </button>
+        </>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        {localError ? <div className="alert alert-danger mb-0">{localError}</div> : null}
+        <div className="row g-3">
+          <FieldValue label="Student" className="col-md-6">{draft.studentName}</FieldValue>
+          <FieldValue label="Student Number" className="col-md-6">{draft.studentNo}</FieldValue>
+          <div className="col-md-6">
+            <label className="form-label fw-semibold">Credential Type</label>
+            <select className="form-select" value={credentialType} onChange={(event) => setCredentialType(event.target.value)}>
+              <option value="diploma">Diploma</option>
+              <option value="tor">TOR</option>
+            </select>
+          </div>
+          <div className="col-md-6">
+            <label className="form-label fw-semibold">Anchor Option</label>
+            <select className="form-select" value={anchorMode} onChange={(event) => changeAnchorMode(event.target.value)}>
+              <option value="default">Default</option>
+              <option value="anchor_now">Anchor Now</option>
+            </select>
+          </div>
+        </div>
+        <div className="alert alert-light border mb-0">{anchorNowText(anchorMode)}</div>
+        <div>
+          <label className="form-label fw-semibold">Price</label>
+          <input
+            className="form-control"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputMode="decimal"
+          />
+          <div className="form-text">Cashier can still edit the amount during payment confirmation.</div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 function PaymentTable({
   rows,
   loading,
@@ -1447,6 +1654,7 @@ function PaymentTable({
                 <tr>
                   <th>Student</th>
                   <th>Credential</th>
+                  <th>Anchor</th>
                   <th>Payment</th>
                   <th>Receipt</th>
                   <th>Amount</th>
@@ -1463,6 +1671,11 @@ function PaymentTable({
                     </td>
                     <td>{titleCase(item.credentialType || 'student_record')}</td>
                     <td>
+                      <span className="badge text-bg-light border">
+                        {anchorModeLabel(item.anchorMode || (item.anchorNow ? 'anchor_now' : 'default'))}
+                      </span>
+                    </td>
+                    <td>
                       <span className={`badge ${getPaymentBadge(item)}`}>
                         {isCredentialPaid(item) ? 'Paid' : 'Unpaid'}
                       </span>
@@ -1471,7 +1684,7 @@ function PaymentTable({
                       </div>
                     </td>
                     <td>{item.receiptNo || 'Not paid yet'}</td>
-                    <td>{formatCurrency(item.amount)}</td>
+                    <td>{formatCurrency(item.amount || item.totalAmount)}</td>
                     <td>{formatDate(item.createdAt)}</td>
                     <td>
                       <button
@@ -1555,15 +1768,30 @@ function VcProcessingTable({
   busyId,
   paymentStatus,
   search,
+  selectedIds,
+  selectedCount,
+  page,
+  pageCount,
   onPaymentStatus,
   onSearch,
   onRefresh,
   onDetails,
+  onToggleSelected,
+  onTogglePage,
+  onPage,
+  onBulkSubmit,
   getActions,
   actionMenuOpenId,
   onToggleActionMenu,
   onCloseActionMenu,
 }) {
+  const selectableIds = rows
+    .filter((item) => cleanText(item.status).toLowerCase() === 'draft')
+    .map((item) => item._id);
+  const allPageSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
+  const somePageSelected = selectableIds.some((id) => selectedIds.has(id));
+
   return (
     <CredentialTableShell
       title="VC"
@@ -1590,49 +1818,130 @@ function VcProcessingTable({
           </div>
           <div className="col-md-5 col-lg-4">
             <label className="form-label small fw-semibold" htmlFor="vc-student-search">
-              Student Name
+              Search
             </label>
             <input
               id="vc-student-search"
               className="form-control form-control-sm"
               value={search}
               onChange={(event) => onSearch(event.target.value)}
-              placeholder="Search student name"
+              placeholder="Name, student number, credential type, or status"
             />
+          </div>
+          <div className="col-md-4 col-lg-3 d-flex gap-2">
+            <button className="btn btn-outline-secondary btn-sm flex-fill" onClick={onRefresh} disabled={loading}>
+              Refresh
+            </button>
+            <button
+              className="btn btn-success btn-sm flex-fill"
+              onClick={onBulkSubmit}
+              disabled={loading || selectedCount === 0}
+            >
+              Bulk Actions ({selectedCount})
+            </button>
           </div>
         </div>
       }
     >
-      <table className="table table-sm align-middle mb-0">
-        <thead>
-          <tr>
-            <th>Student Name</th>
-            <th>Credential</th>
-            <th>Anchor Schedule</th>
-            <th className="text-end">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((item) => (
-            <tr key={item._id}>
-              <td className="fw-semibold">{item.studentName || 'Not available'}</td>
-              <td>{credentialLabel(item.credentialType)}</td>
-              <td>{anchorScheduleLabel(item)}</td>
-              <td className="text-end">
-                <RowActionCell
-                  item={item}
-                  busyId={busyId}
-                  onDetails={onDetails}
-                  actions={getActions(item)}
-                  isMenuOpen={actionMenuOpenId === item._id}
-                  onToggleMenu={() => onToggleActionMenu(item._id)}
-                  onCloseMenu={onCloseActionMenu}
+      <>
+        <table className="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th style={{ width: 36 }}>
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={allPageSelected}
+                  ref={(input) => {
+                    if (input) input.indeterminate = !allPageSelected && somePageSelected;
+                  }}
+                  onChange={(event) => onTogglePage(selectableIds, event.target.checked)}
+                  disabled={selectableIds.length === 0}
+                  aria-label="Select visible draft credentials"
                 />
-              </td>
+              </th>
+              <th>Student</th>
+              <th>Credential</th>
+              <th>Payment</th>
+              <th>Anchor</th>
+              <th>Status</th>
+              <th className="text-end">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((item) => {
+              const selectable = cleanText(item.status).toLowerCase() === 'draft';
+              return (
+                <tr key={item._id}>
+                  <td>
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      checked={selectedIds.has(item._id)}
+                      onChange={(event) => onToggleSelected(item._id, event.target.checked)}
+                      disabled={!selectable}
+                      aria-label={`Select ${item.studentName || 'credential draft'}`}
+                    />
+                  </td>
+                  <td>
+                    <div className="fw-semibold">{item.studentName || 'Not available'}</div>
+                    <div className="small text-muted">{item.studentNo || 'No student number'}</div>
+                  </td>
+                  <td>{credentialLabel(item.credentialType)}</td>
+                  <td>
+                    <span className={`badge ${getPaymentBadge(item)}`}>
+                      {isCredentialPaid(item) ? 'Paid' : 'Unpaid'}
+                    </span>
+                    <div className="small text-muted">{formatCurrency(item.amount || item.totalAmount)}</div>
+                  </td>
+                  <td>
+                    <span className="badge text-bg-light border">{anchorModeLabel(item.anchorMode)}</span>
+                    <div className="small text-muted">{anchorScheduleLabel(item)}</div>
+                  </td>
+                  <td>
+                    <span className={`badge ${getStatusBadge(item.status)}`}>{titleCase(item.status)}</span>
+                  </td>
+                  <td className="text-end">
+                    <RowActionCell
+                      item={item}
+                      busyId={busyId}
+                      onDetails={onDetails}
+                      actions={getActions(item)}
+                      isMenuOpen={actionMenuOpenId === item._id}
+                      onToggleMenu={() => onToggleActionMenu(item._id)}
+                      onCloseMenu={onCloseActionMenu}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-3">
+          <div className="small text-muted">
+            Select up to {MAX_BULK_SELECTION} drafts for bulk submission.
+          </div>
+          <div className="btn-group btn-group-sm" role="group" aria-label="VC pagination">
+            <button
+              className="btn btn-outline-secondary"
+              onClick={() => onPage(Math.max(1, page - 1))}
+              disabled={page <= 1}
+            >
+              Previous
+            </button>
+            <button className="btn btn-outline-secondary" disabled>
+              Page {page} of {pageCount}
+            </button>
+            <button
+              className="btn btn-outline-secondary"
+              onClick={() => onPage(Math.min(pageCount, page + 1))}
+              disabled={page >= pageCount}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </>
     </CredentialTableShell>
   );
 }
@@ -1962,6 +2271,10 @@ export default function CredentialDraftsPage() {
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
+  const [paymentConfirmDraft, setPaymentConfirmDraft] = useState(null);
+  const [draftSubmit, setDraftSubmit] = useState(null);
+  const [selectedVcIds, setSelectedVcIds] = useState(() => new Set());
+  const [vcPage, setVcPage] = useState(1);
   const [rowActionMenuOpenId, setRowActionMenuOpenId] = useState('');
   const [claimQr, setClaimQr] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
@@ -2044,6 +2357,16 @@ export default function CredentialDraftsPage() {
     return () => window.clearInterval(timer);
   }, [activeTab, loadDrafts, loadPayments, loadAnchorSummary]);
 
+  useEffect(() => {
+    if (activeTab !== 'drafts') {
+      setSelectedVcIds(new Set());
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    setVcPage(1);
+  }, [vcPaymentFilter, vcSearch]);
+
   function closeActionModals() {
     setConfirmAction(null);
     setReasonAction(null);
@@ -2114,18 +2437,25 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmSubmit(item) {
-    setConfirmAction({
-      title: 'Submit for signing?',
-      subtitle: 'This sends the paid draft to the registrar signing queue.',
-      details: `${item.studentName} (${item.studentNo}) - ${titleCase(item.credentialType)}`,
-      confirmLabel: 'Submit',
-      run: async () => {
-        setBusyId(item._id);
-        await submitCredentialDraft(item._id);
-        setBusyId('');
-        await refreshAfterAction('Draft submitted for signing.');
-      },
-    });
+    setDraftSubmit(item);
+  }
+
+  async function confirmDraftSubmit(payload) {
+    if (!draftSubmit?._id) return;
+
+    try {
+      setModalBusy(true);
+      setBusyId(draftSubmit._id);
+      await updateCredentialDraft(draftSubmit._id, payload);
+      await submitCredentialDraft(draftSubmit._id);
+      setDraftSubmit(null);
+      await refreshAfterAction('Draft submitted for signing.');
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Failed to submit draft.') });
+    } finally {
+      setBusyId('');
+      setModalBusy(false);
+    }
   }
 
   function confirmSign(item) {
@@ -2183,19 +2513,24 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmMarkPaid(item) {
-    setConfirmAction({
-      title: 'Mark payment as paid?',
-      subtitle: 'This records payment, generates a receipt number, and notifies the student.',
-      details: `${item.paymentCode || item._id} - ${item.studentName} (${item.studentNo})`,
-      confirmLabel: 'Mark Paid',
-      variant: 'success',
-      run: async () => {
-        setBusyId(item._id);
-        await markCredentialPaymentPaid(item._id);
-        setBusyId('');
-        await refreshAfterAction('Payment marked as paid.');
-      },
-    });
+    setPaymentConfirmDraft(item);
+  }
+
+  async function confirmPayment(payload) {
+    if (!paymentConfirmDraft?._id) return;
+
+    try {
+      setModalBusy(true);
+      setBusyId(paymentConfirmDraft._id);
+      await markCredentialPaymentPaid(paymentConfirmDraft._id, payload);
+      setPaymentConfirmDraft(null);
+      await refreshAfterAction('Payment marked as paid.');
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Failed to mark payment as paid.') });
+    } finally {
+      setBusyId('');
+      setModalBusy(false);
+    }
   }
 
   async function generateClaimQr(item, payload = {}) {
@@ -2334,6 +2669,87 @@ export default function CredentialDraftsPage() {
     } finally {
       setEditSaving(false);
     }
+  }
+
+  function toggleVcSelection(id, checked) {
+    setSelectedVcIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        if (!next.has(id) && next.size >= MAX_BULK_SELECTION) {
+          setFeedback({
+            type: 'warning',
+            text: `Select up to ${MAX_BULK_SELECTION} drafts at a time.`,
+          });
+          return prev;
+        }
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleVcPageSelection(ids, checked) {
+    setSelectedVcIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        const remaining = Math.max(0, MAX_BULK_SELECTION - next.size);
+        const idsToAdd = ids.filter((id) => !next.has(id));
+        idsToAdd.slice(0, remaining).forEach((id) => next.add(id));
+        if (idsToAdd.length > remaining) {
+          setFeedback({
+            type: 'warning',
+            text: `Only ${MAX_BULK_SELECTION} drafts can be selected at once.`,
+          });
+        }
+      } else {
+        ids.forEach((id) => next.delete(id));
+      }
+      return next;
+    });
+  }
+
+  function confirmBulkSubmitSelected() {
+    const targets = selectedVcRows.filter(
+      (item) => cleanText(item.status).toLowerCase() === 'draft'
+    );
+
+    if (!canManageCredentials) {
+      setFeedback({ type: 'warning', text: 'Only registrar users can submit drafts.' });
+      return;
+    }
+
+    if (targets.length === 0) {
+      setFeedback({ type: 'warning', text: 'Select at least one draft credential.' });
+      return;
+    }
+
+    setConfirmAction({
+      title: 'Submit selected drafts?',
+      subtitle: 'Each selected draft will be priced, updated, and sent to the signing queue.',
+      details: `${targets.length} draft${targets.length === 1 ? '' : 's'} selected.`,
+      confirmLabel: 'Submit Selected',
+      variant: 'success',
+      run: async () => {
+        for (const item of targets) {
+          const mode = normalizeAnchorMode(item.anchorMode, item.anchorNow);
+          const amount = Number(item.amount || item.totalAmount || priceForAnchorMode(mode));
+          setBusyId(item._id);
+          await updateCredentialDraft(item._id, {
+            credentialType: item.credentialType || 'tor',
+            anchorMode: mode,
+            anchorNow: mode === 'anchor_now',
+            amount,
+            totalAmount: amount,
+          });
+          await submitCredentialDraft(item._id);
+        }
+        setBusyId('');
+        setSelectedVcIds(new Set());
+        await refreshAfterAction(`${targets.length} draft${targets.length === 1 ? '' : 's'} submitted for signing.`);
+      },
+    });
   }
 
   function viewQueueCredential(id) {
@@ -2512,6 +2928,30 @@ export default function CredentialDraftsPage() {
     [rows, vcPaymentFilter, vcSearch]
   );
 
+  const vcPageCount = Math.max(1, Math.ceil(vcRows.length / VC_PAGE_SIZE));
+  const vcPageRows = useMemo(() => {
+    const safePage = Math.min(Math.max(vcPage, 1), vcPageCount);
+    const start = (safePage - 1) * VC_PAGE_SIZE;
+    return vcRows.slice(start, start + VC_PAGE_SIZE);
+  }, [vcPage, vcPageCount, vcRows]);
+  const selectedVcRows = useMemo(
+    () => vcRows.filter((item) => selectedVcIds.has(item._id)),
+    [selectedVcIds, vcRows]
+  );
+
+  useEffect(() => {
+    setVcPage((current) => Math.min(Math.max(current, 1), vcPageCount));
+  }, [vcPageCount]);
+
+  useEffect(() => {
+    const visibleIds = new Set(vcRows.map((item) => item._id));
+    setSelectedVcIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+      return next;
+    });
+  }, [vcRows]);
+
   const signingRows = useMemo(
     () =>
       rows.filter((item) => {
@@ -2611,15 +3051,23 @@ export default function CredentialDraftsPage() {
 
         {activeTab === 'drafts' ? (
           <VcProcessingTable
-            rows={vcRows}
+            rows={vcPageRows}
             loading={loading}
             busyId={busyId}
             paymentStatus={vcPaymentFilter}
             search={vcSearch}
+            selectedIds={selectedVcIds}
+            selectedCount={selectedVcIds.size}
+            page={vcPage}
+            pageCount={vcPageCount}
             onPaymentStatus={setVcPaymentFilter}
             onSearch={setVcSearch}
             onRefresh={loadDrafts}
             onDetails={openDraft}
+            onToggleSelected={toggleVcSelection}
+            onTogglePage={toggleVcPageSelection}
+            onPage={setVcPage}
+            onBulkSubmit={confirmBulkSubmitSelected}
             getActions={buildDraftActions}
             actionMenuOpenId={rowActionMenuOpenId}
             onToggleActionMenu={toggleRowActionMenu}
@@ -2695,6 +3143,20 @@ export default function CredentialDraftsPage() {
         onClose={() => setEditDraft(null)}
         onSave={saveEditedDraft}
         saving={editSaving}
+      />
+      <PaymentConfirmModal
+        key={paymentConfirmDraft?._id || 'payment-confirm'}
+        draft={paymentConfirmDraft}
+        busy={modalBusy}
+        onClose={() => setPaymentConfirmDraft(null)}
+        onConfirm={confirmPayment}
+      />
+      <DraftSubmitModal
+        key={draftSubmit?._id || 'draft-submit'}
+        draft={draftSubmit}
+        busy={modalBusy}
+        onClose={() => setDraftSubmit(null)}
+        onConfirm={confirmDraftSubmit}
       />
       <ClaimQrModal
         key={claimQr?.claimUri || 'claim-qr'}

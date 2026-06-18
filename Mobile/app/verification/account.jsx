@@ -9,28 +9,79 @@ import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 import FaceVerifier from '@/components/verification/FaceVerifier';
 
-const STEPS = [
-  'Basic information',
-  'Student information',
-  'Valid ID',
-  'Selfie proof',
-  'Review'
+const STEPS = ['Account', 'Personal Info', 'Valid ID', 'Liveness Check', 'Review'];
+
+const PROGRAM_OPTIONS = [
+  'BS Agriculture',
+  'BS Agricultural and Biosystems Engineering',
+  'BS Information Technology',
+  'BS Computer Science',
+  'BS Agribusiness',
+  'BS Forestry'
+];
+
+const YEAR_OPTIONS = [
+  'Not graduated yet',
+  '2026',
+  '2025',
+  '2024',
+  '2023',
+  '2022',
+  '2021',
+  '2020',
+  '2019',
+  '2018'
+];
+
+const VALID_ID_TYPES = [
+  { label: 'National ID', value: 'national_id' },
+  { label: 'Driver License', value: 'drivers_license' },
+  { label: 'Passport', value: 'passport' },
+  { label: 'PRC ID', value: 'prc_id' },
+  { label: 'UMID', value: 'umid' },
+  { label: 'Voter ID', value: 'voter_id' },
+  { label: 'School ID', value: 'school_id' }
 ];
 
 function statusOf(user, account) {
   return String(account?.status || user?.verified || 'unverified').toLowerCase();
 }
 
-function PhotoPreview({ asset, label }) {
+function PhotoPreview({ asset, label, style }) {
   if (!asset?.uri) {
     return (
-      <View style={styles.emptyPreview}>
+      <View style={[styles.emptyPreview, style]}>
         <Text style={styles.emptyText}>{label}</Text>
       </View>
     );
   }
 
-  return <Image source={{ uri: asset.uri }} style={styles.preview} />;
+  return <Image source={{ uri: asset.uri }} style={[styles.preview, style]} />;
+}
+
+function SelectChip({ label, selected, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.chip, selected ? styles.chipSelected : null]}
+    >
+      <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function PhotoPicker({ title, body, asset, previewLabel, onCamera, onGallery }) {
+  return (
+    <View style={styles.uploadBlock}>
+      <Text style={styles.uploadLabel}>{title}</Text>
+      {body ? <Text style={styles.muted}>{body}</Text> : null}
+      <PhotoPreview asset={asset} label={previewLabel} />
+      <View style={styles.row}>
+        <Button title="Camera" onPress={onCamera} style={styles.flex} />
+        <Button title="Gallery" variant="outline" onPress={onGallery} style={styles.flex} />
+      </View>
+    </View>
+  );
 }
 
 export default function AccountVerificationScreen() {
@@ -40,6 +91,7 @@ export default function AccountVerificationScreen() {
   const refreshAccount = useAppStore((state) => state.refreshAccount);
 
   const [account, setAccount] = useState(null);
+  const [mode, setMode] = useState('verify');
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -47,15 +99,29 @@ export default function AccountVerificationScreen() {
 
   const [idFront, setIdFront] = useState(null);
   const [idBack, setIdBack] = useState(null);
-  const [selfie, setSelfie] = useState(null);
+  const [livenessImage, setLivenessImage] = useState(null);
+
+  const [registerForm, setRegisterForm] = useState({
+    email: '',
+    password: '',
+    confirmPassword: '',
+    fullName: '',
+    address: '',
+    program: PROGRAM_OPTIONS[0],
+    yearGraduated: YEAR_OPTIONS[0],
+    contactNo: ''
+  });
 
   const [answers, setAnswers] = useState({
     studentNo: user?.studentId || '',
     fullName: user?.fullName || '',
-    program: '',
-    yearLevel: '',
-    dateOfBirth: '',
-    confirmed: false,
+    address: '',
+    program: PROGRAM_OPTIONS[0],
+    yearGraduated: '',
+    graduationStatus: 'not_graduated_yet',
+    contactNo: '',
+    validIdType: VALID_ID_TYPES[0].value,
+    confirmed: false
   });
 
   const [showLiveness, setShowLiveness] = useState(false);
@@ -65,7 +131,6 @@ export default function AccountVerificationScreen() {
   const approved = status === 'verified' || status === 'true';
   const pending = status === 'pending';
   const rejected = status === 'rejected';
-
   const currentTitle = useMemo(() => STEPS[step] || STEPS[0], [step]);
 
   useEffect(() => {
@@ -93,9 +158,52 @@ export default function AccountVerificationScreen() {
     setAnswers((prev) => ({ ...prev, [key]: value }));
   }
 
+  function updateRegister(key, value) {
+    setRegisterForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateGraduation(value) {
+    updateAnswer('yearGraduated', value === 'Not graduated yet' ? '' : value);
+    updateAnswer(
+      'graduationStatus',
+      value === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated'
+    );
+  }
+
   function startVerification() {
+    setMode('verify');
     setStep(0);
     setStarted(true);
+  }
+
+  function openRegister() {
+    const email = registerForm.email.trim().toLowerCase();
+
+    if (!email || !registerForm.password || !registerForm.fullName.trim()) {
+      Alert.alert('Missing fields', 'Email, password, and full name are required.');
+      return;
+    }
+
+    if (registerForm.password !== registerForm.confirmPassword) {
+      Alert.alert('Password mismatch', 'Password and confirm password must match.');
+      return;
+    }
+
+    router.push({
+      pathname: '/(auth)/register',
+      params: {
+        email,
+        password: registerForm.password,
+        fullName: registerForm.fullName,
+        address: registerForm.address,
+        program: registerForm.program,
+        yearGraduated:
+          registerForm.yearGraduated === 'Not graduated yet' ? '' : registerForm.yearGraduated,
+        graduationStatus:
+          registerForm.yearGraduated === 'Not graduated yet' ? 'not_graduated_yet' : 'graduated',
+        contactNo: registerForm.contactNo
+      }
+    });
   }
 
   async function chooseImage(setter) {
@@ -108,7 +216,7 @@ export default function AccountVerificationScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 0.8
     });
 
     if (!result.canceled) {
@@ -126,7 +234,7 @@ export default function AccountVerificationScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 0.8
     });
 
     if (!result.canceled) {
@@ -134,65 +242,53 @@ export default function AccountVerificationScreen() {
     }
   }
 
-  function validateCurrentStep() {
-    if (step === 0 && !answers.fullName.trim()) {
-      Alert.alert('Full name required', 'Enter your full name before continuing.');
-      return false;
-    }
-
-    if (step === 1) {
-      if (!answers.program.trim() || !answers.yearLevel.trim()) {
-        Alert.alert('Student information required', 'Program/course and year level are required.');
-        return false;
-      }
-
-      if (!answers.confirmed) {
-        Alert.alert('Confirmation required', 'Please confirm that the information is true.');
+  function validateStep(stepIndex) {
+    if (stepIndex === 0) {
+      if (!answers.fullName.trim() || !answers.contactNo.trim()) {
+        Alert.alert('Account information required', 'Full name and contact number are required.');
         return false;
       }
     }
 
-    if (step === 2 && (!idFront || !idBack)) {
-      Alert.alert('Valid ID required', 'Upload or take photos of the front and back of your valid ID.');
+    if (stepIndex === 1) {
+      if (!answers.address.trim() || !answers.program.trim()) {
+        Alert.alert('Personal information required', 'Address and program are required.');
+        return false;
+      }
+
+      if (answers.graduationStatus !== 'not_graduated_yet' && !answers.yearGraduated.trim()) {
+        Alert.alert('Year graduated required', 'Choose your graduation year.');
+        return false;
+      }
+    }
+
+    if (stepIndex === 2 && (!answers.validIdType || !idFront || !idBack)) {
+      Alert.alert('Valid ID required', 'Choose an ID type and provide front and back photos.');
       return false;
     }
 
-    if (step === 3 && !selfie) {
-      Alert.alert('Selfie required', 'Take a clear selfie proof for manual review.');
+    if (stepIndex === 3 && !livenessImage) {
+      Alert.alert('Liveness proof required', 'Take a live proof photo before review.');
       return false;
     }
 
     return true;
   }
 
-  function validateBeforeSubmit() {
-    if (!answers.fullName.trim()) {
-      Alert.alert('Full name required', 'Enter your full name before submitting.');
-      return false;
-    }
+  function validateCurrentStep() {
+    return validateStep(step);
+  }
 
-    if (!answers.program.trim() || !answers.yearLevel.trim()) {
-      Alert.alert('Student information required', 'Program/course and year level are required.');
-      return false;
+  function validateBeforeSubmit() {
+    for (let index = 0; index < STEPS.length - 1; index += 1) {
+      if (!validateStep(index)) {
+        setStep(index);
+        return false;
+      }
     }
 
     if (!answers.confirmed) {
       Alert.alert('Confirmation required', 'Please confirm that the information is true.');
-      return false;
-    }
-
-    if (!idFront) {
-      Alert.alert('ID front required', 'Upload or take a photo of the front of your valid ID.');
-      return false;
-    }
-
-    if (!idBack) {
-      Alert.alert('ID back required', 'Upload or take a photo of the back of your valid ID.');
-      return false;
-    }
-
-    if (!selfie) {
-      Alert.alert('Selfie required', 'Take a clear selfie proof for manual review.');
       return false;
     }
 
@@ -216,9 +312,6 @@ export default function AccountVerificationScreen() {
   function submit() {
     if (submitting) return;
     if (!validateBeforeSubmit()) return;
-
-    // Do not submit yet.
-    // Open FaceVerifier camera first.
     setShowLiveness(true);
   }
 
@@ -229,18 +322,23 @@ export default function AccountVerificationScreen() {
       await submitAccountVerification({
         idFront,
         idBack,
-        selfie,
-        answers,
+        selfie: livenessImage,
+        answers: {
+          ...answers,
+          confirmed: true,
+          livenessPassed: true,
+          livenessPassedAt: passedAt,
+          livenessMethod: 'faceVerifierLocal'
+        },
         livenessPassed: true,
         livenessPassedAt: passedAt,
-        livenessMethod: 'faceVerifierLocal',
+        livenessMethod: 'faceVerifierLocal'
       });
 
       await refreshAccount();
 
       const data = await loadAccountVerification();
       setAccount(data);
-
       setStarted(false);
       setStep(0);
       setShowLiveness(false);
@@ -256,11 +354,102 @@ export default function AccountVerificationScreen() {
 
   function handleLivenessPassed() {
     const passedAt = new Date().toISOString();
-
     setLivenessPassedAt(passedAt);
     setShowLiveness(false);
-
     submitAfterLiveness(passedAt);
+  }
+
+  function renderModeSwitch() {
+    if (started) return null;
+
+    return (
+      <View style={styles.segmented}>
+        {[
+          ['register', 'Register Now'],
+          ['verify', 'Get Verified']
+        ].map(([value, label]) => (
+          <Pressable
+            key={value}
+            onPress={() => setMode(value)}
+            style={[styles.segment, mode === value ? styles.segmentOn : null]}
+          >
+            <Text style={[styles.segmentText, mode === value ? styles.segmentTextOn : null]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }
+
+  function renderRegisterPanel() {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Register Now</Text>
+        <Text style={styles.muted}>
+          Prepare your student wallet account details, then continue to email OTP verification.
+        </Text>
+        <TextField
+          label="Email"
+          value={registerForm.email}
+          onChangeText={(value) => updateRegister('email', value)}
+          keyboardType="email-address"
+        />
+        <TextField
+          label="Password"
+          value={registerForm.password}
+          onChangeText={(value) => updateRegister('password', value)}
+          secureTextEntry
+        />
+        <TextField
+          label="Confirm Password"
+          value={registerForm.confirmPassword}
+          onChangeText={(value) => updateRegister('confirmPassword', value)}
+          secureTextEntry
+        />
+        <TextField
+          label="Full Name"
+          value={registerForm.fullName}
+          onChangeText={(value) => updateRegister('fullName', value)}
+          autoCapitalize="words"
+        />
+        <TextField
+          label="Address"
+          value={registerForm.address}
+          onChangeText={(value) => updateRegister('address', value)}
+          autoCapitalize="words"
+        />
+        <Text style={styles.fieldLabel}>Program</Text>
+        <View style={styles.chipRow}>
+          {PROGRAM_OPTIONS.map((item) => (
+            <SelectChip
+              key={item}
+              label={item}
+              selected={registerForm.program === item}
+              onPress={() => updateRegister('program', item)}
+            />
+          ))}
+        </View>
+        <Text style={styles.fieldLabel}>Year Graduated</Text>
+        <View style={styles.chipRow}>
+          {YEAR_OPTIONS.map((item) => (
+            <SelectChip
+              key={item}
+              label={item}
+              selected={registerForm.yearGraduated === item}
+              onPress={() => updateRegister('yearGraduated', item)}
+            />
+          ))}
+        </View>
+        <TextField
+          label="Contact Number"
+          value={registerForm.contactNo}
+          onChangeText={(value) => updateRegister('contactNo', value)}
+          keyboardType="phone-pad"
+        />
+        <Button title="Continue to Email OTP" onPress={openRegister} style={styles.buttonGap} />
+      </View>
+    );
   }
 
   function renderStatusCard() {
@@ -284,15 +473,8 @@ export default function AccountVerificationScreen() {
       return (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Verification submitted</Text>
-          <Text style={styles.muted}>
-            The registrar will review your account.
-          </Text>
-          <Button
-            title="Back"
-            variant="outline"
-            onPress={() => router.back()}
-            style={styles.buttonGap}
-          />
+          <Text style={styles.muted}>The registrar will review your account.</Text>
+          <Button title="Back" variant="outline" onPress={() => router.back()} style={styles.buttonGap} />
         </View>
       );
     }
@@ -304,11 +486,7 @@ export default function AccountVerificationScreen() {
           <Text style={styles.muted}>
             {account?.submission?.rejectionReason || 'Please submit updated proof for review.'}
           </Text>
-          <Button
-            title="Continue"
-            onPress={startVerification}
-            style={styles.buttonGap}
-          />
+          <Button title="Continue" onPress={startVerification} style={styles.buttonGap} />
         </View>
       );
     }
@@ -335,11 +513,9 @@ export default function AccountVerificationScreen() {
               ]}
             >
               <View style={[styles.progressDot, (active || complete) && styles.progressDotOn]}>
-                {complete ? <Text style={styles.progressCheck}>✓</Text> : null}
+                {complete ? <Text style={styles.progressCheck}>OK</Text> : null}
               </View>
-              <Text style={[styles.progressText, active && styles.progressTextActive]}>
-                {label}
-              </Text>
+              <Text style={[styles.progressText, active && styles.progressTextActive]}>{label}</Text>
             </View>
           );
         })}
@@ -351,17 +527,11 @@ export default function AccountVerificationScreen() {
     if (!started) {
       return (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            Set up your verified student wallet.
-          </Text>
+          <Text style={styles.cardTitle}>Get Verified</Text>
           <Text style={styles.muted}>
-            Submit your basic information, student details, valid ID, and selfie proof for registrar review.
+            Submit account details, personal information, valid ID photos, and a liveness proof for registrar review.
           </Text>
-          <Button
-            title="Continue"
-            onPress={startVerification}
-            style={styles.buttonGap}
-          />
+          <Button title="Start Verification" onPress={startVerification} style={styles.buttonGap} />
         </View>
       );
     }
@@ -369,7 +539,7 @@ export default function AccountVerificationScreen() {
     if (step === 0) {
       return (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Basic information</Text>
+          <Text style={styles.cardTitle}>Account</Text>
           <TextField
             label="Full Name"
             value={answers.fullName}
@@ -377,10 +547,15 @@ export default function AccountVerificationScreen() {
             autoCapitalize="words"
           />
           <TextField
-            label="Date of Birth (optional)"
-            value={answers.dateOfBirth}
-            onChangeText={(value) => updateAnswer('dateOfBirth', value)}
-            placeholder="YYYY-MM-DD"
+            label="Contact Number"
+            value={answers.contactNo}
+            onChangeText={(value) => updateAnswer('contactNo', value)}
+            keyboardType="phone-pad"
+          />
+          <TextField
+            label="Student Number (optional)"
+            value={answers.studentNo}
+            onChangeText={(value) => updateAnswer('studentNo', value)}
           />
         </View>
       );
@@ -389,33 +564,39 @@ export default function AccountVerificationScreen() {
     if (step === 1) {
       return (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Student information</Text>
+          <Text style={styles.cardTitle}>Personal Info</Text>
           <TextField
-            label="Student Number (optional)"
-            value={answers.studentNo}
-            onChangeText={(value) => updateAnswer('studentNo', value)}
+            label="Address"
+            value={answers.address}
+            onChangeText={(value) => updateAnswer('address', value)}
+            autoCapitalize="words"
           />
-
-          <TextField
-            label="Program / Course"
-            value={answers.program}
-            onChangeText={(value) => updateAnswer('program', value)}
-            autoCapitalize="characters"
-          />
-
-          <TextField
-            label="Year Level"
-            value={answers.yearLevel}
-            onChangeText={(value) => updateAnswer('yearLevel', value)}
-          />
-
-          <Pressable
-            style={styles.checkRow}
-            onPress={() => updateAnswer('confirmed', !answers.confirmed)}
-          >
-            <View style={[styles.checkbox, answers.confirmed && styles.checkboxOn]} />
-            <Text style={styles.checkText}>I confirm this information is true.</Text>
-          </Pressable>
+          <Text style={styles.fieldLabel}>Program</Text>
+          <View style={styles.chipRow}>
+            {PROGRAM_OPTIONS.map((item) => (
+              <SelectChip
+                key={item}
+                label={item}
+                selected={answers.program === item}
+                onPress={() => updateAnswer('program', item)}
+              />
+            ))}
+          </View>
+          <Text style={styles.fieldLabel}>Year Graduated</Text>
+          <View style={styles.chipRow}>
+            {YEAR_OPTIONS.map((item) => (
+              <SelectChip
+                key={item}
+                label={item}
+                selected={
+                  item === 'Not graduated yet'
+                    ? answers.graduationStatus === 'not_graduated_yet'
+                    : answers.yearGraduated === item
+                }
+                onPress={() => updateGraduation(item)}
+              />
+            ))}
+          </View>
         </View>
       );
     }
@@ -424,35 +605,31 @@ export default function AccountVerificationScreen() {
       return (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Valid ID</Text>
-          <Text style={styles.muted}>Upload or take clear photos of the front and back of your valid ID.</Text>
-
-          <View style={styles.uploadBlock}>
-            <Text style={styles.uploadLabel}>Front</Text>
-            <PhotoPreview asset={idFront} label="Valid ID front preview" />
-            <View style={styles.row}>
-              <Button title="Take Photo" onPress={() => takePhoto(setIdFront)} style={styles.flex} />
-              <Button
-                title="Choose Photo"
-                variant="outline"
-                onPress={() => chooseImage(setIdFront)}
-                style={styles.flex}
+          <Text style={styles.muted}>Choose an ID type, then upload or capture the front and back.</Text>
+          <View style={styles.chipRow}>
+            {VALID_ID_TYPES.map((item) => (
+              <SelectChip
+                key={item.value}
+                label={item.label}
+                selected={answers.validIdType === item.value}
+                onPress={() => updateAnswer('validIdType', item.value)}
               />
-            </View>
+            ))}
           </View>
-
-          <View style={styles.uploadBlock}>
-            <Text style={styles.uploadLabel}>Back</Text>
-            <PhotoPreview asset={idBack} label="Valid ID back preview" />
-            <View style={styles.row}>
-              <Button title="Take Photo" onPress={() => takePhoto(setIdBack)} style={styles.flex} />
-              <Button
-                title="Choose Photo"
-                variant="outline"
-                onPress={() => chooseImage(setIdBack)}
-                style={styles.flex}
-              />
-            </View>
-          </View>
+          <PhotoPicker
+            title="Front"
+            asset={idFront}
+            previewLabel="Valid ID front preview"
+            onCamera={() => takePhoto(setIdFront)}
+            onGallery={() => chooseImage(setIdFront)}
+          />
+          <PhotoPicker
+            title="Back"
+            asset={idBack}
+            previewLabel="Valid ID back preview"
+            onCamera={() => takePhoto(setIdBack)}
+            onGallery={() => chooseImage(setIdBack)}
+          />
         </View>
       );
     }
@@ -460,12 +637,17 @@ export default function AccountVerificationScreen() {
     if (step === 3) {
       return (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Selfie proof</Text>
+          <Text style={styles.cardTitle}>Liveness Check</Text>
           <Text style={styles.muted}>
-            Take a clear selfie while holding your ID. This is only for manual registrar review.
+            Take a live proof photo now. Final submission will still open FaceVerifier before sending.
           </Text>
-          <PhotoPreview asset={selfie} label="Selfie proof preview" />
-          <Button title="Open Camera" onPress={() => takePhoto(setSelfie)} style={styles.buttonGap} />
+          <PhotoPicker
+            title="Live proof photo"
+            asset={livenessImage}
+            previewLabel="Liveness proof preview"
+            onCamera={() => takePhoto(setLivenessImage)}
+            onGallery={() => chooseImage(setLivenessImage)}
+          />
         </View>
       );
     }
@@ -473,33 +655,38 @@ export default function AccountVerificationScreen() {
     if (step === 4) {
       return (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Review and submit</Text>
-
-          <Text style={styles.reviewLine}>
-            Student No: {answers.studentNo || 'Not provided'}
-          </Text>
+          <Text style={styles.cardTitle}>Review</Text>
           <Text style={styles.reviewLine}>Full Name: {answers.fullName}</Text>
+          <Text style={styles.reviewLine}>Contact Number: {answers.contactNo}</Text>
+          <Text style={styles.reviewLine}>Address: {answers.address}</Text>
           <Text style={styles.reviewLine}>Program: {answers.program}</Text>
-          <Text style={styles.reviewLine}>Year Level: {answers.yearLevel}</Text>
-
-          <View style={styles.row}>
-            <PhotoPreview asset={idFront} label="Front" />
-            <PhotoPreview asset={idBack} label="Back" />
-          </View>
-
-          <PhotoPreview asset={selfie} label="Selfie" />
-
-          <Text style={styles.muted}>
-            When you tap submit, a quick liveness camera check will open first.
-            Your request will submit only after you pass.
+          <Text style={styles.reviewLine}>
+            Year Graduated:{' '}
+            {answers.graduationStatus === 'not_graduated_yet'
+              ? 'Not graduated yet'
+              : answers.yearGraduated}
           </Text>
-
+          <Text style={styles.reviewLine}>Valid ID: {answers.validIdType}</Text>
+          <View style={styles.row}>
+            <PhotoPreview asset={idFront} label="Front" style={styles.reviewPreview} />
+            <PhotoPreview asset={idBack} label="Back" style={styles.reviewPreview} />
+          </View>
+          <PhotoPreview asset={livenessImage} label="Liveness proof" />
+          <Pressable
+            style={styles.checkRow}
+            onPress={() => updateAnswer('confirmed', !answers.confirmed)}
+          >
+            <View style={[styles.checkbox, answers.confirmed && styles.checkboxOn]} />
+            <Text style={styles.checkText}>I confirm this information is true.</Text>
+          </Pressable>
+          <Text style={styles.muted}>
+            FaceVerifier opens next. No credential sharing happens here; this only submits your account verification request.
+          </Text>
           {livenessPassedAt ? (
             <Text style={styles.successText}>
               Liveness passed: {new Date(livenessPassedAt).toLocaleString()}
             </Text>
           ) : null}
-
           <Button
             title={submitting ? 'Submitting...' : 'Submit for Verification'}
             loading={submitting}
@@ -516,10 +703,7 @@ export default function AccountVerificationScreen() {
 
   if (showLiveness) {
     return (
-      <FaceVerifier
-        onClose={() => setShowLiveness(false)}
-        onPassed={handleLivenessPassed}
-      />
+      <FaceVerifier onClose={() => setShowLiveness(false)} onPassed={handleLivenessPassed} />
     );
   }
 
@@ -532,22 +716,20 @@ export default function AccountVerificationScreen() {
     );
   }
 
-  const statusCard = renderStatusCard();
+  const statusCard = mode === 'verify' ? renderStatusCard() : null;
 
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Account Verification</Text>
-
         <Text style={styles.subtitle}>
-          {started
-            ? `Step ${step + 1} of ${STEPS.length}: ${currentTitle}`
-            : 'Registrar review required'}
+          {started ? `Step ${step + 1} of ${STEPS.length}: ${currentTitle}` : 'Student wallet onboarding'}
         </Text>
 
+        {renderModeSwitch()}
         {renderProgress()}
 
-        {statusCard || renderStep()}
+        {mode === 'register' && !started ? renderRegisterPanel() : statusCard || renderStep()}
 
         {started ? (
           <View style={styles.footer}>
@@ -558,7 +740,6 @@ export default function AccountVerificationScreen() {
               disabled={submitting}
               style={styles.flex}
             />
-
             {step < STEPS.length - 1 ? (
               <Button
                 title={step === STEPS.length - 2 ? 'Review Details' : 'Continue'}
@@ -577,22 +758,48 @@ export default function AccountVerificationScreen() {
 const styles = StyleSheet.create({
   content: {
     gap: spacing.md,
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.xl
   },
   title: {
     color: colors.text,
     fontSize: 26,
     fontWeight: '900',
-    marginTop: spacing.md,
+    marginTop: spacing.md
   },
   subtitle: {
     color: colors.muted,
-    fontWeight: '700',
+    fontWeight: '700'
+  },
+  segmented: {
+    flexDirection: 'row',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 4,
+    backgroundColor: colors.surface,
+    gap: 4
+  },
+  segment: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  segmentOn: {
+    backgroundColor: colors.primary
+  },
+  segmentText: {
+    color: colors.muted,
+    fontWeight: '900'
+  },
+  segmentTextOn: {
+    color: '#FFFFFF'
   },
   progressGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: spacing.sm
   },
   progressCard: {
     flexBasis: '48%',
@@ -602,42 +809,42 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.surface,
     padding: spacing.md,
-    gap: spacing.xs,
+    gap: spacing.xs
   },
   progressCardActive: {
     borderColor: colors.primary,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#F0FDF4'
   },
   progressCardComplete: {
-    borderColor: '#86EFAC',
+    borderColor: '#86EFAC'
   },
   progressDot: {
-    width: 20,
+    width: 24,
     height: 20,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.line,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surface
   },
   progressDotOn: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    borderColor: colors.primary
   },
   progressCheck: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
+    fontSize: 9,
+    fontWeight: '900'
   },
   progressText: {
     color: colors.text,
     fontSize: 12,
     fontWeight: '800',
-    lineHeight: 16,
+    lineHeight: 16
   },
   progressTextActive: {
-    color: colors.primary,
+    color: colors.primary
   },
   card: {
     backgroundColor: colors.surface,
@@ -645,21 +852,50 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: radius.md,
     padding: spacing.lg,
-    gap: spacing.md,
+    gap: spacing.md
   },
   cardTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '900'
   },
   muted: {
     color: colors.muted,
-    lineHeight: 20,
+    lineHeight: 20
+  },
+  fieldLabel: {
+    color: colors.muted,
+    fontWeight: '700',
+    fontSize: 13
   },
   successText: {
     color: colors.primary,
     fontWeight: '800',
-    lineHeight: 20,
+    lineHeight: 20
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm
+  },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface
+  },
+  chipSelected: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary
+  },
+  chipText: {
+    color: colors.text,
+    fontWeight: '700'
+  },
+  chipTextSelected: {
+    color: colors.primary
   },
   emptyPreview: {
     minHeight: 180,
@@ -669,39 +905,44 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.bg,
+    backgroundColor: colors.bg
   },
   emptyText: {
     color: colors.muted,
-    fontWeight: '700',
+    fontWeight: '700'
   },
   preview: {
     width: '100%',
     height: 220,
     borderRadius: radius.md,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.bg
+  },
+  reviewPreview: {
+    flex: 1,
+    minHeight: 150,
+    height: 150
   },
   uploadBlock: {
-    gap: spacing.sm,
+    gap: spacing.sm
   },
   uploadLabel: {
     color: colors.text,
-    fontWeight: '900',
+    fontWeight: '900'
   },
   row: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.md
   },
   flex: {
-    flex: 1,
+    flex: 1
   },
   buttonGap: {
-    marginTop: spacing.sm,
+    marginTop: spacing.sm
   },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.sm
   },
   checkbox: {
     width: 22,
@@ -709,23 +950,23 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surface
   },
   checkboxOn: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    borderColor: colors.primary
   },
   checkText: {
     color: colors.text,
     fontWeight: '700',
-    flex: 1,
+    flex: 1
   },
   reviewLine: {
     color: colors.text,
-    fontWeight: '700',
+    fontWeight: '700'
   },
   footer: {
     flexDirection: 'row',
-    gap: spacing.md,
-  },
+    gap: spacing.md
+  }
 });

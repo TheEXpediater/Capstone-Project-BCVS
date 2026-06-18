@@ -183,12 +183,53 @@ const verificationSubmissionSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    address: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    program: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    yearGraduated: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    graduationStatus: {
+      type: String,
+      enum: ['graduated', 'not_graduated_yet', ''],
+      default: '',
+      index: true,
+    },
+    contactNo: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    validIdType: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     idFrontUrl: {
       type: String,
       default: '',
       trim: true,
     },
     idBackUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    validIdFrontUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    validIdBackUrl: {
       type: String,
       default: '',
       trim: true,

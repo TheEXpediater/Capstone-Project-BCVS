@@ -1,14 +1,14 @@
 export const colors = {
-  bg: '#F8FAFC',
+  bg: '#F4FAF1',
   surface: '#FFFFFF',
-  surfaceMuted: '#F1F5F9',
-  text: '#0F172A',
-  muted: '#64748B',
-  line: '#E2E8F0',
+  surfaceMuted: '#EAF5E7',
+  text: '#132719',
+  muted: '#5F7263',
+  line: '#D6E6D1',
   primary: '#166534',
   primarySoft: '#DCFCE7',
-  danger: '#B91C1C',
-  warning: '#A16207',
+  danger: '#B42318',
+  warning: '#A15C07',
   info: '#1D4ED8'
 };
 

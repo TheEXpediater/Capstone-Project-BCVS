@@ -21,8 +21,9 @@ import { getExplorerBaseUrl, verifyMerkleRootOnChain } from '../contracts/servic
 import { getIssuerKeyModel } from '../settings/issuerKey.model.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
 import { getStudentModel } from '../students/model.js';
-import { notifyStudentByStudentNo } from '../notifications/service.js';
+import { notifyStudentByStudentNo, notifyUser } from '../notifications/service.js';
 import { getVerificationSessionModel, getVerificationSubmissionModel } from './model.js';
+import { normalizeVerificationSubmissionPayload } from './submissionPayload.js';
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
@@ -436,38 +437,7 @@ export async function submitAccountVerification(payload = {}, actor) {
     throw new ApiError(409, 'This account is already verified');
   }
 
-  const answers = parseAnswers(payload.answers);
-  const submittedStudentNo = cleanString(
-    payload.submittedStudentNo ||
-      payload.studentNo ||
-      answers.studentNo ||
-      answers.studentNumber
-  );
-
-  const idFrontUrl = cleanString(payload.idFrontUrl);
-  const idBackUrl = cleanString(payload.idBackUrl);
-  const livenessImageUrl = cleanString(payload.livenessImageUrl || payload.selfieUrl);
-  const livenessPassed =
-    payload.livenessPassed === true ||
-    payload.livenessPassed === 'true' ||
-    answers.livenessPassed === true ||
-    answers.livenessPassed === 'true';
-
-  if (!idFrontUrl) {
-    throw new ApiError(400, 'Valid ID front image is required');
-  }
-
-  if (!idBackUrl) {
-    throw new ApiError(400, 'Valid ID back image is required');
-  }
-
-  if (!livenessImageUrl) {
-    throw new ApiError(400, 'Selfie/liveness image is required');
-  }
-
-  if (answers.confirmed !== true && answers.confirmed !== 'true') {
-    throw new ApiError(400, 'Confirmation is required');
-  }
+  const normalized = normalizeVerificationSubmissionPayload(payload);
 
   const VerificationSubmission = getVerificationSubmissionModel();
   const existingApproved = await VerificationSubmission.findOne({
@@ -488,17 +458,25 @@ export async function submitAccountVerification(payload = {}, actor) {
     {
       $set: {
         userId: actor._id,
-        fullName: cleanString(payload.fullName || answers.fullName || actor.fullName),
+        fullName: cleanString(normalized.fullName || actor.fullName),
         email: cleanString(actor.email),
-        submittedStudentNo,
-        idFrontUrl,
-        idBackUrl,
-        selfieUrl: livenessImageUrl,
-        livenessImageUrl,
-        livenessPassed,
-        livenessMethod: cleanString(payload.livenessMethod || answers.livenessMethod),
-        livenessPassedAt: toDateOrNull(payload.livenessPassedAt || answers.livenessPassedAt),
-        answers,
+        submittedStudentNo: normalized.submittedStudentNo,
+        address: normalized.address,
+        program: normalized.program,
+        yearGraduated: normalized.yearGraduated,
+        graduationStatus: normalized.graduationStatus,
+        contactNo: normalized.contactNo,
+        validIdType: normalized.validIdType,
+        idFrontUrl: normalized.idFrontUrl,
+        idBackUrl: normalized.idBackUrl,
+        validIdFrontUrl: normalized.validIdFrontUrl,
+        validIdBackUrl: normalized.validIdBackUrl,
+        selfieUrl: normalized.livenessImageUrl,
+        livenessImageUrl: normalized.livenessImageUrl,
+        livenessPassed: normalized.livenessPassed,
+        livenessMethod: normalized.livenessMethod,
+        livenessPassedAt: toDateOrNull(normalized.livenessPassedAt),
+        answers: normalized.answers,
         status: 'pending',
         linkedStudentId: null,
         linkedStudentNo: '',
@@ -520,6 +498,18 @@ export async function submitAccountVerification(payload = {}, actor) {
 
   actor.verified = 'pending';
   await actor.save();
+
+  await notifyUser(actor._id, {
+    type: 'verification_submitted',
+    title: 'Verification submitted',
+    body: 'Your verification request was submitted for registrar review.',
+    data: {
+      submissionId: submission._id.toString(),
+      status: submission.status,
+      livenessPassed: submission.livenessPassed,
+      validIdType: submission.validIdType,
+    },
+  }).catch(() => null);
 
   return serializeVerificationSubmission(submission);
 }

@@ -24,6 +24,10 @@ const FAQ = [
     'Cashier updates may take time to sync. Check Activity for the latest payment and request status.'
   ],
   [
+    'What is Anchor Now?',
+    'Anchor Now adds ₱20 and places your credential in the priority anchoring queue.'
+  ],
+  [
     'What does verified mean?',
     'Verified means the registrar approved your account and linked it to a student record.'
   ],

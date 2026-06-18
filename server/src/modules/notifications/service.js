@@ -36,6 +36,8 @@ function normalizeEvent(event = {}) {
     'credential_claimed',
     'credential_anchored',
     'anchor_scheduled',
+    'anchor_now_requested',
+    'verification_submitted',
     'proof_prepared',
   ].includes(type)) {
     throw new ApiError(400, 'Unsupported notification type');
