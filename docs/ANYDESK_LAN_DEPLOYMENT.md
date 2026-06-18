@@ -1,6 +1,6 @@
 # BCVS AnyDesk LAN Deployment Guide
 
-This guide sets up the BCVS registrar API, web MIS, MongoDB, and Expo development APK on a Windows university workstation. LAN mode works without Namecheap or public DNS.
+This guide sets up the BCVS registrar API, web MIS/verifier, MongoDB, and Expo development APK on a Windows university workstation. The normal production path is Cloudflare domain-first, with LAN, QR, manual, and discovery tools kept as MIS/debug fallbacks.
 
 ## MongoDB Setup
 
@@ -42,10 +42,10 @@ CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://SERVER_IP_HERE:5
 WEB_BASE_URL=http://SERVER_IP_HERE:5173
 
 PUBLIC_DOMAIN=psau-credentials.cfd
-DOMAIN_API_BASE_URL=https://psau-credentials.cfd/api
+DOMAIN_API_BASE_URL=https://api.psau-credentials.cfd/api
 DOMAIN_WEB_BASE_URL=https://psau-credentials.cfd
 VERIFICATION_WEB_BASE_URL=https://psau-credentials.cfd
-PREFERRED_DEPLOYMENT_MODE=lan
+PREFERRED_DEPLOYMENT_MODE=domain
 
 DISCOVERY_ENABLED=false
 DISCOVERY_SERVICE_NAME=BCVS Registrar Server
@@ -58,7 +58,7 @@ ANCHOR_CHAIN_ID=80002
 ANCHOR_CONFIRMATIONS=2
 ```
 
-Domain values are optional. If the domain does not resolve, LAN mode still works. Discovery is disabled by default and should be enabled only by MIS/developers during testing.
+The root domain is web/verifier only. Backend requests use the API subdomain. Discovery is disabled by default and should be enabled only by MIS/developers during testing.
 
 ## Install Dependencies
 
@@ -72,6 +72,16 @@ npm install
 cd C:\Capstone-Project-BCVS\Mobile
 npm install
 ```
+
+## Web Client `.env`
+
+Create `client\.env` for the tunnel-backed web/verifier app:
+
+```env
+VITE_API_BASE_URL=https://api.psau-credentials.cfd/api
+```
+
+`VITE_API_URL` is still accepted for local compatibility, but `VITE_API_BASE_URL` is the canonical production variable.
 
 ## LAN IP Setup
 
@@ -113,6 +123,7 @@ http://SERVER_IP_HERE:5173
 Health:
 
 ```text
+https://api.psau-credentials.cfd/api/health
 http://SERVER_IP_HERE:5000/api/health
 ```
 
@@ -130,25 +141,33 @@ http://SERVER_IP_HERE:5000/api/network-qr
 
 These endpoints expose LAN API/web URL candidates, optional domain URLs, preferred mode, discovery status, and QR pairing data. They do not expose passwords, tokens, keys, or secrets.
 
+Production tunnel mapping:
+
+```text
+https://psau-credentials.cfd      -> http://localhost:5173
+https://api.psau-credentials.cfd  -> http://localhost:5000
+```
+
 ## MIS QR Pairing
 
 In the web MIS, sign in as `developer` or `super_admin`, then open:
 
 ```text
-System Settings -> Network & Mobile
+System Settings -> Advanced -> Network Fallback
 ```
 
 Use this panel to:
 
 - Review detected LAN IPv4 addresses.
 - Copy suggested LAN API and web URLs.
-- Configure optional domain API/web URLs.
-- Choose LAN or DOMAIN as the preferred mode.
+- Confirm the backend API domain is `https://api.psau-credentials.cfd/api`.
+- Confirm the web/verification domain is `https://psau-credentials.cfd`.
+- Choose Domain as the preferred mode.
 - Test `/api/health`.
 - Save network settings.
 - Show the mobile pairing QR code from `/api/network-qr`.
 
-This QR code is the primary mobile connection method for university LAN use.
+This QR code is a fallback/debug mobile connection method. Normal mobile startup tries `https://api.psau-credentials.cfd/api` first.
 
 ## Mobile Scan Setup
 
@@ -174,7 +193,7 @@ Credential claim QR codes and verification QR codes remain separate flows. The a
 
 ## Manual IP Fallback
 
-If QR pairing is unavailable, open mobile Settings, Server tab, and enter one of:
+If QR pairing is unavailable during MIS testing, enable `EXPO_PUBLIC_SHOW_CONNECTION_TOOLS=true`, open mobile Settings -> Server, and enter one of:
 
 ```text
 192.168.1.50
@@ -182,7 +201,7 @@ If QR pairing is unavailable, open mobile Settings, Server tab, and enter one of
 http://192.168.1.50:5000
 http://192.168.1.50:5000/api
 https://psau-credentials.cfd
-https://psau-credentials.cfd/api
+https://api.psau-credentials.cfd/api
 ```
 
 The app normalizes LAN input to:
@@ -191,17 +210,17 @@ The app normalizes LAN input to:
 http://192.168.1.50:5000/api
 ```
 
-The app normalizes domain input to:
+The app normalizes the canonical domain input to:
 
 ```text
-https://psau-credentials.cfd/api
+https://api.psau-credentials.cfd/api
 ```
 
-Startup fallback order is saved QR config, saved manual config, configured domain if healthy, then development fallback from `EXPO_PUBLIC_API_URL`. mDNS discovery is not part of normal student startup.
+Startup fallback order is configured domain if healthy, saved QR config, saved manual config, legacy saved QR/manual config, then development fallback from `EXPO_PUBLIC_API_URL`. mDNS discovery is not part of normal student startup.
 
 ## Domain Fallback
 
-`psau-credentials.cfd` is optional. If configured and reachable, verifier links prefer the domain. If it is missing or unreachable, the system still uses LAN URLs.
+`psau-credentials.cfd` serves the web MIS and verifier portal. `api.psau-credentials.cfd` serves the backend API. Verifier links must use the root web domain, never the API subdomain.
 
 Generated verifier links prefer:
 
@@ -248,7 +267,7 @@ There are no preview, production, AAB, or CI/CD mobile build profiles.
 
 ## mDNS/Zeroconf Limitation
 
-mDNS/Zeroconf advertises `_bcvs-api._tcp.local` only when discovery is enabled and `bonjour-service` is available. It is for developer/testing use only. University Wi-Fi may block multicast or isolate VLANs, so students should not use discovery tools. QR pairing and manual setup are the reliable paths.
+mDNS/Zeroconf advertises `_bcvs-api._tcp.local` only when discovery is enabled and `bonjour-service` is available. It is for developer/testing use only. University Wi-Fi may block multicast or isolate VLANs, so students should not use discovery tools. The public API domain is the normal mobile path; QR pairing and manual setup are fallback paths.
 
 ## Action Logs Usage
 
@@ -271,7 +290,7 @@ Audit logs are operational records. Delete only for cleanup, storage management,
 - If `npm` is blocked in PowerShell, run `npm.cmd`.
 - If the phone cannot connect, verify both devices are on the same LAN/VLAN and Windows Firewall allows ports 5000 and 5173.
 - If a QR scan says network error, check that the server is running, the phone and server are on the same Wi-Fi, Windows Firewall allows port 5000, and `http://SERVER_IP_HERE:5000/api/health` returns `system: "BCVS"` and `service: "bcvs-api"`.
-- If QR pairing fails, use manual server setup in the mobile Settings tab with the workstation LAN IP.
+- If QR pairing or manual setup is needed, enable `EXPO_PUBLIC_SHOW_CONNECTION_TOOLS=true` for an MIS/debug build.
 - If auto-discovery fails during developer testing, assume multicast is blocked and use QR/manual setup.
 - If backend startup fails, check `server\.env`, MongoDB service status, and port conflicts.
 - If blockchain anchoring fails because env or contract settings are missing, credential proof preparation should fail gracefully rather than crashing the API.

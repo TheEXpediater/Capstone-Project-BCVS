@@ -20,9 +20,46 @@ function normalizeApiBaseUrl(value) {
 
 function normalizeWebBaseUrl(value) {
   return cleanUrl(value)
+    .replace(/\/api\/?$/i, '')
     .replace(/\/verification-portal\/verify\/?$/i, '')
     .replace(/\/verification-portal\/?$/i, '')
     .replace(/\/verify\/?$/i, '');
+}
+
+function hostnameFromUrl(value) {
+  const cleaned = cleanUrl(value);
+  if (!cleaned) return '';
+
+  try {
+    return new URL(cleaned).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function domainApiBaseUrlFromPublicDomain(publicDomain) {
+  const hostname = cleanString(publicDomain).replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  if (!hostname) return '';
+  const apiHost = hostname.toLowerCase().startsWith('api.') ? hostname : `api.${hostname}`;
+  return normalizeApiBaseUrl(`https://${apiHost}`);
+}
+
+function normalizeDomainApiBaseUrl(value, domainWebBaseUrl = '') {
+  const cleaned = normalizeApiBaseUrl(value);
+  if (!cleaned) return '';
+
+  const webHost = hostnameFromUrl(domainWebBaseUrl);
+  if (!webHost) return cleaned;
+
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.hostname.toLowerCase() === webHost && !parsed.hostname.toLowerCase().startsWith('api.')) {
+      parsed.hostname = `api.${parsed.hostname}`;
+    }
+    return cleanUrl(parsed.toString());
+  } catch {
+    return cleaned;
+  }
 }
 
 function isPrivateIpv4(ip) {
@@ -91,21 +128,22 @@ export function buildDeploymentInfo(settingsNetwork = {}) {
   const lanWebBaseUrls = ipv4.map((ip) => `http://${ip}:${webPort}`);
   const manualApiBaseUrl = normalizeApiBaseUrl(settingsNetwork.manualApiBaseUrl);
   const manualWebBaseUrl = normalizeWebBaseUrl(settingsNetwork.manualWebBaseUrl);
-  const domainApiBaseUrl = normalizeApiBaseUrl(
-    settingsNetwork.domainApiBaseUrl ||
-      env.domainApiBaseUrl ||
-      (env.publicDomain ? `https://${env.publicDomain}${API_BASE_PATH}` : '')
-  );
   const domainWebBaseUrl = normalizeWebBaseUrl(
     settingsNetwork.domainWebBaseUrl ||
       env.domainWebBaseUrl ||
       (env.publicDomain ? `https://${env.publicDomain}` : '')
   );
+  const domainApiBaseUrl = normalizeDomainApiBaseUrl(
+    settingsNetwork.domainApiBaseUrl ||
+      env.domainApiBaseUrl ||
+      domainApiBaseUrlFromPublicDomain(env.publicDomain),
+    domainWebBaseUrl
+  );
   const preferredMode = ['lan', 'domain'].includes(
-    cleanString(settingsNetwork.preferredMode || env.preferredDeploymentMode, 'lan').toLowerCase()
+    cleanString(settingsNetwork.preferredMode || env.preferredDeploymentMode, 'domain').toLowerCase()
   )
-    ? cleanString(settingsNetwork.preferredMode || env.preferredDeploymentMode, 'lan').toLowerCase()
-    : 'lan';
+    ? cleanString(settingsNetwork.preferredMode || env.preferredDeploymentMode, 'domain').toLowerCase()
+    : 'domain';
   const discoveryEnabled =
     typeof settingsNetwork.discoveryEnabled === 'boolean'
       ? settingsNetwork.discoveryEnabled

@@ -58,8 +58,11 @@
       "expo-font"
     ],
     "extra": {
-      "DOMAIN_API_BASE_URL": "https://psau-credentials.cfd/api",
+      "DOMAIN_API_BASE_URL": "https://api.psau-credentials.cfd/api",
       "DOMAIN_WEB_BASE_URL": "https://psau-credentials.cfd",
+      "VERIFICATION_WEB_BASE_URL": "https://psau-credentials.cfd",
+      "SHOW_CONNECTION_TOOLS": "false",
+      "SHOW_DISCOVERY_TOOLS": "false",
       "eas": {
         "projectId": "e4c6cd8c-4086-47e3-83b2-eb97cf304c3d"
       },

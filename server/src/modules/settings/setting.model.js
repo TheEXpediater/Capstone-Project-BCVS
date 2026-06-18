@@ -65,7 +65,7 @@ const settingSchema = new mongoose.Schema(
       preferredMode: {
         type: String,
         enum: ['lan', 'domain'],
-        default: 'lan',
+        default: 'domain',
       },
       discoveryEnabled: { type: Boolean, default: false },
       preferredServerIp: { type: String, default: '' },

@@ -21,7 +21,7 @@ test('network QR payload is a BCVS server config with timestamp and no secrets',
   const payload = buildNetworkQrPayload({
     manualApiBaseUrl: 'http://192.168.1.50:5000',
     manualWebBaseUrl: 'http://192.168.1.50:5173',
-    domainApiBaseUrl: 'https://psau-credentials.cfd/api',
+    domainApiBaseUrl: 'https://api.psau-credentials.cfd/api',
     domainWebBaseUrl: 'https://psau-credentials.cfd',
     preferredMode: 'lan',
   });
@@ -31,10 +31,24 @@ test('network QR payload is a BCVS server config with timestamp and no secrets',
   assert.equal(payload.preferred, 'lan');
   assert.equal(payload.lanApiBaseUrl, 'http://192.168.1.50:5000/api');
   assert.equal(payload.lanWebBaseUrl, 'http://192.168.1.50:5173');
-  assert.equal(payload.domainApiBaseUrl, 'https://psau-credentials.cfd/api');
+  assert.equal(payload.domainApiBaseUrl, 'https://api.psau-credentials.cfd/api');
   assert.equal(payload.domainWebBaseUrl, 'https://psau-credentials.cfd');
   assert.equal(payload.healthUrl, 'http://192.168.1.50:5000/api/health');
   assert.match(payload.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(JSON.stringify(payload).includes('password'), false);
   assert.equal(JSON.stringify(payload).includes('token'), false);
+});
+
+test('domain-preferred QR uses the API subdomain and root web verifier domain', () => {
+  const mistakenRootApi = ['https://psau-credentials.cfd', 'api'].join('/');
+  const payload = buildNetworkQrPayload({
+    domainApiBaseUrl: mistakenRootApi,
+    domainWebBaseUrl: 'https://psau-credentials.cfd',
+    preferredMode: 'domain',
+  });
+
+  assert.equal(payload.preferred, 'domain');
+  assert.equal(payload.domainApiBaseUrl, 'https://api.psau-credentials.cfd/api');
+  assert.equal(payload.domainWebBaseUrl, 'https://psau-credentials.cfd');
+  assert.equal(payload.healthUrl, 'https://api.psau-credentials.cfd/api/health');
 });

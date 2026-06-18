@@ -19,13 +19,9 @@ import AuditLogsPage from '../../audit/pages/AuditLogsPage';
 import { checkAnchorReadiness } from '../../contracts/contractsAPI';
 
 const TABS = [
-  'Permissions',
-  'Issuer Key Vault',
-  'Business Rules',
-  'MIS Technical Locks',
-  'Network & Mobile',
+  'Connection',
   'Action Logs',
-  'Blockchain / Contract',
+  'Advanced',
 ];
 
 const PERMISSION_COLUMNS = [
@@ -82,8 +78,8 @@ const EMPTY_SETTINGS = {
     manualWebBaseUrl: '',
     domainApiBaseUrl: '',
     domainWebBaseUrl: '',
-    preferredMode: 'lan',
-    discoveryEnabled: true,
+    preferredMode: 'domain',
+    discoveryEnabled: false,
     preferredServerIp: '',
     apiPort: 5000,
     webPort: 5173,
@@ -386,7 +382,7 @@ function Toggle({ checked, disabled, onChange }) {
 }
 
 export default function SystemSettingsPage() {
-  const [activeTab, setActiveTab] = useState('Permissions');
+  const [activeTab, setActiveTab] = useState('Connection');
   const [settings, setSettings] = useState(EMPTY_SETTINGS);
   const [admins, setAdmins] = useState([]);
   const [issuerKeys, setIssuerKeys] = useState([]);
@@ -479,7 +475,7 @@ export default function SystemSettingsPage() {
       ...saved,
       domainApiBaseUrl: saved.domainApiBaseUrl || envInfo.domainApiBaseUrl || '',
       domainWebBaseUrl: saved.domainWebBaseUrl || envInfo.domainWebBaseUrl || '',
-      preferredMode: saved.preferredMode || envInfo.preferredMode || 'lan',
+      preferredMode: saved.preferredMode || envInfo.preferredMode || 'domain',
       discoveryEnabled:
         typeof saved.discoveryEnabled === 'boolean'
           ? saved.discoveryEnabled
@@ -521,7 +517,7 @@ export default function SystemSettingsPage() {
       return {
         type: 'BCVS_SERVER_CONFIG',
         system: 'BCVS',
-        preferred: effectiveNetwork.preferredMode || 'lan',
+        preferred: effectiveNetwork.preferredMode || 'domain',
         lanApiBaseUrl: selectedLanApiUrl,
         lanWebBaseUrl: selectedLanWebUrl,
         domainApiBaseUrl: effectiveNetwork.domainApiBaseUrl || '',
@@ -1273,6 +1269,116 @@ export default function SystemSettingsPage() {
     );
   }
 
+  function renderConnection() {
+    const canEdit = access.canManageNetworkSettings;
+    const domainApi = effectiveNetwork.domainApiBaseUrl || 'https://api.psau-credentials.cfd/api';
+    const domainWeb = effectiveNetwork.domainWebBaseUrl || 'https://psau-credentials.cfd';
+
+    return (
+      <div className="card border-0 shadow-sm">
+        <div className="card-body p-4">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+            <div>
+              <h2 className="h5 mb-1">Connection</h2>
+              <p className="text-muted mb-0">
+                Keep the public verifier on the root domain and backend requests on the API subdomain.
+              </p>
+            </div>
+            <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+
+          <div className="row g-3 mb-4">
+            <div className="col-md-6">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">Web / Verification Domain</div>
+                <div className="fw-semibold text-break">{domainWeb}</div>
+              </div>
+            </div>
+            <div className="col-md-6">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">Backend API Domain</div>
+                <div className="fw-semibold text-break">{domainApi}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="row g-3">
+            <div className="col-lg-5">
+              <label className="form-label fw-semibold">Web / Verification Domain</label>
+              <input
+                className="form-control"
+                value={effectiveNetwork.domainWebBaseUrl}
+                disabled={!canEdit}
+                placeholder="https://psau-credentials.cfd"
+                onChange={(event) => updateNested('network', 'domainWebBaseUrl', event.target.value)}
+              />
+            </div>
+            <div className="col-lg-5">
+              <label className="form-label fw-semibold">Backend API Domain</label>
+              <input
+                className="form-control"
+                value={effectiveNetwork.domainApiBaseUrl}
+                disabled={!canEdit}
+                placeholder="https://api.psau-credentials.cfd/api"
+                onChange={(event) => updateNested('network', 'domainApiBaseUrl', event.target.value)}
+              />
+            </div>
+            <div className="col-lg-2">
+              <label className="form-label fw-semibold">Mode</label>
+              <select
+                className="form-select"
+                value={effectiveNetwork.preferredMode}
+                disabled={!canEdit}
+                onChange={(event) => updateNested('network', 'preferredMode', event.target.value)}
+              >
+                <option value="domain">Domain</option>
+                <option value="lan">LAN fallback</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="border rounded-3 p-3 mt-4">
+            <div className="d-flex flex-wrap align-items-center justify-content-between gap-3">
+              <div>
+                <div className="fw-semibold">API health check</div>
+                <div className="small text-muted text-break">
+                  {domainApi ? healthUrlFor(domainApi) : 'Configure the backend API domain first.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-success btn-sm"
+                onClick={() => testSelectedApiUrl(domainApi)}
+                disabled={networkBusy || !domainApi}
+              >
+                {networkBusy ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
+            {networkTest.message ? (
+              <div className={`alert alert-${networkTest.status} py-2 mt-3 mb-0`}>
+                {networkTest.message}
+              </div>
+            ) : null}
+          </div>
+
+          {canEdit ? (
+            <div className="mt-4 d-flex justify-content-end">
+              <button className="btn btn-primary" onClick={confirmSaveNetwork}>
+                Save Connection Settings
+              </button>
+            </div>
+          ) : (
+            <div className="alert alert-light border mt-4 mb-0">
+              Connection settings are read only for your role.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderNetworkMobile() {
     const canEdit = access.canManageNetworkSettings;
     const lanApiUrls =
@@ -1286,9 +1392,9 @@ export default function SystemSettingsPage() {
         <div className="card-body p-4">
           <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
             <div>
-              <h2 className="h5 mb-1">Network & Mobile Connection</h2>
+              <h2 className="h5 mb-1">Advanced Network Fallback</h2>
               <p className="text-muted mb-0">
-                Use this section to connect mobile devices to the local BCVS server without rebuilding the app.
+                Debug QR pairing, LAN, manual, and discovery settings for MIS-controlled fallback use.
               </p>
             </div>
             <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
@@ -1297,8 +1403,8 @@ export default function SystemSettingsPage() {
           </div>
 
           <div className="alert alert-warning">
-            Automatic discovery requires the mobile device and server to be on the same LAN/VLAN with multicast allowed.
-            If discovery fails, use QR pairing or manual server setup.
+            The normal student app starts with the public API domain. LAN, QR pairing, manual setup, and discovery
+            tools are fallback controls for MIS testing and outage handling.
           </div>
 
           <div className="row g-3 mb-4">
@@ -1345,17 +1451,17 @@ export default function SystemSettingsPage() {
                 </div>
                 <div className="row g-3">
                   <div className="col-md-6">
-                    <label className="form-label fw-semibold">Domain API URL</label>
+                    <label className="form-label fw-semibold">Backend API Domain</label>
                     <input
                       className="form-control"
                       value={effectiveNetwork.domainApiBaseUrl}
                       disabled={!canEdit}
-                      placeholder="https://psau-credentials.cfd/api"
+                      placeholder="https://api.psau-credentials.cfd/api"
                       onChange={(event) => updateNested('network', 'domainApiBaseUrl', event.target.value)}
                     />
                   </div>
                   <div className="col-md-6">
-                    <label className="form-label fw-semibold">Domain Web URL</label>
+                    <label className="form-label fw-semibold">Web / Verification Domain</label>
                     <input
                       className="form-control"
                       value={effectiveNetwork.domainWebBaseUrl}
@@ -1392,8 +1498,8 @@ export default function SystemSettingsPage() {
                       disabled={!canEdit}
                       onChange={(event) => updateNested('network', 'preferredMode', event.target.value)}
                     >
-                      <option value="lan">LAN</option>
-                      <option value="domain">DOMAIN</option>
+                      <option value="domain">Domain</option>
+                      <option value="lan">LAN fallback</option>
                     </select>
                   </div>
                   <div className="col-md-4">
@@ -1658,14 +1764,47 @@ export default function SystemSettingsPage() {
     );
   }
 
+  function renderAdvanced() {
+    const panels = [
+      { key: 'permissions', title: 'Permissions', visible: true, render: renderPermissions },
+      {
+        key: 'issuer-keys',
+        title: 'Issuer Key Vault',
+        visible: access.canViewIssuerKeys,
+        render: renderIssuerKeys,
+      },
+      { key: 'business', title: 'Business Rules', visible: true, render: renderBusinessRules },
+      { key: 'locks', title: 'MIS Technical Locks', visible: true, render: renderLocks },
+      {
+        key: 'network',
+        title: 'Network Fallback',
+        visible: access.canViewNetworkSettings,
+        render: renderNetworkMobile,
+      },
+      {
+        key: 'blockchain',
+        title: 'Blockchain / Contract',
+        visible: access.canViewBlockchain,
+        render: renderBlockchain,
+      },
+    ].filter((panel) => panel.visible);
+
+    return (
+      <div className="d-flex flex-column gap-3">
+        {panels.map((panel, index) => (
+          <details className="border rounded-3 bg-white shadow-sm" key={panel.key} open={index === 0}>
+            <summary className="fw-semibold p-3">{panel.title}</summary>
+            <div className="p-3 border-top">{panel.render()}</div>
+          </details>
+        ))}
+      </div>
+    );
+  }
+
   function renderActiveTab() {
-    if (activeTab === 'Issuer Key Vault') return renderIssuerKeys();
-    if (activeTab === 'Business Rules') return renderBusinessRules();
-    if (activeTab === 'MIS Technical Locks') return renderLocks();
-    if (activeTab === 'Network & Mobile') return renderNetworkMobile();
     if (activeTab === 'Action Logs') return <AuditLogsPage embedded />;
-    if (activeTab === 'Blockchain / Contract') return renderBlockchain();
-    return renderPermissions();
+    if (activeTab === 'Advanced') return renderAdvanced();
+    return renderConnection();
   }
 
   if (loading) {
@@ -1685,9 +1824,7 @@ export default function SystemSettingsPage() {
 
         <div className="d-flex flex-wrap gap-2">
           {TABS.filter((tab) => {
-            if (tab === 'Issuer Key Vault') return access.canViewIssuerKeys;
-            if (tab === 'Blockchain / Contract') return access.canViewBlockchain;
-            if (tab === 'Network & Mobile') return access.canViewNetworkSettings;
+            if (tab === 'Connection') return access.canViewNetworkSettings;
             return true;
           }).map((tab) => (
             <button

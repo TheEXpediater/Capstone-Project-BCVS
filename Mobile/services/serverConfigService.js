@@ -394,6 +394,20 @@ export async function discoverAndValidateServer() {
 }
 
 export async function resolveStartupServerConfig() {
+  if (DOMAIN_API_BASE_URL) {
+    try {
+      const health = await validateHealth(DOMAIN_API_BASE_URL);
+      const config = await saveServerConfig({
+        apiBaseUrl: health.apiBaseUrl,
+        domainApiBaseUrl: health.apiBaseUrl,
+        domainWebBaseUrl: DOMAIN_WEB_BASE_URL,
+        mode: 'domain',
+        preferred: 'domain',
+      }, 'domain');
+      return { config, status: 'domain' };
+    } catch {}
+  }
+
   const savedQr = await getSavedQrServerConfig();
 
   if (savedQr?.apiBaseUrl) {
@@ -421,20 +435,6 @@ export async function resolveStartupServerConfig() {
       await validateHealth(saved.apiBaseUrl);
       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_API_BASE_URL, saved.apiBaseUrl);
       return { config: saved, status: 'saved_legacy' };
-    } catch {}
-  }
-
-  if (DOMAIN_API_BASE_URL) {
-    try {
-      const health = await validateHealth(DOMAIN_API_BASE_URL);
-      const config = await saveServerConfig({
-        apiBaseUrl: health.apiBaseUrl,
-        domainApiBaseUrl: health.apiBaseUrl,
-        domainWebBaseUrl: DOMAIN_WEB_BASE_URL,
-        mode: 'domain',
-        preferred: 'domain',
-      }, 'domain');
-      return { config, status: 'domain' };
     } catch {}
   }
 

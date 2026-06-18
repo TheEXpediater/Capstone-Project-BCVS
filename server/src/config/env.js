@@ -47,10 +47,10 @@ export const env = {
   webBaseUrl: cleanString(process.env.WEB_BASE_URL),
   verificationWebBaseUrl: cleanString(process.env.VERIFICATION_WEB_BASE_URL),
   preferredDeploymentMode: ['lan', 'domain'].includes(
-    cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'lan').toLowerCase()
+    cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'domain').toLowerCase()
   )
-    ? cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'lan').toLowerCase()
-    : 'lan',
+    ? cleanString(process.env.PREFERRED_DEPLOYMENT_MODE, 'domain').toLowerCase()
+    : 'domain',
   discovery: {
     enabled: toBoolean(process.env.DISCOVERY_ENABLED, false),
     serviceName: cleanString(process.env.DISCOVERY_SERVICE_NAME, 'BCVS Registrar Server'),

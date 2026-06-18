@@ -2,6 +2,8 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const extra = Constants.expoConfig?.extra || {};
+const DEFAULT_DOMAIN_API_BASE_URL = 'https://api.psau-credentials.cfd/api';
+const DEFAULT_DOMAIN_WEB_BASE_URL = 'https://psau-credentials.cfd';
 
 function trimSlashes(value) {
   return String(value || '').trim().replace(/\/+$/, '');
@@ -34,19 +36,10 @@ function localDevOrigin(port) {
   return `http://${resolveDevHost()}:${port}`;
 }
 
-const configuredOrigin = firstValue(
-  process.env.EXPO_PUBLIC_API_URL,
-  extra.API_URL,
-  localDevOrigin(5000)
-);
-
-export const API_ORIGIN = trimSlashes(configuredOrigin);
-export const API_BASE_URL = /\/api$/.test(API_ORIGIN)
-  ? API_ORIGIN
-  : `${API_ORIGIN}/api`;
 export const DOMAIN_API_BASE_URL = firstValue(
   process.env.EXPO_PUBLIC_DOMAIN_API_BASE_URL,
-  extra.DOMAIN_API_BASE_URL
+  extra.DOMAIN_API_BASE_URL,
+  DEFAULT_DOMAIN_API_BASE_URL
 );
 
 function normalizeWebBase(value) {
@@ -58,6 +51,18 @@ function normalizeWebBase(value) {
   return cleaned;
 }
 
+const configuredOrigin = firstValue(
+  process.env.EXPO_PUBLIC_API_URL,
+  extra.API_URL,
+  DOMAIN_API_BASE_URL,
+  localDevOrigin(5000)
+);
+
+export const API_ORIGIN = trimSlashes(configuredOrigin);
+export const API_BASE_URL = /\/api$/.test(API_ORIGIN)
+  ? API_ORIGIN
+  : `${API_ORIGIN}/api`;
+
 export const CONFIGURED_WEB_BASE_URL = normalizeWebBase(firstValue(
   process.env.EXPO_PUBLIC_WEB_URL,
   process.env.EXPO_PUBLIC_WEB_BASE,
@@ -67,11 +72,13 @@ export const CONFIGURED_WEB_BASE_URL = normalizeWebBase(firstValue(
 export const WEB_BASE_URL = normalizeWebBase(CONFIGURED_WEB_BASE_URL || localDevOrigin(5173));
 export const DOMAIN_WEB_BASE_URL = normalizeWebBase(firstValue(
   process.env.EXPO_PUBLIC_DOMAIN_WEB_BASE_URL,
-  extra.DOMAIN_WEB_BASE_URL
+  extra.DOMAIN_WEB_BASE_URL,
+  DEFAULT_DOMAIN_WEB_BASE_URL
 ));
 export const VERIFICATION_WEB_BASE_URL = normalizeWebBase(firstValue(
   process.env.EXPO_PUBLIC_VERIFICATION_WEB_BASE_URL,
-  extra.VERIFICATION_WEB_BASE_URL
+  extra.VERIFICATION_WEB_BASE_URL,
+  DOMAIN_WEB_BASE_URL
 ));
 
 export const EAS_PROJECT_ID =

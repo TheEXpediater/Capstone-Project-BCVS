@@ -12,10 +12,11 @@ const parseQrPayload = vm.runInNewContext(transformed, { URL });
 const serverConfigRaw = JSON.stringify({
   type: 'BCVS_SERVER_CONFIG',
   system: 'BCVS',
-  preferred: 'lan',
+  preferred: 'domain',
   lanApiBaseUrl: 'http://192.168.1.50:5000/api',
-  domainApiBaseUrl: 'https://psau-credentials.cfd/api',
-  healthUrl: 'http://192.168.1.50:5000/api/health',
+  domainApiBaseUrl: 'https://api.psau-credentials.cfd/api',
+  domainWebBaseUrl: 'https://psau-credentials.cfd',
+  healthUrl: 'https://api.psau-credentials.cfd/api/health',
 });
 
 const serverConfig = parseQrPayload(serverConfigRaw);
@@ -24,7 +25,8 @@ assert.equal(serverConfig.raw, serverConfigRaw);
 assert.equal(serverConfig.config.type, 'BCVS_SERVER_CONFIG');
 assert.equal(serverConfig.config.system, 'BCVS');
 assert.equal(serverConfig.config.lanApiBaseUrl, 'http://192.168.1.50:5000/api');
-assert.equal(serverConfig.config.domainApiBaseUrl, 'https://psau-credentials.cfd/api');
+assert.equal(serverConfig.config.domainApiBaseUrl, 'https://api.psau-credentials.cfd/api');
+assert.equal(serverConfig.config.domainWebBaseUrl, 'https://psau-credentials.cfd');
 
 const verificationJson = parseQrPayload(JSON.stringify({
   sessionId: '64f000000000000000000001',

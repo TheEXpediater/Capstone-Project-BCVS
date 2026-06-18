@@ -140,11 +140,22 @@ function generateNonce() {
 }
 
 function normalizeVerifierWebBase(value) {
-  return cleanString(value)
+  const cleaned = cleanString(value)
     .replace(/\/+$/, '')
+    .replace(/\/api\/?$/i, '')
     .replace(/\/verification-portal\/verify\/?$/i, '')
     .replace(/\/verification-portal\/?$/i, '')
     .replace(/\/verify\/?$/i, '');
+
+  if (!cleaned) return '';
+
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.hostname.toLowerCase().startsWith('api.')) return '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return cleaned;
+  }
 }
 
 function toVerifyBaseUrl(value) {

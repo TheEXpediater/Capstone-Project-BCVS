@@ -26,6 +26,8 @@ import {
 } from '@/utils/storage';
 
 const TABS = ['Account', 'Student Info', 'Security', 'Server', 'Help'];
+const showConnectionTools =
+  __DEV__ || process.env.EXPO_PUBLIC_SHOW_CONNECTION_TOOLS === 'true';
 const showDiscoveryTools =
   __DEV__ || process.env.EXPO_PUBLIC_SHOW_DISCOVERY_TOOLS === 'true';
 
@@ -586,11 +588,8 @@ export default function SettingsScreen() {
         <SectionTitle
           icon="server-outline"
           title="Server Connection"
-          body="If the app cannot connect, scan the server QR code from the registrar system or enter the server address provided by MIS."
+          body="CredPocket connects through the PSAU credentials domain automatically."
         />
-
-        <InfoRow label="Active API server" value={activeServerUrl} />
-        <InfoRow label="Connection source" value={serverConfig?.source || serverConfig?.preferred || 'development'} />
 
         <View style={styles.statusPanel}>
           <Ionicons name="pulse-outline" size={18} color={statusColor} />
@@ -605,40 +604,46 @@ export default function SettingsScreen() {
             variant="outline"
             style={styles.serverActionButton}
           />
-          <Button
-            title="Scan Server QR"
-            onPress={() => setServerScanVisible(true)}
-            variant="outline"
-            style={styles.serverActionButton}
-          />
         </View>
 
-        <View style={styles.advancedPanel}>
-          <Text style={styles.advancedTitle}>Advanced connection setup</Text>
-          <TextField
-            label="Manual server URL"
-            value={manualServerUrl}
-            onChangeText={setManualServerUrl}
-            placeholder="192.168.1.50:5000 or https://psau-credentials.cfd/api"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <View style={styles.serverActions}>
-            <Button
-              title="Save Manual Server"
-              onPress={saveManualServer}
-              loading={serverBusy}
-              style={styles.serverActionButton}
+        {showConnectionTools && (
+          <View style={styles.advancedPanel}>
+            <Text style={styles.advancedTitle}>Developer connection tools</Text>
+            <InfoRow label="Debug API URL" value={activeServerUrl} />
+            <InfoRow label="Debug source" value={serverConfig?.source || serverConfig?.preferred || 'development'} />
+            <View style={styles.serverActions}>
+              <Button
+                title="Scan Server QR"
+                onPress={() => setServerScanVisible(true)}
+                variant="outline"
+                style={styles.serverActionButton}
+              />
+            </View>
+            <TextField
+              label="Manual server URL"
+              value={manualServerUrl}
+              onChangeText={setManualServerUrl}
+              placeholder="192.168.1.50:5000 or https://api.psau-credentials.cfd/api"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
-            <Button
-              title="Clear Saved Server"
-              onPress={clearSavedServer}
-              variant="danger"
-              disabled={serverBusy}
-              style={styles.serverActionButton}
-            />
+            <View style={styles.serverActions}>
+              <Button
+                title="Save Manual Server"
+                onPress={saveManualServer}
+                loading={serverBusy}
+                style={styles.serverActionButton}
+              />
+              <Button
+                title="Clear Saved Server"
+                onPress={clearSavedServer}
+                variant="danger"
+                disabled={serverBusy}
+                style={styles.serverActionButton}
+              />
+            </View>
           </View>
-        </View>
+        )}
 
         {showDiscoveryTools && (
           <View style={styles.advancedPanel}>

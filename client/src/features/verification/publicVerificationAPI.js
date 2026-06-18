@@ -1,7 +1,13 @@
 import axios from 'axios';
 
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  'http://localhost:5000/api'
+).replace(/\/+$/, '');
+
 const publicApi = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  baseURL: API_BASE_URL,
 });
 
 function unwrap(response) {
@@ -52,7 +58,6 @@ export async function cancelPublicVerificationSession(sessionId, nonce) {
 }
 
 export function buildDownloadUrl(sessionId, nonce, kind) {
-  const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
   const params = new URLSearchParams({ nonce });
-  return `${base}/verification/session/${encodeURIComponent(sessionId)}/download/${kind}?${params.toString()}`;
+  return `${API_BASE_URL}/verification/session/${encodeURIComponent(sessionId)}/download/${kind}?${params.toString()}`;
 }

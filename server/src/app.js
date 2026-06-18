@@ -37,12 +37,23 @@ app.get('/', (_req, res) => {
 });
 
 function normalizeVerifierWebBase(value) {
-  return String(value || '')
+  const cleaned = String(value || '')
     .trim()
     .replace(/\/+$/, '')
+    .replace(/\/api\/?$/i, '')
     .replace(/\/verification-portal\/verify$/i, '')
     .replace(/\/verification-portal$/i, '')
     .replace(/\/verify$/i, '');
+
+  if (!cleaned) return '';
+
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.hostname.toLowerCase().startsWith('api.')) return '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return cleaned;
+  }
 }
 
 async function loadPersistedNetworkSettings() {

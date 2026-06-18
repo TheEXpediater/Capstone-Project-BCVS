@@ -153,9 +153,46 @@ function normalizeApiBaseUrl(value) {
 
 function normalizeWebBaseUrl(value) {
   return cleanUrl(value)
+    .replace(/\/api\/?$/i, '')
     .replace(/\/verification-portal\/verify\/?$/i, '')
     .replace(/\/verification-portal\/?$/i, '')
     .replace(/\/verify\/?$/i, '');
+}
+
+function hostnameFromUrl(value) {
+  const cleaned = cleanUrl(value);
+  if (!cleaned) return '';
+
+  try {
+    return new URL(cleaned).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function domainApiBaseUrlFromPublicDomain(publicDomain) {
+  const hostname = cleanString(publicDomain).replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  if (!hostname) return '';
+  const apiHost = hostname.toLowerCase().startsWith('api.') ? hostname : `api.${hostname}`;
+  return normalizeApiBaseUrl(`https://${apiHost}`);
+}
+
+function normalizeDomainApiBaseUrl(value, domainWebBaseUrl = '') {
+  const cleaned = normalizeApiBaseUrl(value);
+  if (!cleaned) return '';
+
+  const webHost = hostnameFromUrl(domainWebBaseUrl);
+  if (!webHost) return cleaned;
+
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.hostname.toLowerCase() === webHost && !parsed.hostname.toLowerCase().startsWith('api.')) {
+      parsed.hostname = `api.${parsed.hostname}`;
+    }
+    return cleanUrl(parsed.toString());
+  } catch {
+    return cleaned;
+  }
 }
 
 function positivePort(value, fallback) {
@@ -164,20 +201,24 @@ function positivePort(value, fallback) {
 }
 
 function serializeNetworkSettings(network = {}) {
+  const domainWebBaseUrl = normalizeWebBaseUrl(
+    network.domainWebBaseUrl || env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : '')
+  );
+  const preferredMode = cleanString(network.preferredMode || env.preferredDeploymentMode, 'domain').toLowerCase();
+
   return {
     manualApiBaseUrl: normalizeApiBaseUrl(network.manualApiBaseUrl),
     manualWebBaseUrl: normalizeWebBaseUrl(network.manualWebBaseUrl),
-    domainApiBaseUrl: normalizeApiBaseUrl(
+    domainApiBaseUrl: normalizeDomainApiBaseUrl(
       network.domainApiBaseUrl ||
         env.domainApiBaseUrl ||
-        (env.publicDomain ? `https://${env.publicDomain}/api` : '')
+        domainApiBaseUrlFromPublicDomain(env.publicDomain),
+      domainWebBaseUrl
     ),
-    domainWebBaseUrl: normalizeWebBaseUrl(
-      network.domainWebBaseUrl || env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : '')
-    ),
-    preferredMode: ['lan', 'domain'].includes(cleanString(network.preferredMode).toLowerCase())
-      ? cleanString(network.preferredMode).toLowerCase()
-      : env.preferredDeploymentMode || 'lan',
+    domainWebBaseUrl,
+    preferredMode: ['lan', 'domain'].includes(preferredMode)
+      ? preferredMode
+      : 'domain',
     discoveryEnabled:
       typeof network.discoveryEnabled === 'boolean' ? network.discoveryEnabled : env.discovery.enabled,
     preferredServerIp: cleanString(network.preferredServerIp),
@@ -706,7 +747,7 @@ export async function updateNetworkSettings(payload, actor) {
 
   const settings = await ensureMainSettings();
   const next = payload?.network || payload || {};
-  const mode = cleanString(next.preferredMode || settings.network.preferredMode, 'lan').toLowerCase();
+  const mode = cleanString(next.preferredMode || settings.network.preferredMode, 'domain').toLowerCase();
 
   settings.network.manualApiBaseUrl =
     typeof next.manualApiBaseUrl === 'string'
@@ -718,13 +759,13 @@ export async function updateNetworkSettings(payload, actor) {
       : settings.network.manualWebBaseUrl;
   settings.network.domainApiBaseUrl =
     typeof next.domainApiBaseUrl === 'string'
-      ? normalizeApiBaseUrl(next.domainApiBaseUrl)
+      ? normalizeDomainApiBaseUrl(next.domainApiBaseUrl, next.domainWebBaseUrl || settings.network.domainWebBaseUrl)
       : settings.network.domainApiBaseUrl;
   settings.network.domainWebBaseUrl =
     typeof next.domainWebBaseUrl === 'string'
       ? normalizeWebBaseUrl(next.domainWebBaseUrl)
       : settings.network.domainWebBaseUrl;
-  settings.network.preferredMode = ['lan', 'domain'].includes(mode) ? mode : 'lan';
+  settings.network.preferredMode = ['lan', 'domain'].includes(mode) ? mode : 'domain';
   settings.network.discoveryEnabled =
     typeof next.discoveryEnabled === 'boolean'
       ? next.discoveryEnabled
