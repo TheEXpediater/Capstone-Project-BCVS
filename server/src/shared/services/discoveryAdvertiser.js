@@ -1,10 +1,29 @@
 import { env } from '../../config/env.js';
+import { getSystemSettingModel } from '../../modules/settings/setting.model.js';
 
 let bonjour = null;
 let advertisedService = null;
 
-export function startDiscoveryAdvertisement() {
+async function shouldAdvertiseDiscovery() {
   if (!env.discovery.enabled) {
+    return false;
+  }
+
+  try {
+    const SystemSetting = getSystemSettingModel();
+    const settings = await SystemSetting.findOne({ code: 'main' }, { network: 1 }).lean();
+    if (settings?.network?.discoveryEnabled === false) {
+      return false;
+    }
+  } catch (error) {
+    console.warn('[discovery] Could not load persisted discovery settings:', error.message || error);
+  }
+
+  return true;
+}
+
+export async function startDiscoveryAdvertisement() {
+  if (!(await shouldAdvertiseDiscovery())) {
     console.log('[discovery] mDNS advertisement disabled.');
     return;
   }

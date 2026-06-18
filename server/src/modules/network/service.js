@@ -1,4 +1,8 @@
-import { buildHealthPayload, buildNetworkInfoPayload } from '../../shared/utils/networkInfo.js';
+import {
+  buildHealthPayload,
+  buildNetworkInfoPayload,
+  buildNetworkQrPayload,
+} from '../../shared/utils/networkInfo.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
 
 async function loadNetworkSettings() {
@@ -20,4 +24,9 @@ export async function getHealthPayload() {
 export async function getNetworkInfoPayload() {
   const networkSettings = await loadNetworkSettings();
   return buildNetworkInfoPayload(networkSettings);
+}
+
+export async function getNetworkQrPayload() {
+  const networkSettings = await loadNetworkSettings();
+  return buildNetworkQrPayload(networkSettings);
 }

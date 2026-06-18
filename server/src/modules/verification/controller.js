@@ -1,5 +1,37 @@
 import { asyncHandler } from '../../shared/utils/asyncHandler.js';
+import { writeAuditLog } from '../audit/service.js';
 import * as verificationService from './service.js';
+
+function verificationTarget(data = {}, fallbackId = '') {
+  const sessionId = data?.sessionId || data?.session_id || fallbackId || '';
+
+  return {
+    id: String(sessionId || ''),
+    type: 'verification_session',
+    label: String(data?.studentName || data?.credentialType || sessionId || ''),
+  };
+}
+
+async function logVerificationAction(req, action, data, description, metadata = {}) {
+  await writeAuditLog({
+    req,
+    user: req.user,
+    module: 'verification',
+    action,
+    label: description,
+    description,
+    target: verificationTarget(data, req.params?.sessionId),
+    metadata: {
+      sessionId: data?.sessionId || data?.session_id || req.params?.sessionId || '',
+      credentialId: data?.credentialId || '',
+      credentialType: data?.credentialType || data?.request?.credentialType || '',
+      studentNo: data?.studentNo || '',
+      decision: data?.decision || '',
+      sessionStatus: data?.status || '',
+      ...metadata,
+    },
+  });
+}
 
 function firstFileUrl(files, key) {
   const file = Array.isArray(files?.[key]) ? files[key][0] : null;
@@ -89,6 +121,12 @@ export const rejectVerificationSubmission = asyncHandler(async (req, res) => {
 
 export const createVerificationSession = asyncHandler(async (req, res) => {
   const data = await verificationService.createVerificationSession(req.body || {}, req.user);
+  await logVerificationAction(
+    req,
+    'CREATE_VERIFICATION_SESSION',
+    data,
+    'Created verification session'
+  );
 
   res.status(201).json({
     success: true,
@@ -101,6 +139,16 @@ export const requestVerificationSession = asyncHandler(async (req, res) => {
   const data = await verificationService.requestVerificationSession(
     req.params.sessionId,
     req.body || {}
+  );
+  await logVerificationAction(
+    req,
+    'REQUEST_VERIFICATION',
+    data,
+    'Verifier requested credential holder consent',
+    {
+      organization: data?.request?.organization || '',
+      requestedPdf: Boolean(data?.requestedPdf),
+    }
   );
 
   res.status(200).json({
@@ -126,6 +174,17 @@ export const getVerificationResult = asyncHandler(async (req, res) => {
   const data = await verificationService.getVerificationResult(
     req.params.sessionId,
     req.query?.nonce || req.headers['x-verification-nonce'] || ''
+  );
+  await logVerificationAction(
+    req,
+    'CHECK_VERIFICATION_SESSION',
+    data,
+    'Verifier checked verification session result',
+    {
+      verificationStatus: data?.verificationResult?.verificationStatus || '',
+      payloadVerified: Boolean(data?.verificationResult?.payloadVerified),
+      anchoredOnChain: Boolean(data?.verificationResult?.anchoredOnChain),
+    }
   );
 
   res.status(200).json({
@@ -166,6 +225,19 @@ export const presentVerificationSession = asyncHandler(async (req, res) => {
     req.body || {},
     req.user
   );
+  await logVerificationAction(
+    req,
+    data?.decision === 'deny' ? 'DENY_VERIFICATION' : 'APPROVE_VERIFICATION',
+    data,
+    data?.decision === 'deny'
+      ? 'Mobile holder denied verification request'
+      : 'Mobile holder approved verification request',
+    {
+      actorKind: req.user?.kind || 'mobile',
+      allowPdfDownload: Boolean(data?.allowPdfDownload),
+      verificationStatus: data?.verificationResult?.verificationStatus || '',
+    }
+  );
 
   res.status(200).json({
     success: true,
@@ -183,6 +255,17 @@ export const approveVerificationSession = asyncHandler(async (req, res) => {
     },
     req.user
   );
+  await logVerificationAction(
+    req,
+    'APPROVE_VERIFICATION',
+    data,
+    'Mobile holder approved verification request',
+    {
+      actorKind: req.user?.kind || 'mobile',
+      allowPdfDownload: Boolean(data?.allowPdfDownload),
+      verificationStatus: data?.verificationResult?.verificationStatus || '',
+    }
+  );
 
   res.status(200).json({
     success: true,
@@ -196,6 +279,15 @@ export const denyVerificationSession = asyncHandler(async (req, res) => {
     req.params.sessionId,
     req.body || {},
     req.user
+  );
+  await logVerificationAction(
+    req,
+    'DENY_VERIFICATION',
+    data,
+    'Mobile holder denied verification request',
+    {
+      actorKind: req.user?.kind || 'mobile',
+    }
   );
 
   res.status(200).json({

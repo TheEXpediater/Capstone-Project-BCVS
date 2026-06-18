@@ -30,6 +30,7 @@ const MODULE_OPTIONS = [
 ];
 
 const ACTOR_KIND_OPTIONS = ['', 'web', 'mobile', 'system'];
+const ROLE_OPTIONS = ['', 'developer', 'super_admin', 'admin', 'cashier', 'student', 'system'];
 
 function formatDate(value) {
   if (!value) return '—';
@@ -188,8 +189,12 @@ export default function AuditLogsPage() {
   const [filters, setFilters] = useState({
     search: '',
     module: '',
+    action: '',
     actorKind: '',
+    role: '',
     status: '',
+    from: '',
+    to: '',
   });
 
   const allSelected = useMemo(
@@ -207,8 +212,12 @@ export default function AuditLogsPage() {
         limit: pagination.limit,
         search: filters.search || undefined,
         module: filters.module || undefined,
+        action: filters.action || undefined,
         actorKind: filters.actorKind || undefined,
+        role: filters.role || undefined,
         status: filters.status || undefined,
+        from: filters.from || undefined,
+        to: filters.to || undefined,
       });
 
       setRows(data.logs || []);
@@ -301,8 +310,12 @@ export default function AuditLogsPage() {
     setFilters({
       search: '',
       module: '',
+      action: '',
       actorKind: '',
+      role: '',
       status: '',
+      from: '',
+      to: '',
     });
     setTimeout(() => loadLogs(1), 0);
   }
@@ -368,6 +381,17 @@ export default function AuditLogsPage() {
             </div>
 
             <div className="col-md-2">
+              <label className="form-label small text-muted">Action</label>
+              <input
+                className="form-control"
+                name="action"
+                value={filters.action}
+                onChange={handleFilterChange}
+                placeholder="SIGN_DRAFT"
+              />
+            </div>
+
+            <div className="col-md-2">
               <label className="form-label small text-muted">Actor</label>
               <select
                 className="form-select"
@@ -378,6 +402,22 @@ export default function AuditLogsPage() {
                 {ACTOR_KIND_OPTIONS.map((item) => (
                   <option key={item || 'all'} value={item}>
                     {item ? titleCase(item) : 'All actors'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="col-md-2">
+              <label className="form-label small text-muted">Role</label>
+              <select
+                className="form-select"
+                name="role"
+                value={filters.role}
+                onChange={handleFilterChange}
+              >
+                {ROLE_OPTIONS.map((item) => (
+                  <option key={item || 'all'} value={item}>
+                    {item ? titleCase(item) : 'All roles'}
                   </option>
                 ))}
               </select>
@@ -396,6 +436,28 @@ export default function AuditLogsPage() {
                 <option value="failed">Failed</option>
                 <option value="info">Info</option>
               </select>
+            </div>
+
+            <div className="col-md-2">
+              <label className="form-label small text-muted">From</label>
+              <input
+                className="form-control"
+                type="date"
+                name="from"
+                value={filters.from}
+                onChange={handleFilterChange}
+              />
+            </div>
+
+            <div className="col-md-2">
+              <label className="form-label small text-muted">To</label>
+              <input
+                className="form-control"
+                type="date"
+                name="to"
+                value={filters.to}
+                onChange={handleFilterChange}
+              />
             </div>
 
             <div className="col-md-2 d-flex gap-2">

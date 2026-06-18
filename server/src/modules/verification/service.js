@@ -167,13 +167,10 @@ async function resolveVerifyBaseUrl(payload = {}) {
   const deployment = buildDeploymentInfo(networkSettings);
   const configured = [
     env.verificationWebBaseUrl,
-    deployment.domainWebBaseUrl,
-    env.domainWebBaseUrl,
+    env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : ''),
+    networkSettings.domainWebBaseUrl,
     env.publicDomain ? `https://${env.publicDomain}` : '',
     env.webBaseUrl,
-    process.env.WEB_CLIENT_URL,
-    process.env.CLIENT_URL,
-    process.env.FRONTEND_URL,
   ]
     .map(toVerifyBaseUrl)
     .find(Boolean);

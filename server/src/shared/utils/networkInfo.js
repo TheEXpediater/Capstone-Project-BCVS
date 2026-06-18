@@ -189,8 +189,18 @@ export function buildHealthPayload(settingsNetwork = {}) {
       domainApiBaseUrl: deployment.domainApiBaseUrl,
       domainWebBaseUrl: deployment.domainWebBaseUrl,
       preferredBaseUrl: deployment.preferredBaseUrl,
+      preferredWebBaseUrl: deployment.preferredWebBaseUrl,
       preferredMode: deployment.preferredMode,
     },
+  };
+}
+
+export function buildNetworkQrPayload(settingsNetwork = {}) {
+  const deployment = buildDeploymentInfo(settingsNetwork);
+
+  return {
+    ...deployment.qrPayload,
+    generatedAt: new Date().toISOString(),
   };
 }
 

@@ -1,62 +1,28 @@
 # BCVS AnyDesk LAN Deployment Guide
 
-This guide is for setting up the BCVS registrar server, web MIS client, and Expo development APK on a Windows university workstation through AnyDesk. Local LAN deployment does not require a public domain.
+This guide sets up the BCVS registrar API, web MIS, MongoDB, and Expo development APK on a Windows university workstation. LAN mode works without Namecheap or public DNS.
 
-## 1. Install Git
+## MongoDB Setup
 
-Download and install Git for Windows:
-
-```powershell
-winget install --id Git.Git -e
-git --version
-```
-
-## 2. Install Node.js LTS
-
-Install the current Node.js LTS build from nodejs.org or with winget:
-
-```powershell
-winget install --id OpenJS.NodeJS.LTS -e
-node -v
-npm -v
-```
-
-If PowerShell blocks npm scripts, use `npm.cmd` instead of `npm`.
-
-## 3. Install MongoDB Community Server
-
-Install MongoDB Community Server for Windows and select the option to run MongoDB as a Windows service.
+Install MongoDB Community Server and run it as a Windows service.
 
 ```powershell
 winget install --id MongoDB.Server -e
-```
-
-## 4. Verify MongoDB Service
-
-Open PowerShell as Administrator:
-
-```powershell
 Get-Service MongoDB
 Start-Service MongoDB
 ```
 
-MongoDB should show `Running`.
+BCVS uses MongoDB/Mongoose only. It expects three databases:
 
-## 5. Optional Compass and mongosh
-
-MongoDB Compass is a GUI for viewing databases and records. `mongosh` is the command-line shell for MongoDB. They are helpful for inspection, but the BCVS seed script can run without Compass.
-
-## 6. Clone the Repository
-
-```powershell
-cd C:\
-git clone REPOSITORY_URL Capstone-Project-BCVS
-cd C:\Capstone-Project-BCVS
+```text
+bcvs_identity
+bcvs_credentials
+bcvs_platform
 ```
 
-## 7. Create `server\.env`
+## Server `.env`
 
-Create `server\.env` and replace `SERVER_IP_HERE` with the workstation LAN IP.
+Create `server\.env`. Replace `SERVER_IP_HERE` with the workstation LAN IP if you want fixed LAN URLs in CORS or web base settings.
 
 ```env
 NODE_ENV=development
@@ -74,11 +40,11 @@ KEY_ENCRYPTION_SECRET=change_this_to_another_long_random_secret
 
 CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://SERVER_IP_HERE:5173,https://psau-credentials.cfd
 WEB_BASE_URL=http://SERVER_IP_HERE:5173
-VERIFICATION_WEB_BASE_URL=https://psau-credentials.cfd
 
 PUBLIC_DOMAIN=psau-credentials.cfd
 DOMAIN_API_BASE_URL=https://psau-credentials.cfd/api
 DOMAIN_WEB_BASE_URL=https://psau-credentials.cfd
+VERIFICATION_WEB_BASE_URL=https://psau-credentials.cfd
 PREFERRED_DEPLOYMENT_MODE=lan
 
 DISCOVERY_ENABLED=true
@@ -92,90 +58,44 @@ ANCHOR_CHAIN_ID=80002
 ANCHOR_CONFIRMATIONS=2
 ```
 
-For LAN-only development, domain values may remain present but do not need to resolve publicly.
+Domain values are optional. If the domain does not resolve, LAN mode still works.
 
-## 8. Install Server Dependencies
+## Install Dependencies
 
 ```powershell
 cd C:\Capstone-Project-BCVS\server
 npm install
-```
 
-Use `npm.cmd install` if PowerShell blocks `npm`.
-
-## 9. Install Client Dependencies
-
-```powershell
 cd C:\Capstone-Project-BCVS\client
 npm install
-```
 
-## 10. Install Mobile Dependencies
-
-```powershell
 cd C:\Capstone-Project-BCVS\Mobile
 npm install
 ```
 
-## 11. Place Curriculum JSON Files
+## LAN IP Setup
 
-Curriculum files must be in:
-
-```text
-server/src/script/curricula/input
-```
-
-Expected files:
-
-```text
-DVM_Curriculum.json
-BSIT_Curriculum.json
-BSABE_Curriculum.json
-BSCE_Curriculum.json
-BSCpE_Curriculum.json
-BSED_Curriculum.json
-BSGE_Curriculum.json
-BTLED_Curriculum.json
-```
-
-## 12. Run the Seed Command
+Find the workstation LAN IP:
 
 ```powershell
-cd C:\Capstone-Project-BCVS\server
-npm run seed:registrar -- --curriculumYear 2021 --studentsPerProgram 100 --startSerial 864 --schoolYear 2025-2026
+ipconfig
 ```
 
-Clean reset deletes only demo records marked with `seedMeta.source=registrar-demo-seed` and the selected `seedMeta.curriculumYear`:
+Open firewall ports:
 
 ```powershell
-cd C:\Capstone-Project-BCVS\server
-npm run seed:registrar -- --curriculumYear 2021 --studentsPerProgram 100 --startSerial 864 --schoolYear 2025-2026 --reset true
+netsh advfirewall firewall add rule name="BCVS API 5000" dir=in action=allow protocol=TCP localport=5000
+netsh advfirewall firewall add rule name="BCVS Web 5173" dir=in action=allow protocol=TCP localport=5173
 ```
 
-Default web users:
-
-```text
-mis@bcvs.local / ChangeMe123! / developer
-registrar@bcvs.local / ChangeMe123! / super_admin
-admin@bcvs.local / ChangeMe123! / admin
-cashier@bcvs.local / ChangeMe123! / cashier
-```
-
-## 13. Run the Backend
+Run the API:
 
 ```powershell
 cd C:\Capstone-Project-BCVS\server
 npm run dev
 ```
 
-Health checks:
-
-```text
-http://SERVER_IP_HERE:5000/api/health
-http://SERVER_IP_HERE:5000/api/network-info
-```
-
-## 14. Run the Web Client
+Run the web MIS:
 
 ```powershell
 cd C:\Capstone-Project-BCVS\client
@@ -188,75 +108,152 @@ Open:
 http://SERVER_IP_HERE:5173
 ```
 
-## 15. Open Windows Firewall Ports
+## Network Endpoints
 
-Run PowerShell as Administrator:
+Health:
 
-```powershell
-netsh advfirewall firewall add rule name="BCVS API 5000" dir=in action=allow protocol=TCP localport=5000
-netsh advfirewall firewall add rule name="BCVS Web 5173" dir=in action=allow protocol=TCP localport=5173
+```text
+http://SERVER_IP_HERE:5000/api/health
 ```
 
-## 16. Build the Development APK
+Network discovery payload:
 
-The mobile app uses an Expo development build only.
+```text
+http://SERVER_IP_HERE:5000/api/network-info
+```
+
+Mobile QR pairing payload:
+
+```text
+http://SERVER_IP_HERE:5000/api/network-qr
+```
+
+These endpoints expose LAN API/web URL candidates, optional domain URLs, preferred mode, discovery status, and QR pairing data. They do not expose passwords, tokens, keys, or secrets.
+
+## MIS QR Pairing
+
+In the web MIS, sign in as `developer` or `super_admin`, then open:
+
+```text
+System Settings -> Network & Mobile
+```
+
+Use this panel to:
+
+- Review detected LAN IPv4 addresses.
+- Copy suggested LAN API and web URLs.
+- Configure optional domain API/web URLs.
+- Choose LAN or DOMAIN as the preferred mode.
+- Test `/api/health`.
+- Save network settings.
+- Show the mobile pairing QR code from `/api/network-qr`.
+
+## Mobile Scan Setup
+
+Install the Expo development APK, open the mobile app, and scan the MIS pairing QR from the main Scan tab or the Settings tab.
+
+When the QR payload has `type: "BCVS_SERVER_CONFIG"`, the app:
+
+- Selects LAN or domain URL based on `preferred`.
+- Normalizes the API URL to include `/api`.
+- Validates `/api/health`.
+- Saves the QR server config.
+- Refreshes the active API base URL.
+- Uses the saved server without rebuilding the APK.
+
+## Manual IP Fallback
+
+If QR pairing is unavailable, open mobile Settings, Server tab, and enter one of:
+
+```text
+192.168.1.50
+192.168.1.50:5000
+http://192.168.1.50:5000
+http://192.168.1.50:5000/api
+https://psau-credentials.cfd
+https://psau-credentials.cfd/api
+```
+
+The app normalizes LAN input to:
+
+```text
+http://192.168.1.50:5000/api
+```
+
+The app normalizes domain input to:
+
+```text
+https://psau-credentials.cfd/api
+```
+
+Startup fallback order is saved QR config, saved manual config, configured domain if healthy, optional mDNS discovery, then development fallback from `EXPO_PUBLIC_API_URL`.
+
+## Domain Fallback
+
+`psau-credentials.cfd` is optional. If configured and reachable, verifier links prefer the domain. If it is missing or unreachable, the system still uses LAN URLs.
+
+Generated verifier links prefer:
+
+```text
+VERIFICATION_WEB_BASE_URL
+DOMAIN_WEB_BASE_URL or PUBLIC_DOMAIN
+persisted System Settings domain web URL
+WEB_BASE_URL
+LAN web URL
+localhost development fallback
+```
+
+The verifier portal route remains available at:
+
+```text
+/verify
+/verify/:sessionId
+/verification-portal/verify
+/verification-portal/verify/:sessionId
+```
+
+## Namecheap DNS Limitation
+
+Namecheap DNS alone cannot expose a LAN-only computer to the internet. Public domain mode requires a public host, reverse proxy, tunnel, static public IP with port forwarding, or hosting provider with HTTPS termination.
+
+## Expo Dev APK Only
+
+The mobile project is configured for Expo development APK builds only.
 
 ```powershell
 cd C:\Capstone-Project-BCVS\Mobile
+npm run dev:client
+npm run android:dev
 npm run build:dev
 ```
 
-Equivalent command:
+Exact APK build command:
 
 ```powershell
 eas build --profile development --platform android
 ```
 
-## 17. Install APK on a Physical Android Phone
+There are no preview, production, AAB, or CI/CD mobile build profiles.
 
-Download the APK from EAS, transfer it to the phone, and install it. Allow Android to install from the selected file manager or browser when prompted.
+## mDNS Limitation
 
-## 18. Run Metro With Dev Client
+mDNS/Zeroconf advertises `_bcvs-api._tcp.local` only when discovery is enabled and `bonjour-service` is available. University Wi-Fi may block multicast or isolate VLANs. QR pairing and manual setup are the reliable fallback paths.
 
-Keep the phone and server on the same LAN/VLAN.
+## Action Logs Usage
 
-```powershell
-cd C:\Capstone-Project-BCVS\Mobile
-npm run dev:client
-```
-
-Open the installed BCVS development app and connect it to the Metro session.
-
-## 19. Connect the Mobile App to the Server
-
-In the MIS web client, open `System Settings` then `Network & Mobile`. Use the Network & Mobile Connection panel to scan the QR code with the phone.
-
-Fallback options:
+Open:
 
 ```text
-Manual API URL: http://SERVER_IP_HERE:5000/api
-Manual web URL: http://SERVER_IP_HERE:5173
+Action Logs
 ```
 
-mDNS/Zeroconf may fail on university Wi-Fi if multicast traffic is blocked or if the phone and server are on different VLANs. Use QR or manual setup as fallback.
+Only `developer` and `super_admin` can view or delete audit logs. Logs include web login, mobile login, user creation, credential draft actions, payment confirmation, claim QR generation, mobile credential request/claim, verification create/check/approve/deny, settings updates, and network setting updates.
 
-## 20. Optional Namecheap and DNS Setup
+The table supports search, module, action, actor kind, role, status, date range, detail view, single delete, bulk delete, and pagination.
 
-Namecheap DNS is optional during local LAN development.
+## Audit Retention and Deletion Guidance
 
-A domain only works publicly if the backend/web app is reachable through a public IP, VPS, reverse proxy, tunnel, or hosting provider.
-
-A local LAN-only server cannot be made publicly reachable just by adding a DNS record.
-
-If a public deployment is later required, point DNS to the public host or reverse proxy, terminate HTTPS, and set:
-
-```env
-PUBLIC_DOMAIN=psau-credentials.cfd
-DOMAIN_API_BASE_URL=https://psau-credentials.cfd/api
-DOMAIN_WEB_BASE_URL=https://psau-credentials.cfd
-VERIFICATION_WEB_BASE_URL=https://psau-credentials.cfd
-PREFERRED_DEPLOYMENT_MODE=domain
-```
+Audit logs are operational records. Delete only for cleanup, storage management, or approved retention policy work. Before bulk delete, export or back up records if the logs are needed for MIS review. Sensitive fields such as passwords, tokens, Authorization headers, private keys, ciphertext, and secrets are redacted before storage.
 
 ## Troubleshooting
 
@@ -265,4 +262,4 @@ PREFERRED_DEPLOYMENT_MODE=domain
 - If QR pairing fails, use manual server setup in the mobile Settings tab.
 - If auto-discovery fails, assume multicast is blocked and use QR/manual setup.
 - If backend startup fails, check `server\.env`, MongoDB service status, and port conflicts.
-- If seeding says students already exist, use `--force true` to add/overwrite demo slots or `--reset true` to remove only matching demo seed records first.
+- If blockchain anchoring fails because env or contract settings are missing, credential proof preparation should fail gracefully rather than crashing the API.

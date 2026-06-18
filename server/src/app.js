@@ -6,6 +6,7 @@ import { env } from './config/env.js';
 import routes from './routes/index.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/error.middleware.js';
 import { buildDeploymentInfo } from './shared/utils/networkInfo.js';
+import { getSystemSettingModel } from './modules/settings/setting.model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,29 +45,43 @@ function normalizeVerifierWebBase(value) {
     .replace(/\/verify$/i, '');
 }
 
-function resolveVerifierWebBase(req) {
+async function loadPersistedNetworkSettings() {
+  try {
+    const SystemSetting = getSystemSettingModel();
+    const settings = await SystemSetting.findOne({ code: 'main' }, { network: 1 }).lean();
+    return settings?.network || {};
+  } catch {
+    return {};
+  }
+}
+
+async function resolveVerifierWebBase(req) {
+  const networkSettings = await loadPersistedNetworkSettings();
+  const deployment = buildDeploymentInfo(networkSettings);
   const configured = [
     env.verificationWebBaseUrl,
-    env.domainWebBaseUrl,
+    env.domainWebBaseUrl || (env.publicDomain ? `https://${env.publicDomain}` : ''),
+    networkSettings.domainWebBaseUrl,
     env.publicDomain ? `https://${env.publicDomain}` : '',
     env.webBaseUrl,
-    process.env.WEB_CLIENT_URL,
-    process.env.CLIENT_URL,
-    process.env.FRONTEND_URL,
   ]
     .map(normalizeVerifierWebBase)
     .find(Boolean);
 
   if (configured) return configured;
 
-  const lanWebBaseUrl = buildDeploymentInfo().lanWebBaseUrls[0] || '';
+  const lanWebBaseUrl =
+    deployment.manualWebBaseUrl ||
+    deployment.lanWebBaseUrls[0] ||
+    deployment.preferredWebBaseUrl ||
+    '';
   if (lanWebBaseUrl) return lanWebBaseUrl;
 
   const host = String(req.get('host') || 'localhost:5000').replace(/:\d+$/, `:${env.webPort || 5173}`);
   return `${req.protocol}://${host}`;
 }
 
-function legacyVerifierPortalRedirect(req, res) {
+async function legacyVerifierPortalRedirect(req, res) {
   const sessionId = req.params.sessionId || '';
   const queryIndex = req.originalUrl.indexOf('?');
   const query = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
@@ -74,7 +89,8 @@ function legacyVerifierPortalRedirect(req, res) {
     ? `/verify/${encodeURIComponent(sessionId)}`
     : '/verify';
 
-  res.redirect(302, `${resolveVerifierWebBase(req)}${targetPath}${query}`);
+  const webBase = await resolveVerifierWebBase(req);
+  res.redirect(302, `${webBase}${targetPath}${query}`);
 }
 
 app.get('/verify', legacyVerifierPortalRedirect);

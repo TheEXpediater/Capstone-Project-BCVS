@@ -5,6 +5,7 @@ import CredentialDraftsPage from '../features/credentials/pages/CredentialDrafts
 import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
 import UserManagementPage from '../features/users/pages/UserManagementPage';
 import ContractManagerPage from '../features/contracts/pages/ContractManagerPage';
+import AuditLogsPage from '../features/audit/pages/AuditLogsPage';
 import CurriculumManagerPage from '../features/curriculum/pages/CurriculumManagerPage';
 import LinkAccountsPage from '../features/students/pages/LinkAccountsPage';
 import StudentImportManagerPage from '../features/students/pages/StudentImportManagerPage';
@@ -120,6 +121,19 @@ export default function AppRoutes() {
             <RoleRoute allowedRoles={['developer', 'super_admin']}>
               <AppShell>
                 <SystemSettingsPage />
+              </AppShell>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/audit-logs"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={['developer', 'super_admin']}>
+              <AppShell>
+                <AuditLogsPage />
               </AppShell>
             </RoleRoute>
           </ProtectedRoute>

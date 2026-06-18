@@ -57,7 +57,7 @@ function parseJson(raw) {
   }
 }
 
-function getHealthUrl(apiBaseUrl, options = {}) {
+export function getHealthUrl(apiBaseUrl, options = {}) {
   return normalizeServerUrl(apiBaseUrl, options).apiBaseUrl.replace(
     /\/api\/?$/i,
     '/api/health'
@@ -114,6 +114,10 @@ export function deriveApiBaseUrl(rawInput, options = {}) {
   return normalizeServerUrl(rawInput, options).apiBaseUrl;
 }
 
+export function normalizeApiUrl(input, options = {}) {
+  return deriveApiBaseUrl(input, options);
+}
+
 export async function validateHealth(apiBaseUrl, options = {}) {
   const normalized = normalizeServerUrl(apiBaseUrl, options).apiBaseUrl;
   const healthUrl = getHealthUrl(normalized, options);
@@ -129,6 +133,10 @@ export async function validateHealth(apiBaseUrl, options = {}) {
     healthUrl,
     payload,
   };
+}
+
+export async function validateServer(apiBaseUrl, options = {}) {
+  return validateHealth(apiBaseUrl, options);
 }
 
 export function parseServerConfigQr(rawValue) {
@@ -169,6 +177,14 @@ export async function getSavedServerConfig() {
   return readJson(STORAGE_KEYS.SERVER_CONFIG, null);
 }
 
+async function getSavedQrServerConfig() {
+  return readJson(STORAGE_KEYS.SERVER_QR_CONFIG, null);
+}
+
+async function getSavedManualServerConfig() {
+  return readJson(STORAGE_KEYS.SERVER_MANUAL_CONFIG, null);
+}
+
 export async function getActiveApiBaseUrl() {
   const saved = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_API_BASE_URL);
   return cleanUrl(saved || API_BASE_URL);
@@ -182,6 +198,7 @@ export async function saveServerConfig(input, options = {}) {
   const config = {
     type: SERVER_CONFIG_TYPE,
     system: 'BCVS',
+    source: source.source || (source.mode === 'manual' ? 'manual' : 'saved'),
     mode: source.mode || source.preferred || normalized.mode,
     preferred: source.preferred || source.mode || normalized.mode,
     apiBaseUrl: normalized.apiBaseUrl,
@@ -195,11 +212,21 @@ export async function saveServerConfig(input, options = {}) {
     updatedAt: now,
   };
 
-  await Promise.all([
+  const writes = [
     writeJson(STORAGE_KEYS.SERVER_CONFIG, config),
     AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_API_BASE_URL, config.apiBaseUrl),
     AsyncStorage.setItem(STORAGE_KEYS.PREFERRED_SERVER_MODE, config.mode),
-  ]);
+  ];
+
+  if (config.source === 'qr') {
+    writes.push(writeJson(STORAGE_KEYS.SERVER_QR_CONFIG, config));
+  }
+
+  if (config.mode === 'manual' || config.source === 'manual') {
+    writes.push(writeJson(STORAGE_KEYS.SERVER_MANUAL_CONFIG, config));
+  }
+
+  await Promise.all(writes);
 
   return config;
 }
@@ -207,6 +234,8 @@ export async function saveServerConfig(input, options = {}) {
 export async function clearServerConfig() {
   await AsyncStorage.multiRemove([
     STORAGE_KEYS.SERVER_CONFIG,
+    STORAGE_KEYS.SERVER_QR_CONFIG,
+    STORAGE_KEYS.SERVER_MANUAL_CONFIG,
     STORAGE_KEYS.ACTIVE_API_BASE_URL,
     STORAGE_KEYS.LAST_DISCOVERED_SERVER,
     STORAGE_KEYS.PREFERRED_SERVER_MODE,
@@ -228,6 +257,7 @@ export async function saveConfigFromQr(rawValue) {
       ...parsed,
       apiBaseUrl: health.apiBaseUrl,
       mode: parsed.preferred,
+      source: 'qr',
     },
     {}
   );
@@ -329,6 +359,26 @@ export async function discoverAndValidateServer() {
 }
 
 export async function resolveStartupServerConfig() {
+  const savedQr = await getSavedQrServerConfig();
+
+  if (savedQr?.apiBaseUrl) {
+    try {
+      await validateHealth(savedQr.apiBaseUrl);
+      await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_API_BASE_URL, savedQr.apiBaseUrl);
+      return { config: savedQr, status: 'saved_qr' };
+    } catch {}
+  }
+
+  const savedManual = await getSavedManualServerConfig();
+
+  if (savedManual?.apiBaseUrl) {
+    try {
+      await validateHealth(savedManual.apiBaseUrl);
+      await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_API_BASE_URL, savedManual.apiBaseUrl);
+      return { config: savedManual, status: 'saved_manual' };
+    } catch {}
+  }
+
   const saved = await getSavedServerConfig();
 
   if (saved?.apiBaseUrl) {

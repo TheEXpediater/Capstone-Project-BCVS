@@ -12,6 +12,8 @@ export const STORAGE_KEYS = {
   BIOMETRICS_ENABLED: '@bvcs.biometricsEnabled',
   BIOMETRICS_PROMPTED: '@bvcs.biometricsPrompted',
   SERVER_CONFIG: '@bcvs.serverConfig',
+  SERVER_QR_CONFIG: '@bcvs.serverQrConfig',
+  SERVER_MANUAL_CONFIG: '@bcvs.serverManualConfig',
   ACTIVE_API_BASE_URL: '@bcvs.activeApiBaseUrl',
   LAST_DISCOVERED_SERVER: '@bcvs.lastDiscoveredServer',
   PREFERRED_SERVER_MODE: '@bcvs.preferredServerMode'

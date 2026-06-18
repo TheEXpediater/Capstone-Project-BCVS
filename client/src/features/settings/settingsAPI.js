@@ -34,6 +34,11 @@ export async function fetchNetworkInfo() {
   return response.data;
 }
 
+export async function fetchNetworkQrConfig() {
+  const response = await api.get('/network-qr');
+  return response.data.data;
+}
+
 export async function updateNetworkSettings(payload) {
   const response = await api.put('/settings/network', payload);
   return response.data.data;

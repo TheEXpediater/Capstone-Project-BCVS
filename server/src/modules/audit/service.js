@@ -25,12 +25,12 @@ function isSensitiveKey(key = '') {
   return SENSITIVE_KEYS.some((item) => normalized.includes(item.toLowerCase()));
 }
 
-function sanitizeMetadata(value, depth = 0) {
+export function sanitizeAuditMetadata(value, depth = 0) {
   if (depth > 4) return '[Max depth reached]';
   if (value === null || value === undefined) return value;
 
   if (Array.isArray(value)) {
-    return value.slice(0, 50).map((item) => sanitizeMetadata(item, depth + 1));
+    return value.slice(0, 50).map((item) => sanitizeAuditMetadata(item, depth + 1));
   }
 
   if (typeof value === 'object') {
@@ -40,7 +40,7 @@ function sanitizeMetadata(value, depth = 0) {
       if (isSensitiveKey(key)) {
         output[key] = '[REDACTED]';
       } else {
-        output[key] = sanitizeMetadata(item, depth + 1);
+        output[key] = sanitizeAuditMetadata(item, depth + 1);
       }
     }
 
@@ -108,7 +108,7 @@ export async function writeAuditLog(payload = {}) {
       },
       status: payload.status || 'success',
       request: payload.request || buildRequest(payload.req),
-      metadata: sanitizeMetadata(payload.metadata || {}),
+      metadata: sanitizeAuditMetadata(payload.metadata || {}),
     });
 
     return doc;
@@ -135,7 +135,13 @@ export async function listAuditLogs(query = {}) {
   if (query.from || query.to) {
     filter.createdAt = {};
     if (query.from) filter.createdAt.$gte = new Date(query.from);
-    if (query.to) filter.createdAt.$lte = new Date(query.to);
+    if (query.to) {
+      const toDate = new Date(query.to);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(query.to))) {
+        toDate.setHours(23, 59, 59, 999);
+      }
+      filter.createdAt.$lte = toDate;
+    }
   }
 
   if (query.search) {

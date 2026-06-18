@@ -5,6 +5,7 @@ import {
   createIssuerKey,
   deleteIssuerKey,
   fetchNetworkInfo,
+  fetchNetworkQrConfig,
   getSettingsDashboard,
   rotateIssuerKey,
   updateActiveContract,
@@ -401,6 +402,7 @@ export default function SystemSettingsPage() {
   const [readinessCheck, setReadinessCheck] = useState(null);
   const [checkingContractId, setCheckingContractId] = useState('');
   const [networkInfo, setNetworkInfo] = useState(null);
+  const [networkQrConfig, setNetworkQrConfig] = useState(null);
   const [networkBusy, setNetworkBusy] = useState(false);
   const [networkTest, setNetworkTest] = useState({ status: 'idle', message: '' });
   const [qrDataUrl, setQrDataUrl] = useState('');
@@ -499,20 +501,37 @@ export default function SystemSettingsPage() {
       ? effectiveNetwork.domainApiBaseUrl
       : selectedLanApiUrl;
   const qrPayload = useMemo(
-    () => ({
-      type: 'BCVS_SERVER_CONFIG',
-      system: 'BCVS',
-      preferred: effectiveNetwork.preferredMode || 'lan',
-      lanApiBaseUrl: selectedLanApiUrl,
-      lanWebBaseUrl: selectedLanWebUrl,
-      domainApiBaseUrl: effectiveNetwork.domainApiBaseUrl || '',
-      domainWebBaseUrl: effectiveNetwork.domainWebBaseUrl || '',
-      healthUrl: healthUrlFor(selectedApiForTest || selectedLanApiUrl),
-    }),
+    () => {
+      const serverPayload = networkQrConfig || null;
+      if (serverPayload?.type === 'BCVS_SERVER_CONFIG') {
+        return {
+          type: 'BCVS_SERVER_CONFIG',
+          system: 'BCVS',
+          preferred: serverPayload.preferred || 'lan',
+          lanApiBaseUrl: serverPayload.lanApiBaseUrl || '',
+          lanWebBaseUrl: serverPayload.lanWebBaseUrl || '',
+          domainApiBaseUrl: serverPayload.domainApiBaseUrl || '',
+          domainWebBaseUrl: serverPayload.domainWebBaseUrl || '',
+          healthUrl: serverPayload.healthUrl || '',
+        };
+      }
+
+      return {
+        type: 'BCVS_SERVER_CONFIG',
+        system: 'BCVS',
+        preferred: effectiveNetwork.preferredMode || 'lan',
+        lanApiBaseUrl: selectedLanApiUrl,
+        lanWebBaseUrl: selectedLanWebUrl,
+        domainApiBaseUrl: effectiveNetwork.domainApiBaseUrl || '',
+        domainWebBaseUrl: effectiveNetwork.domainWebBaseUrl || '',
+        healthUrl: healthUrlFor(selectedApiForTest || selectedLanApiUrl),
+      };
+    },
     [
       effectiveNetwork.domainApiBaseUrl,
       effectiveNetwork.domainWebBaseUrl,
       effectiveNetwork.preferredMode,
+      networkQrConfig,
       selectedApiForTest,
       selectedLanApiUrl,
       selectedLanWebUrl,
@@ -522,9 +541,10 @@ export default function SystemSettingsPage() {
   async function loadDashboard() {
     try {
       setLoading(true);
-      const [data, network] = await Promise.all([
+      const [data, network, networkQr] = await Promise.all([
         getSettingsDashboard(),
         fetchNetworkInfo().catch(() => null),
+        fetchNetworkQrConfig().catch(() => null),
       ]);
       setSettings({ ...EMPTY_SETTINGS, ...(data.settings || {}) });
       setAdmins(data.admins || []);
@@ -534,6 +554,7 @@ export default function SystemSettingsPage() {
       setAvailableContracts(data.availableContracts || []);
       setAccess(data.access || EMPTY_ACCESS);
       setNetworkInfo(network);
+      setNetworkQrConfig(networkQr);
       setSelectedContractId(data.settings?.blockchain?.selectedContractId || '');
       setFeedback({ type: '', text: '' });
     } catch (error) {
@@ -698,8 +719,12 @@ export default function SystemSettingsPage() {
             ...updated,
           },
         }));
-        const network = await fetchNetworkInfo().catch(() => null);
+        const [network, networkQr] = await Promise.all([
+          fetchNetworkInfo().catch(() => null),
+          fetchNetworkQrConfig().catch(() => null),
+        ]);
         setNetworkInfo(network);
+        setNetworkQrConfig(networkQr);
         setFeedback({ type: 'success', text: 'Network settings saved.' });
       },
     });
@@ -1420,6 +1445,12 @@ export default function SystemSettingsPage() {
               <div className="border rounded-3 p-3 h-100">
                 <h3 className="h6 mb-3">Mobile pairing QR</h3>
                 <div className="d-flex flex-column align-items-center gap-3">
+                  <div className="alert alert-light border py-2 w-100 mb-0">
+                    QR pairing status:{' '}
+                    {networkQrConfig?.generatedAt
+                      ? `Ready - generated ${formatDate(networkQrConfig.generatedAt)}`
+                      : 'Using local fallback payload'}
+                  </div>
                   {qrDataUrl ? (
                     <img src={qrDataUrl} alt="BCVS mobile server setup QR" width="220" height="220" />
                   ) : (

@@ -83,6 +83,8 @@ function parseServerConfigJson(json, raw) {
     lanWebBaseUrl: String(json.lanWebBaseUrl || ''),
     domainApiBaseUrl: String(json.domainApiBaseUrl || ''),
     domainWebBaseUrl: String(json.domainWebBaseUrl || ''),
+    manualApiBaseUrl: String(json.manualApiBaseUrl || ''),
+    manualWebBaseUrl: String(json.manualWebBaseUrl || ''),
     healthUrl: String(json.healthUrl || '')
   };
 }
