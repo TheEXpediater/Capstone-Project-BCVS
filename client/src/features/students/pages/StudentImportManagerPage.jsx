@@ -15,6 +15,7 @@ import {
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
+import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
   bulkImportStudentGrades,
   bulkImportStudents,
@@ -905,6 +906,7 @@ function StudentActionMenu({
   profileLoading,
   gradesLoadingId,
   creatingVcDraftId,
+  canCreateVcDraft,
 }) {
   return (
     <div className="d-inline-flex align-items-center gap-2">
@@ -950,18 +952,20 @@ function StudentActionMenu({
             <FaListAlt className="me-2" />
             {gradesLoadingId === student._id ? 'Loading Grades...' : 'View Grades'}
           </button>
-          <button
-            type="button"
-            className="list-group-item list-group-item-action"
-            onClick={() => {
-              onClose();
-              onConfirmVcDraft(student);
-            }}
-            disabled={creatingVcDraftId === student._id}
-          >
-            <FaFileSignature className="me-2" />
-            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
-          </button>
+          {canCreateVcDraft ? (
+            <button
+              type="button"
+              className="list-group-item list-group-item-action"
+              onClick={() => {
+                onClose();
+                onConfirmVcDraft(student);
+              }}
+              disabled={creatingVcDraftId === student._id}
+            >
+              <FaFileSignature className="me-2" />
+              {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
+            </button>
+          ) : null}
           <button
             type="button"
             className="list-group-item list-group-item-action text-danger"
@@ -1210,6 +1214,10 @@ function PaginationControls({ pagination, onPageChange, disabled }) {
 }
 
 export default function StudentImportManagerPage() {
+  const auth = useMemo(() => hasValidStoredAuth(), []);
+  const currentRole = auth?.user?.role || '';
+  const canCreateVcDraft = currentRole === 'admin';
+
   const [students, setStudents] = useState([]);
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
   const [loadingStudents, setLoadingStudents] = useState(true);
@@ -1564,6 +1572,15 @@ export default function StudentImportManagerPage() {
   }
 
   function requestCreateVcDraft(student) {
+    if (!canCreateVcDraft) {
+      setFeedback({
+        type: 'warning',
+        text: 'This role is not allowed to create VC drafts.',
+        issues: [],
+      });
+      return;
+    }
+
     setConfirmAction({ type: 'createVcDraft', student, credentialType: '' });
   }
 
@@ -1771,6 +1788,7 @@ export default function StudentImportManagerPage() {
                               profileLoading={profileLoading}
                               gradesLoadingId={gradesLoadingId}
                               creatingVcDraftId={creatingVcDraftId}
+                              canCreateVcDraft={canCreateVcDraft}
                             />
                           </td>
                         </tr>

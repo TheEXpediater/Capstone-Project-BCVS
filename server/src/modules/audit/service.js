@@ -28,9 +28,9 @@ const SENSITIVE_KEYS = [
   'validIdFrontUrl',
   'validIdBackUrl',
   'selfie',
-  'selfieUrl',
-  'livenessImage',
-  'livenessImageUrl',
+  'selfieurl',
+  'livenessimage',
+  'livenessimageurl',
   'imageBase64',
   'dataUri',
 ];

@@ -103,8 +103,6 @@ function serializeVerificationSubmission(doc, extras = {}) {
   return {
     ...serialized,
     id: cleanString(serialized?._id),
-    selfieUrl: cleanString(serialized?.selfieUrl || serialized?.livenessImageUrl),
-    livenessImageUrl: cleanString(serialized?.livenessImageUrl || serialized?.selfieUrl),
     ...extras,
   };
 }
@@ -471,8 +469,6 @@ export async function submitAccountVerification(payload = {}, actor) {
         idBackUrl: normalized.idBackUrl,
         validIdFrontUrl: normalized.validIdFrontUrl,
         validIdBackUrl: normalized.validIdBackUrl,
-        selfieUrl: normalized.livenessImageUrl,
-        livenessImageUrl: normalized.livenessImageUrl,
         livenessPassed: normalized.livenessPassed,
         livenessMethod: normalized.livenessMethod,
         livenessPassedAt: toDateOrNull(normalized.livenessPassedAt),
@@ -888,6 +884,95 @@ async function buildAnchorCheck(credential = {}, merkleValid = false) {
   };
 }
 
+export function buildCredentialAnchorVerificationStatus({
+  credential = {},
+  payloadVerified = false,
+  signatureValid = payloadVerified,
+  blockchainVerified = false,
+  now = new Date(),
+} = {}) {
+  const signed = Boolean(credential?.signedCredential);
+  const revoked = ['revoked', 'cancelled', 'deleted'].includes(cleanString(credential?.status).toLowerCase());
+  const anchoredAt = toDateOrNull(credential?.anchoredAt || credential?.anchoring?.anchoredAt);
+  const scheduledAnchorAt = toDateOrNull(credential?.anchorDueAt || credential?.scheduledAnchorAt);
+  const credentialConfirmed = Boolean(payloadVerified && signed && !revoked);
+
+  if (revoked) {
+    return {
+      signatureValid: Boolean(signatureValid),
+      credentialConfirmed: false,
+      anchorStatus: 'missing',
+      anchoredAt,
+      anchorDueAt: scheduledAnchorAt,
+      scheduledAnchorAt,
+      message: 'Credential has been revoked and cannot be confirmed.',
+      revoked: true,
+    };
+  }
+
+  if (!signed) {
+    return {
+      signatureValid: false,
+      credentialConfirmed: false,
+      anchorStatus: 'missing',
+      anchoredAt,
+      anchorDueAt: scheduledAnchorAt,
+      scheduledAnchorAt,
+      message: 'Credential is not signed yet.',
+      revoked: false,
+    };
+  }
+
+  if (!payloadVerified) {
+    return {
+      signatureValid: Boolean(signatureValid),
+      credentialConfirmed: false,
+      anchorStatus: 'missing',
+      anchoredAt,
+      anchorDueAt: scheduledAnchorAt,
+      scheduledAnchorAt,
+      message: 'Credential proof could not be confirmed.',
+      revoked: false,
+    };
+  }
+
+  if (blockchainVerified || cleanString(credential?.anchorStatus).toLowerCase() === 'anchored') {
+    return {
+      signatureValid: Boolean(signatureValid),
+      credentialConfirmed: true,
+      anchorStatus: 'anchored',
+      anchoredAt,
+      anchorDueAt: scheduledAnchorAt,
+      scheduledAnchorAt,
+      message: anchoredAt
+        ? `VC confirmed. Blockchain anchored on ${anchoredAt.toISOString()}.`
+        : 'VC confirmed. Blockchain anchored.',
+      revoked: false,
+    };
+  }
+
+  const scheduledForFuture =
+    scheduledAnchorAt && scheduledAnchorAt.getTime() > new Date(now).getTime();
+  const anchorStatus = scheduledForFuture ? 'scheduled' : scheduledAnchorAt ? 'pending' : 'missing';
+  const scheduledText = scheduledAnchorAt
+    ? ` Scheduled anchor date: ${scheduledAnchorAt.toISOString()}.`
+    : '';
+
+  return {
+    signatureValid: Boolean(signatureValid),
+    credentialConfirmed: true,
+    anchorStatus,
+    anchoredAt,
+    anchorDueAt: scheduledAnchorAt,
+    scheduledAnchorAt,
+    message:
+      anchorStatus === 'missing'
+        ? 'VC confirmed. Blockchain anchoring is pending.'
+        : `VC confirmed. Blockchain anchoring is ${anchorStatus}.${scheduledText}`,
+    revoked: false,
+  };
+}
+
 async function verifyPresentedCredentialPayload({
   presentedCredential,
   credential,
@@ -962,9 +1047,12 @@ async function verifyPresentedCredentialPayload({
   if (!credentialTypeSupported) failureReasons.push('Credential type is not supported.');
   if (!credentialTypeMatches) failureReasons.push('Credential type does not match the verifier request.');
   if (!merkleValid) failureReasons.push('Merkle proof is invalid or incomplete.');
-  if (!blockchain.verified) {
-    failureReasons.push('The credential proof is prepared, but the Merkle root is not anchored on-chain.');
-  }
+  const anchorSummary = buildCredentialAnchorVerificationStatus({
+    credential,
+    payloadVerified: payloadVerified && merkleValid,
+    signatureValid: signature.valid,
+    blockchainVerified: blockchain.verified,
+  });
 
   const partiallyVerified = !fullyVerified && payloadVerified && merkleValid;
   const verificationStatus = fullyVerified
@@ -979,15 +1067,28 @@ async function verifyPresentedCredentialPayload({
     verificationStatus,
     partiallyVerified,
     signatureValid: Boolean(signature.valid),
+    credentialConfirmed: anchorSummary.credentialConfirmed,
     vcHashMatches,
     merkleProofValid: merkleValid,
     blockchainAnchorValid: blockchain.verified,
     overallValid: fullyVerified,
     anchoredOnChain: blockchain.verified,
+    anchorStatus: anchorSummary.anchorStatus,
+    anchoredAt: anchorSummary.anchoredAt,
+    anchorDueAt: anchorSummary.anchorDueAt,
+    scheduledAnchorAt: anchorSummary.scheduledAnchorAt,
+    message: anchorSummary.message,
+    revoked: anchorSummary.revoked,
     failureReasons,
     verified: fullyVerified,
     payloadVerified,
-    status: fullyVerified ? 'verified' : failed ? 'failed' : 'not_fully_verified',
+    status: fullyVerified
+      ? 'verified'
+      : anchorSummary.credentialConfirmed
+        ? 'confirmed_pending_anchor'
+        : failed
+          ? 'failed'
+          : 'not_fully_verified',
     generatedAt: verifiedAt,
     verifiedAt,
     credentialId: String(credential?._id || ''),

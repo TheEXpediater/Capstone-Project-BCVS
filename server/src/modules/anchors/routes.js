@@ -12,28 +12,28 @@ const router = express.Router();
 router.post(
   '/credential/:credentialId',
   protect({ kind: 'web' }),
-  allowRoles('admin', 'super_admin', 'developer'),
+  allowRoles('super_admin'),
   anchorCredential
 );
 
 router.post(
   '/batch',
   protect({ kind: 'web' }),
-  allowRoles('admin', 'super_admin', 'developer'),
+  allowRoles('super_admin'),
   anchorBatch
 );
 
 router.get(
   '/verify/:credentialId',
   protect({ kind: 'web' }),
-  allowRoles('admin', 'super_admin', 'developer'),
+  allowRoles('developer', 'admin', 'super_admin'),
   verifyAnchoredCredential
 );
 
 router.get(
   '/:anchorId',
   protect({ kind: 'web' }),
-  allowRoles('admin', 'super_admin', 'developer'),
+  allowRoles('developer', 'admin', 'super_admin'),
   getAnchorDetails
 );
 

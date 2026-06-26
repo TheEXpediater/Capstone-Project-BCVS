@@ -150,7 +150,6 @@ export async function getAccountVerification() {
 export async function submitAccountVerification({
   idFront,
   idBack,
-  selfie,
   answers,
   livenessPassed,
   livenessPassedAt,
@@ -162,8 +161,6 @@ export async function submitAccountVerification({
     appendImage(formData, 'idBack', idBack, 'id-back.jpg');
     appendImage(formData, 'validIdFront', idFront, 'valid-id-front.jpg');
     appendImage(formData, 'validIdBack', idBack, 'valid-id-back.jpg');
-    appendImage(formData, 'selfie', selfie, 'selfie.jpg');
-    appendImage(formData, 'liveness', selfie, 'liveness.jpg');
     formData.append('answers', JSON.stringify(answers || {}));
     formData.append('submittedStudentNo', answers?.studentNo || '');
     formData.append('fullName', answers?.fullName || '');

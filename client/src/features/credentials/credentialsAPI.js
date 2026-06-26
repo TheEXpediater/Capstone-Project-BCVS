@@ -40,6 +40,16 @@ export async function submitCredentialDraft(id) {
   return response.data.data;
 }
 
+export async function bulkSubmitCredentialDrafts(ids = []) {
+  const response = await api.post('/credentials/bulk/submit', { ids });
+  return response.data.data;
+}
+
+export async function bulkDeleteCredentialDrafts(ids = []) {
+  const response = await api.post('/credentials/bulk/delete', { ids });
+  return response.data.data;
+}
+
 export async function rejectCredentialDraft(id, payload = {}) {
   const response = await api.put(`/credentials/${id}/reject`, payload);
   return response.data.data;
@@ -50,8 +60,18 @@ export async function signCredentialDraft(id, payload = {}) {
   return response.data.data;
 }
 
+export async function bulkSignCredentialDrafts(ids = []) {
+  const response = await api.post('/credentials/bulk/sign', { ids });
+  return response.data.data;
+}
+
 export async function createCredentialClaimToken(id, payload = {}) {
   const response = await api.post(`/credentials/${id}/claim-token`, payload);
+  return response.data.data;
+}
+
+export async function bulkCreateCredentialClaimTokens(ids = []) {
+  const response = await api.post('/credentials/bulk/claim-token', { ids });
   return response.data.data;
 }
 
@@ -62,6 +82,11 @@ export async function createCredentialClaimOverrideToken(id, payload = {}) {
 
 export async function scheduleCredentialAnchor(id, payload = {}) {
   const response = await api.put(`/credentials/${id}/schedule-anchor`, payload);
+  return response.data.data;
+}
+
+export async function bulkScheduleCredentialAnchors(ids = [], payload = {}) {
+  const response = await api.post('/credentials/bulk/schedule-anchor', { ids, ...payload });
   return response.data.data;
 }
 

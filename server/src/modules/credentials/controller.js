@@ -71,12 +71,12 @@ async function logCredentialAction(req, action, data, description, metadata = {}
 }
 
 export const listCredentialDrafts = asyncHandler(async (req, res) => {
-  const data = await credentialService.listCredentialDrafts(req.query || {});
+  const data = await credentialService.listCredentialDrafts(req.query || {}, req.user);
   res.status(200).json({ success: true, data });
 });
 
 export const getCredentialDraftById = asyncHandler(async (req, res) => {
-  const data = await credentialService.getCredentialDraftById(req.params.id);
+  const data = await credentialService.getCredentialDraftById(req.params.id, req.user);
   res.status(200).json({ success: true, data });
 });
 
@@ -303,6 +303,38 @@ export const createCredentialClaimOverrideToken = asyncHandler(async (req, res) 
     data,
     message: 'Credential claim override QR generated successfully.',
   });
+});
+
+export const bulkSubmitCredentialDrafts = asyncHandler(async (req, res) => {
+  const data = await credentialService.bulkSubmitCredentialDrafts(req.body || {}, req.user);
+  await logCredentialAction(req, 'BULK_SUBMIT_DRAFTS', data, 'Submitted selected credential drafts');
+  res.status(200).json({ success: true, data, message: 'Selected drafts submitted successfully.' });
+});
+
+export const bulkDeleteCredentialDrafts = asyncHandler(async (req, res) => {
+  const data = await credentialService.bulkDeleteCredentialDrafts(req.body || {}, req.user);
+  await logCredentialAction(req, 'BULK_DELETE_DRAFTS', data, 'Deleted selected credential drafts');
+  res.status(200).json({ success: true, data, message: 'Selected drafts deleted successfully.' });
+});
+
+export const bulkSignCredentialDrafts = asyncHandler(async (req, res) => {
+  const data = await credentialService.bulkSignCredentialDrafts(req.body || {}, req.user);
+  await logCredentialAction(req, 'BULK_SIGN_DRAFTS', data, 'Signed selected credentials');
+  res.status(200).json({ success: true, data, message: 'Selected credentials signed successfully.' });
+});
+
+export const bulkScheduleCredentialAnchors = asyncHandler(async (req, res) => {
+  const data = await credentialService.bulkScheduleCredentialAnchors(req.body || {}, req.user);
+  await logCredentialAction(req, 'BULK_SCHEDULE_ANCHOR', data, 'Scheduled selected credentials for anchoring', {
+    anchorMode: req.body?.anchorMode || '',
+  });
+  res.status(200).json({ success: true, data, message: 'Selected credentials queued for anchoring.' });
+});
+
+export const bulkCreateCredentialClaimTokens = asyncHandler(async (req, res) => {
+  const data = await credentialService.bulkCreateCredentialClaimTokens(req.body || {}, req.user);
+  await logCredentialAction(req, 'BULK_CLAIM_QR', data, 'Generated claim QR tokens for selected credentials');
+  res.status(200).json({ success: true, data, message: 'Selected claim QR tokens generated.' });
 });
 
 export const listCredentialPayments = asyncHandler(async (req, res) => {

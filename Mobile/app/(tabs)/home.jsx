@@ -355,7 +355,7 @@ export default function HomeScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.verifyTitle}>Account verification required</Text>
             <Text style={styles.verifyText}>
-              Submit your ID and selfie proof for registrar review.
+              Submit your ID and pass FaceVerifier for registrar review.
             </Text>
           </View>
         </Pressable>

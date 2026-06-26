@@ -6,7 +6,7 @@ import {
   normalizeVerificationSubmissionPayload,
 } from '../src/modules/verification/submissionPayload.js';
 
-test('verification submission payload accepts required identity and liveness fields', () => {
+test('verification submission payload accepts required identity and liveness metadata without storing a selfie', () => {
   const payload = normalizeVerificationSubmissionPayload({
     answers: JSON.stringify({ confirmed: true }),
     fullName: 'Maria Santos',
@@ -17,7 +17,6 @@ test('verification submission payload accepts required identity and liveness fie
     validIdType: 'PhilID / National ID',
     idFrontUrl: '/uploads/front.jpg',
     idBackUrl: '/uploads/back.jpg',
-    livenessImageUrl: '/uploads/live.jpg',
     livenessPassed: 'true',
     livenessPassedAt: '2026-06-19T00:00:00.000Z',
     livenessMethod: 'faceVerifierLocal',
@@ -34,6 +33,8 @@ test('verification submission payload accepts required identity and liveness fie
   assert.equal(payload.validIdFrontUrl, '/uploads/front.jpg');
   assert.equal(payload.validIdBackUrl, '/uploads/back.jpg');
   assert.equal(payload.livenessPassed, true);
+  assert.equal(Object.hasOwn(payload, `liveness${'Image'}Url`), false);
+  assert.equal(Object.hasOwn(payload, 'selfieUrl'), false);
 });
 
 test('verification submission payload allows not graduated yet status', () => {
@@ -47,7 +48,6 @@ test('verification submission payload allows not graduated yet status', () => {
     validIdType: 'Student ID',
     idFrontUrl: '/uploads/front.jpg',
     idBackUrl: '/uploads/back.jpg',
-    livenessImageUrl: '/uploads/live.jpg',
     livenessPassed: true,
   });
 
@@ -66,7 +66,6 @@ test('verification submission payload rejects missing ID sides and failed livene
     validIdType: 'Student ID',
     idFrontUrl: '/uploads/front.jpg',
     idBackUrl: '/uploads/back.jpg',
-    livenessImageUrl: '/uploads/live.jpg',
     livenessPassed: true,
   };
 

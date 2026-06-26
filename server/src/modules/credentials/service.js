@@ -31,6 +31,7 @@ import {
   normalizeReceiptNo,
   pricingFromDraft,
 } from './pricing.js';
+import * as vcPermissions from './permissions.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
 const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
@@ -40,25 +41,25 @@ export const SUPPORTED_CREDENTIAL_TYPES = ['tor', 'diploma'];
 
 const DEFAULT_CREDENTIAL_PERMISSIONS = {
   admin: {
-    canConfirmPayments: true,
+    canConfirmPayments: false,
     canManageVC: true,
-    canSignVC: true,
-    canGenerateClaimQr: true,
-    canAnchorVC: true,
+    canSignVC: false,
+    canGenerateClaimQr: false,
+    canAnchorVC: false,
   },
   super_admin: {
-    canConfirmPayments: true,
+    canConfirmPayments: false,
     canManageVC: true,
     canSignVC: true,
     canGenerateClaimQr: true,
     canAnchorVC: true,
   },
   developer: {
-    canConfirmPayments: true,
-    canManageVC: true,
-    canSignVC: true,
-    canGenerateClaimQr: true,
-    canAnchorVC: true,
+    canConfirmPayments: false,
+    canManageVC: false,
+    canSignVC: false,
+    canGenerateClaimQr: false,
+    canAnchorVC: false,
   },
   cashier: {
     canConfirmPayments: true,
@@ -122,7 +123,12 @@ function assertRegistrar(actor) {
 
 function getDefaultCredentialPermissions(role) {
   return {
-    ...(DEFAULT_CREDENTIAL_PERMISSIONS[role] || DEFAULT_CREDENTIAL_PERMISSIONS.admin),
+    canConfirmPayments: false,
+    canManageVC: false,
+    canSignVC: false,
+    canGenerateClaimQr: false,
+    canAnchorVC: false,
+    ...(DEFAULT_CREDENTIAL_PERMISSIONS[role] || {}),
   };
 }
 
@@ -154,6 +160,16 @@ async function assertCredentialPermission(actor, permission, message) {
   }
 }
 
+function assertLifecycleAllowed(allowed, actor, action) {
+  if (!actor) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
+  if (!allowed) {
+    throw new ApiError(403, vcPermissions.lifecycleDenialMessage(actor, action));
+  }
+}
+
 export function isCredentialPaid(draft) {
   return cleanString(draft?.paymentStatus, 'unpaid').toLowerCase() === 'paid';
 }
@@ -167,7 +183,7 @@ export function isCredentialRejectedOrRevoked(draft) {
 }
 
 export function hasSignedCredential(draft) {
-  return Boolean(draft?.signedCredential) || CLAIMABLE_STATUSES.includes(cleanString(draft?.status));
+  return vcPermissions.hasSignedCredentialPayload(draft);
 }
 
 export function canGenerateClaimToken(draft, { override = false } = {}) {
@@ -193,20 +209,12 @@ export function canClaimCredential(draft) {
 }
 
 export function canQueueAnchor(draft) {
-  if (!draft) return false;
-  if (!isCredentialPaid(draft)) return false;
-  if (!draft.signedCredential) return false;
-  if (isCredentialRejectedOrRevoked(draft)) return false;
-  if (['queued', 'anchored'].includes(draft.anchorStatus)) return false;
-  return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(cleanString(draft.status));
+  if (!vcPermissions.canQueueAnchor({ role: 'super_admin' }, draft)) return false;
+  return !['queued', 'anchored'].includes(cleanString(draft?.anchorStatus));
 }
 
-export function canProcessAnchor(draft) {
-  if (!draft) return false;
-  if (!isCredentialPaid(draft)) return false;
-  if (!draft.signedCredential) return false;
-  if (isCredentialRejectedOrRevoked(draft)) return false;
-  return draft.anchorStatus === 'queued';
+export function canProcessAnchor(draft, now = new Date()) {
+  return vcPermissions.canProcessAnchor({ role: 'super_admin' }, draft, now);
 }
 
 export function canMarkPaid(draft) {
@@ -239,13 +247,13 @@ function hasIssuedCredentialArtifacts(draft) {
 function canEditCredentialDraft(draft) {
   if (!draft) return false;
   if (hasIssuedCredentialArtifacts(draft)) return false;
-  return ['draft', 'for_signature'].includes(cleanString(draft.status));
+  return cleanString(draft.status).toLowerCase() === 'draft';
 }
 
 function canDeleteCredentialDraft(draft) {
   if (!draft) return false;
   if (hasIssuedCredentialArtifacts(draft)) return false;
-  return ['draft', 'for_signature', 'rejected'].includes(cleanString(draft.status));
+  return cleanString(draft.status).toLowerCase() === 'draft';
 }
 
 function pickObjectPayload(payload = {}, keys = []) {
@@ -403,8 +411,12 @@ function toDateOrNull(value) {
 }
 
 function assertCashierActor(actor) {
-  if (!actor || !['cashier', 'admin', 'super_admin', 'developer'].includes(actor.role)) {
-    throw new ApiError(403, 'Only cashier, admin, super admin, or MIS developer can update payments');
+  if (!actor) {
+    throw new ApiError(401, 'Authentication required');
+  }
+
+  if (actor.role !== 'cashier') {
+    throw new ApiError(403, vcPermissions.lifecycleDenialMessage(actor, 'payment'));
   }
 }
 
@@ -427,6 +439,50 @@ function assertMobileStudent(actor, action = 'claiming') {
 
   if (!cleanString(actor.studentId)) {
     throw new ApiError(403, `Your account must be verified before ${actionLabel}ing this credential.`);
+  }
+}
+
+function normalizeBulkCredentialIds(payload = {}) {
+  const ids = [
+    ...new Set(
+      (payload.ids || payload.credentialIds || payload.draftIds || [])
+        .map((value) => cleanString(value))
+        .filter(Boolean)
+    ),
+  ];
+
+  if (!ids.length) {
+    throw new ApiError(400, 'At least one credential id is required.');
+  }
+
+  if (ids.length > 10) {
+    throw new ApiError(400, 'Bulk actions are limited to 10 credentials.');
+  }
+
+  ids.forEach((id) => assertObjectId(id, 'credential id'));
+  return ids;
+}
+
+async function getBulkCredentialDrafts(ids = []) {
+  const CredentialDraft = getCredentialDraftModel();
+  const drafts = await CredentialDraft.find({ _id: { $in: ids } });
+  const byId = new Map(drafts.map((draft) => [draft._id.toString(), draft]));
+  const missing = ids.filter((id) => !byId.has(id));
+
+  if (missing.length) {
+    throw new ApiError(404, `Credential(s) not found: ${missing.join(', ')}`);
+  }
+
+  return ids.map((id) => byId.get(id));
+}
+
+function assertBulkDrafts(drafts, predicate, message) {
+  const invalid = drafts.filter((draft) => !predicate(draft));
+  if (invalid.length) {
+    throw new ApiError(
+      409,
+      `${message}: ${invalid.map((draft) => draft._id.toString()).join(', ')}`
+    );
   }
 }
 
@@ -789,7 +845,9 @@ function signCredentialPayload(vcPayload, issuerKey, privateKeyPem) {
   };
 }
 
-export async function listCredentialDrafts(query = {}) {
+export async function listCredentialDrafts(query = {}, actor = null) {
+  assertLifecycleAllowed(vcPermissions.canViewVcDetails(actor), actor, 'view');
+
   const CredentialDraft = getCredentialDraftModel();
 
   const filter = {};
@@ -812,7 +870,8 @@ export async function listCredentialDrafts(query = {}) {
   return drafts.map(serializeDraft);
 }
 
-export async function getCredentialDraftById(id) {
+export async function getCredentialDraftById(id, actor = null) {
+  assertLifecycleAllowed(vcPermissions.canViewVcDetails(actor), actor, 'view');
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -826,12 +885,6 @@ export async function getCredentialDraftById(id) {
 }
 
 export async function updateCredentialDraft(id, payload = {}, actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canManageVC',
-    'Cashier users cannot edit credential drafts'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -841,8 +894,12 @@ export async function updateCredentialDraft(id, payload = {}, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (!canEditCredentialDraft(draft)) {
-    throw new ApiError(409, 'Only unsigned draft or pending-signature credentials can be edited.');
+  if (!vcPermissions.canEditDraft(actor, draft)) {
+    if (actor?.role !== 'admin') {
+      assertLifecycleAllowed(false, actor, 'edit');
+    }
+
+    throw new ApiError(409, 'Only unsigned draft credentials can be edited.');
   }
 
   const credentialType = payload?.credentialType === undefined
@@ -911,12 +968,6 @@ export async function updateCredentialDraft(id, payload = {}, actor) {
 }
 
 export async function deleteCredentialDraft(id, actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canManageVC',
-    'Cashier users cannot delete credential drafts'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -926,8 +977,12 @@ export async function deleteCredentialDraft(id, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (!canDeleteCredentialDraft(draft)) {
-    throw new ApiError(409, 'Only unsigned draft, rejected, or pending-signature credentials can be deleted.');
+  if (!vcPermissions.canDeleteDraft(actor, draft)) {
+    if (actor?.role !== 'admin') {
+      assertLifecycleAllowed(false, actor, 'delete');
+    }
+
+    throw new ApiError(409, 'Only unsigned draft credentials can be deleted.');
   }
 
   const serialized = serializeDraft(draft);
@@ -936,6 +991,8 @@ export async function deleteCredentialDraft(id, actor) {
 }
 
 export async function createCredentialDraftFromStudent(studentId, payload = {}, actor) {
+  assertLifecycleAllowed(vcPermissions.canCreateDraft(actor), actor, 'create');
+
   const CredentialDraft = getCredentialDraftModel();
   const credentialType = normalizeCredentialType(payload?.credentialType);
   if (!credentialType) {
@@ -1154,11 +1211,6 @@ export async function listMobileCredentialRequests(actor) {
 }
 
 export async function submitCredentialDraft(id, actor) {
-  await assertCredentialPermission(
-    actor,
-    'canManageVC',
-    'Cashier users cannot submit credentials for signing'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1168,7 +1220,11 @@ export async function submitCredentialDraft(id, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (!canSubmitForSigning(draft)) {
+  if (!vcPermissions.canSubmitDraft(actor, draft)) {
+    if (actor?.role !== 'admin') {
+      assertLifecycleAllowed(false, actor, 'submit');
+    }
+
     throw new ApiError(409, 'Only draft records can be submitted for signature');
   }
 
@@ -1181,12 +1237,6 @@ export async function submitCredentialDraft(id, actor) {
 }
 
 export async function rejectCredentialDraft(id, payload = {}, actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canManageVC',
-    'Cashier users cannot reject credentials'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1196,7 +1246,11 @@ export async function rejectCredentialDraft(id, payload = {}, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (draft.status !== 'for_signature') {
+  if (!vcPermissions.canRejectDraft(actor, draft)) {
+    if (actor?.role !== 'super_admin') {
+      assertLifecycleAllowed(false, actor, 'reject');
+    }
+
     throw new ApiError(409, 'Only drafts pending signature can be rejected');
   }
 
@@ -1215,12 +1269,6 @@ export async function rejectCredentialDraft(id, payload = {}, actor) {
 }
 
 export async function signCredentialDraft(id, payload = {}, actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canSignVC',
-    'Cashier users cannot sign credentials'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1230,17 +1278,12 @@ export async function signCredentialDraft(id, payload = {}, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
-  if (draft.status !== 'for_signature') {
-    throw new ApiError(409, 'Only drafts pending signature can be signed');
-  }
+  if (!vcPermissions.canSignCredential(actor, draft)) {
+    if (actor?.role !== 'super_admin') {
+      assertLifecycleAllowed(false, actor, 'sign');
+    }
 
-  const allowUnpaid =
-    payload?.allowUnpaid === true ||
-    payload?.continueUnpaid === true ||
-    normalizeBoolean(payload?.allowUnpaid || payload?.continueUnpaid || payload?.force);
-
-  if (!isCredentialPaid(draft) && !allowUnpaid) {
-    throw new ApiError(409, 'Payment is required before signing this credential.');
+    throw new ApiError(409, 'Only unsigned drafts pending signature can be signed');
   }
 
   const issuerKey = await getActiveIssuerKeyOrThrow();
@@ -1277,6 +1320,7 @@ export async function signCredentialDraft(id, payload = {}, actor) {
   draft.signedAt = new Date();
   draft.status = 'signed';
   draft.rejectionReason = '';
+  vcPermissions.applyAnchorReadinessToDraft(draft, draft.signedAt);
 
   await draft.save();
   return serializeDraft(draft);
@@ -1295,12 +1339,6 @@ function actorDisplayName(actor) {
 }
 
 export async function createCredentialClaimToken(id, payload = {}, actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canGenerateClaimQr',
-    'Cashier users cannot generate claim QR codes'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1320,11 +1358,18 @@ export async function createCredentialClaimToken(id, payload = {}, actor) {
   const now = new Date();
   const override = normalizeBoolean(payload?.override);
 
+  if (actor?.role !== 'super_admin') {
+    assertLifecycleAllowed(false, actor, 'claimQr');
+  }
+
   if (regenerate && !settings.qrDelivery?.allowRegeneration && !override) {
     throw new ApiError(409, 'Claim QR regeneration is disabled in System Settings');
   }
 
-  if (!canGenerateClaimToken(draft, { override })) {
+  if (
+    !canGenerateClaimToken(draft, { override }) ||
+    !vcPermissions.canGenerateClaimQr(actor, draft, { override })
+  ) {
     throw new ApiError(
       409,
       isCredentialClaimed(draft)
@@ -1432,6 +1477,113 @@ export async function createCredentialClaimOverrideToken(id, payload = {}, actor
   }, actor);
 }
 
+export async function bulkSubmitCredentialDrafts(payload = {}, actor) {
+  const ids = normalizeBulkCredentialIds(payload);
+  const drafts = await getBulkCredentialDrafts(ids);
+
+  assertBulkDrafts(
+    drafts,
+    (draft) => vcPermissions.canSubmitDraft(actor, draft),
+    'Only draft credentials can be submitted by this role'
+  );
+
+  const submitted = [];
+  for (const id of ids) {
+    submitted.push(await submitCredentialDraft(id, actor));
+  }
+
+  return {
+    processedCount: submitted.length,
+    credentials: submitted,
+  };
+}
+
+export async function bulkDeleteCredentialDrafts(payload = {}, actor) {
+  const ids = normalizeBulkCredentialIds(payload);
+  const drafts = await getBulkCredentialDrafts(ids);
+
+  assertBulkDrafts(
+    drafts,
+    (draft) => vcPermissions.canDeleteDraft(actor, draft),
+    'Only unsigned draft credentials can be deleted by this role'
+  );
+
+  const deleted = [];
+  for (const id of ids) {
+    deleted.push(await deleteCredentialDraft(id, actor));
+  }
+
+  return {
+    processedCount: deleted.length,
+    credentials: deleted,
+  };
+}
+
+export async function bulkSignCredentialDrafts(payload = {}, actor) {
+  const ids = normalizeBulkCredentialIds(payload);
+  const drafts = await getBulkCredentialDrafts(ids);
+
+  assertBulkDrafts(
+    drafts,
+    (draft) => vcPermissions.canSignCredential(actor, draft),
+    'Only unsigned credentials pending signature can be signed by this role'
+  );
+
+  const signed = [];
+  for (const id of ids) {
+    signed.push(await signCredentialDraft(id, {}, actor));
+  }
+
+  return {
+    processedCount: signed.length,
+    credentials: signed,
+  };
+}
+
+export async function bulkScheduleCredentialAnchors(payload = {}, actor) {
+  const ids = normalizeBulkCredentialIds(payload);
+  const drafts = await getBulkCredentialDrafts(ids);
+
+  assertBulkDrafts(
+    drafts,
+    (draft) => vcPermissions.canQueueAnchor(actor, draft),
+    'Only paid and signed credentials can be queued for anchoring by this role'
+  );
+
+  const queued = [];
+  for (const id of ids) {
+    queued.push(await scheduleCredentialAnchor(id, { anchorMode: payload.anchorMode }, actor));
+  }
+
+  return {
+    processedCount: queued.length,
+    credentials: queued,
+  };
+}
+
+export async function bulkCreateCredentialClaimTokens(payload = {}, actor) {
+  const ids = normalizeBulkCredentialIds(payload);
+  const drafts = await getBulkCredentialDrafts(ids);
+
+  assertBulkDrafts(
+    drafts,
+    (draft) =>
+      canGenerateClaimToken(draft, { override: false }) &&
+      vcPermissions.canGenerateClaimQr(actor, draft, { override: false }),
+    'Only paid, signed, unclaimed credentials can receive claim QR tokens by this role'
+  );
+
+  const tokens = [];
+  for (const id of ids) {
+    tokens.push(await createCredentialClaimToken(id, { regenerate: true }, actor));
+  }
+
+  return {
+    processedCount: tokens.length,
+    tokens,
+  };
+}
+
 export async function listCredentialPayments(query = {}, actor) {
   assertCashierActor(actor);
 
@@ -1498,11 +1650,6 @@ export async function listCredentialPayments(query = {}, actor) {
 
 export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   assertCashierActor(actor);
-  await assertCredentialPermission(
-    actor,
-    'canConfirmPayments',
-    'You do not have permission to confirm payments'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1521,7 +1668,7 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
     draft.paymentCode = await generateUniquePaymentCode(CredentialDraft);
   }
 
-  if (!canMarkPaid(draft)) {
+  if (!vcPermissions.canMarkPaid(actor, draft)) {
     throw new ApiError(409, 'Rejected or revoked credentials cannot be marked paid');
   }
 
@@ -1530,11 +1677,14 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   }
 
   const now = new Date();
-  const pricing = pricingFromDraft(draft);
-  const confirmedAmount = normalizePaymentAmount(
-    payload?.amount ?? payload?.totalAmount,
-    pricing.amount
-  );
+  const pricing = pricingFields({
+    baseAmount: payload?.baseAmount ?? draft.baseAmount,
+    anchorNowFee: payload?.anchorNowFee ?? draft.anchorNowFee,
+    amount: payload?.amount ?? payload?.totalAmount,
+    anchorMode: payload?.anchorMode ?? draft.anchorMode,
+    anchorNow: payload?.anchorNow ?? draft.anchorNow,
+  });
+  const confirmedAmount = normalizePaymentAmount(payload?.amount ?? payload?.totalAmount, pricing.amount);
   draft.paymentStatus = 'paid';
   draft.receiptNo = await resolveReceiptNo(CredentialDraft, payload?.receiptNo);
   draft.baseAmount = pricing.baseAmount;
@@ -1548,6 +1698,7 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   draft.paymentConfirmedAt = now;
   draft.paymentConfirmedBy = actor?._id || null;
   draft.paymentNotes = cleanString(payload?.paymentNotes || payload?.notes);
+  vcPermissions.applyAnchorReadinessToDraft(draft, now);
 
   await draft.save();
   const serializedDraft = serializeDraft(draft);
@@ -1721,12 +1872,6 @@ export async function claimMobileCredential(payload = {}, actor) {
 }
 
 export async function scheduleCredentialAnchor(id, payload = {}, actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canAnchorVC',
-    'Cashier users cannot queue credentials for anchoring'
-  );
   assertObjectId(id, 'credential draft id');
 
   const CredentialDraft = getCredentialDraftModel();
@@ -1736,11 +1881,15 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
+  if (actor?.role !== 'super_admin') {
+    assertLifecycleAllowed(false, actor, 'anchor');
+  }
+
   if (draft.anchorStatus === 'queued') {
     return serializeDraft(draft);
   }
 
-  if (!canQueueAnchor(draft)) {
+  if (!vcPermissions.canQueueAnchor(actor, draft)) {
     throw new ApiError(
       409,
       'Only paid and signed credentials can be queued for anchoring'
@@ -1758,7 +1907,7 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
   }
 
   const requestedMode =
-    ['same_day', 'today'].includes(cleanString(payload?.anchorMode)) ? 'same_day' : 'scheduled';
+    ['anchor_now', 'same_day', 'today'].includes(cleanString(payload?.anchorMode)) ? 'same_day' : 'scheduled';
 
   let scheduledAnchorAt = null;
 
@@ -1783,6 +1932,8 @@ export async function scheduleCredentialAnchor(id, payload = {}, actor) {
     }
   }
 
+  draft.anchorMode = requestedMode === 'same_day' ? 'anchor_now' : 'default';
+  draft.anchorNow = requestedMode === 'same_day';
   draft.anchorScheduleMode = requestedMode;
   draft.scheduledAnchorAt = scheduledAnchorAt;
   draft.anchorStatus = 'queued';
@@ -2084,12 +2235,9 @@ async function notifyCredentialAnchored(draft, id) {
 }
 
 export async function getTodaysAnchorQueueSummary(actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canAnchorVC',
-    'You do not have permission to view the anchor queue'
-  );
+  if (actor?.role !== 'super_admin') {
+    assertLifecycleAllowed(false, actor, 'anchor');
+  }
 
   const CredentialDraft = getCredentialDraftModel();
   const dueAt = endOfToday();
@@ -2108,12 +2256,9 @@ export async function getTodaysAnchorQueueSummary(actor) {
 }
 
 export async function processTodaysAnchorQueue(actor) {
-  assertRegistrar(actor);
-  await assertCredentialPermission(
-    actor,
-    'canAnchorVC',
-    'Cashier users cannot process the anchor queue'
-  );
+  if (actor?.role !== 'super_admin') {
+    assertLifecycleAllowed(false, actor, 'anchor');
+  }
 
   const settings = await ensureMainSettings();
 
@@ -2151,7 +2296,7 @@ export async function processTodaysAnchorQueue(actor) {
   for (const draft of rows) {
     const id = draft._id.toString();
 
-    if (!canProcessAnchor(draft)) {
+    if (!vcPermissions.canProcessAnchor(actor, draft, dueAt)) {
       continue;
     }
 
@@ -2230,7 +2375,7 @@ export async function processTodaysAnchorQueue(actor) {
         continue;
       }
 
-      if (!canProcessAnchor(draft)) {
+      if (!vcPermissions.canProcessAnchor(actor, draft, dueAt)) {
         summary.skippedCount += 1;
         summary.skipped.push({ id, reason: 'Credential is not eligible for anchoring.' });
         continue;

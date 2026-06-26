@@ -15,6 +15,11 @@ import {
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
+  bulkCreateCredentialClaimTokens,
+  bulkDeleteCredentialDrafts,
+  bulkScheduleCredentialAnchors,
+  bulkSignCredentialDrafts,
+  bulkSubmitCredentialDrafts,
   createCredentialClaimOverrideToken,
   createCredentialClaimToken,
   deleteCredentialDraft,
@@ -33,8 +38,9 @@ import {
 
 const CLAIMABLE_STATUSES = new Set(['signed', 'claim_ready', 'queued_for_anchor', 'anchored']);
 const PAYMENT_TAB_ROLES = new Set(['cashier']);
-const MANAGE_CREDENTIAL_ROLES = new Set(['admin', 'super_admin', 'developer']);
-const OVERRIDE_QR_ROLES = new Set(['admin', 'super_admin', 'developer']);
+const DRAFT_ADMIN_ROLES = new Set(['admin']);
+const REGISTRAR_ACTION_ROLES = new Set(['super_admin']);
+const OVERRIDE_QR_ROLES = new Set(['super_admin']);
 const BASE_CREDENTIAL_AMOUNT = 150;
 const ANCHOR_NOW_FEE = 20;
 const VC_PAGE_SIZE = 10;
@@ -85,6 +91,12 @@ function anchorNowText(mode) {
     : 'Default uses the regular scheduled anchoring queue.';
 }
 
+function defaultAnchorDueDate() {
+  const due = new Date();
+  due.setDate(due.getDate() + 7);
+  return due;
+}
+
 function generateReceiptNo() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
@@ -119,13 +131,13 @@ function isCredentialClaimableStatus(draft) {
 }
 
 function hasSignedCredential(draft) {
-  return Boolean(draft?.signedCredential) || isCredentialClaimableStatus(draft);
+  return Boolean(draft?.signedCredential);
 }
 
 function canShowClaimQr(draft) {
   return (
     isCredentialPaid(draft) &&
-    hasSignedCredential(draft) &&
+    Boolean(draft?.signedCredential) &&
     isCredentialClaimableStatus(draft) &&
     !isCredentialClaimed(draft) &&
     !isCredentialRejectedOrRevoked(draft)
@@ -165,11 +177,11 @@ function canShowClaimOverrideQr(draft, currentUser) {
 }
 
 function canQueueAnchor(draft, currentUser) {
-  if (!MANAGE_CREDENTIAL_ROLES.has(currentUser?.role)) return false;
-  if (!isCredentialPaid(draft) || !hasSignedCredential(draft)) return false;
+  if (!REGISTRAR_ACTION_ROLES.has(currentUser?.role)) return false;
+  if (!isCredentialPaid(draft) || !draft?.signedCredential) return false;
   if (isCredentialRejectedOrRevoked(draft)) return false;
   if (draft?.anchorStatus === 'queued' || draft?.anchorStatus === 'anchored') return false;
-  return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored', 'claimed'].includes(
+  return ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'].includes(
     String(draft?.status || '')
   );
 }
@@ -189,12 +201,12 @@ function hasIssuedCredentialArtifacts(draft) {
 
 function canEditCredentialDraft(draft) {
   if (!draft || hasIssuedCredentialArtifacts(draft)) return false;
-  return ['draft', 'for_signature'].includes(cleanText(draft.status).toLowerCase());
+  return cleanText(draft.status).toLowerCase() === 'draft';
 }
 
 function canDeleteCredentialDraft(draft) {
   if (!draft || hasIssuedCredentialArtifacts(draft)) return false;
-  return ['draft', 'for_signature', 'rejected'].includes(cleanText(draft.status).toLowerCase());
+  return cleanText(draft.status).toLowerCase() === 'draft';
 }
 
 function getStatusBadge(status) {
@@ -279,6 +291,7 @@ function anchorStatusLabel(draft) {
   if (['merkle_ready', 'contract_missing', 'contract_unsupported'].includes(status)) {
     return 'Processing';
   }
+  if (status === 'queued') return isDueForAnchorQueue(draft) ? 'Ready' : 'Scheduled';
   return 'Queued';
 }
 
@@ -287,6 +300,8 @@ function anchorStatusBadge(draft) {
   if (label === 'Anchored') return 'text-bg-success';
   if (label === 'Failed') return 'text-bg-danger';
   if (label === 'Processing') return 'text-bg-info';
+  if (label === 'Ready') return 'text-bg-warning';
+  if (label === 'Scheduled') return 'text-bg-secondary';
   return 'text-bg-warning';
 }
 
@@ -295,13 +310,14 @@ function anchorStatusFilterValue(draft) {
   if (label === 'Anchored') return 'anchored';
   if (label === 'Failed') return 'failed';
   if (label === 'Processing') return 'processing';
+  if (label === 'Scheduled') return 'scheduled';
   return 'queued';
 }
 
 function matchesAnchorStatus(draft, status) {
   const selected = cleanText(status).toLowerCase();
   const value = anchorStatusFilterValue(draft);
-  if (selected === 'queued') return value === 'queued' || value === 'processing';
+  if (selected === 'queued') return ['queued', 'scheduled', 'processing'].includes(value);
   return value === selected;
 }
 
@@ -1472,16 +1488,21 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
 }
 
 function PaymentConfirmModal({ draft, busy, onClose, onConfirm }) {
-  const initialMode = normalizeAnchorMode(draft?.anchorMode, draft?.anchorNow);
-  const [amount, setAmount] = useState(
-    draft ? String(draft.amount || draft.totalAmount || priceForAnchorMode(initialMode)) : ''
-  );
+  const [anchorMode, setAnchorMode] = useState('default');
+  const [amount, setAmount] = useState(draft ? String(priceForAnchorMode('default')) : '');
   const [receiptNo, setReceiptNo] = useState(draft ? generateReceiptNo() : '');
   const [localError, setLocalError] = useState('');
 
   if (!draft) return null;
 
-  const mode = normalizeAnchorMode(draft.anchorMode, draft.anchorNow);
+  const mode = normalizeAnchorMode(anchorMode);
+  const scheduledPreview = defaultAnchorDueDate();
+
+  function changeAnchorMode(value) {
+    const nextMode = normalizeAnchorMode(value);
+    setAnchorMode(nextMode);
+    setAmount(String(priceForAnchorMode(nextMode)));
+  }
 
   function submit() {
     const numericAmount = Number(amount);
@@ -1494,7 +1515,7 @@ function PaymentConfirmModal({ draft, busy, onClose, onConfirm }) {
       return;
     }
     setLocalError('');
-    onConfirm({ amount: numericAmount, receiptNo });
+    onConfirm({ amount: numericAmount, receiptNo, anchorMode: mode });
   }
 
   return (
@@ -1521,7 +1542,22 @@ function PaymentConfirmModal({ draft, busy, onClose, onConfirm }) {
           <FieldValue label="Credential Type" className="col-md-6">{credentialLabel(draft.credentialType)}</FieldValue>
           <FieldValue label="Anchor Mode" className="col-md-6">{anchorModeLabel(mode)}</FieldValue>
         </div>
+        <div>
+          <label className="form-label fw-semibold">Anchor Schedule</label>
+          <select
+            className="form-select"
+            value={mode}
+            onChange={(event) => changeAnchorMode(event.target.value)}
+            disabled={busy}
+          >
+            <option value="default">Default: Anchor after 7 days</option>
+            <option value="anchor_now">Anchor Now: Priority queue</option>
+          </select>
+        </div>
         <div className="alert alert-light border mb-0">
+          {mode === 'anchor_now'
+            ? 'Will enter the anchor queue once the VC is signed and paid.'
+            : `Scheduled anchor date preview: ${formatDate(scheduledPreview)}.`}{' '}
           {anchorNowText(mode)}
         </div>
         <div className="row g-3">
@@ -2147,7 +2183,8 @@ function AnchorProgressTable({
               value={status}
               onChange={(event) => onStatus(event.target.value)}
             >
-              <option value="queued">Queued</option>
+              <option value="queued">Queued / Scheduled</option>
+              <option value="scheduled">Scheduled</option>
               <option value="anchored">Anchored</option>
               <option value="failed">Failed</option>
             </select>
@@ -2299,7 +2336,9 @@ export default function CredentialDraftsPage() {
   const currentUser = useMemo(() => auth?.user || {}, [auth?.user]);
   const currentRole = currentUser?.role || '';
   const canSeePaymentsTab = PAYMENT_TAB_ROLES.has(currentRole);
-  const canManageCredentials = MANAGE_CREDENTIAL_ROLES.has(currentRole);
+  const canManageDrafts = DRAFT_ADMIN_ROLES.has(currentRole);
+  const canUseRegistrarActions = REGISTRAR_ACTION_ROLES.has(currentRole);
+  const canUseBulkActions = canManageDrafts || canUseRegistrarActions;
   const cashierOnly = currentRole === 'cashier';
 
   const [rows, setRows] = useState([]);
@@ -2379,14 +2418,14 @@ export default function CredentialDraftsPage() {
   }, [paymentSearch, paymentStatusFilter]);
 
   const loadAnchorSummary = useCallback(async () => {
-    if (!canManageCredentials) return;
+    if (!canUseRegistrarActions) return;
     try {
       const data = await getTodaysAnchorQueueSummary();
       setQueueSummary(data);
     } catch {
       setQueueSummary(null);
     }
-  }, [canManageCredentials]);
+  }, [canUseRegistrarActions]);
 
   useEffect(() => {
     if (activeTab === 'payments') {
@@ -2780,8 +2819,8 @@ export default function CredentialDraftsPage() {
       (item) => cleanText(item.status).toLowerCase() === 'draft'
     );
 
-    if (!canManageCredentials) {
-      setFeedback({ type: 'warning', text: 'Only registrar users can submit drafts.' });
+    if (!canManageDrafts) {
+      setFeedback({ type: 'warning', text: 'Only admin users can submit drafts.' });
       return;
     }
 
@@ -2797,19 +2836,8 @@ export default function CredentialDraftsPage() {
       confirmLabel: 'Submit Selected',
       variant: 'success',
       run: async () => {
-        for (const item of targets) {
-          const mode = normalizeAnchorMode(item.anchorMode, item.anchorNow);
-          const amount = Number(item.amount || item.totalAmount || priceForAnchorMode(mode));
-          setBusyId(item._id);
-          await updateCredentialDraft(item._id, {
-            credentialType: item.credentialType || 'tor',
-            anchorMode: mode,
-            anchorNow: mode === 'anchor_now',
-            amount,
-            totalAmount: amount,
-          });
-          await submitCredentialDraft(item._id);
-        }
+        setBusyId('bulk-submit');
+        await bulkSubmitCredentialDrafts(targets.map((item) => item._id));
         setBusyId('');
         setSelectedVcIds(new Set());
         await refreshAfterAction(`${targets.length} draft${targets.length === 1 ? '' : 's'} submitted for signing.`);
@@ -2820,8 +2848,8 @@ export default function CredentialDraftsPage() {
   function confirmBulkDeleteSelected() {
     const targets = selectedVcRows.filter((item) => canDeleteCredentialDraft(item));
 
-    if (!canManageCredentials) {
-      setFeedback({ type: 'warning', text: 'Only registrar users can delete drafts.' });
+    if (!canManageDrafts) {
+      setFeedback({ type: 'warning', text: 'Only admin users can delete drafts.' });
       return;
     }
 
@@ -2837,10 +2865,8 @@ export default function CredentialDraftsPage() {
       confirmLabel: 'Delete Selected',
       variant: 'danger',
       run: async () => {
-        for (const item of targets) {
-          setBusyId(item._id);
-          await deleteCredentialDraft(item._id);
-        }
+        setBusyId('bulk-delete');
+        await bulkDeleteCredentialDrafts(targets.map((item) => item._id));
         setBusyId('');
         setSelectedVcIds(new Set());
         await refreshAfterAction(`${targets.length} draft${targets.length === 1 ? '' : 's'} deleted.`);
@@ -2853,7 +2879,7 @@ export default function CredentialDraftsPage() {
       (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
     );
 
-    if (!canManageCredentials) {
+    if (!canUseRegistrarActions) {
       setFeedback({ type: 'warning', text: 'Only registrar users can sign credentials.' });
       return;
     }
@@ -2873,10 +2899,8 @@ export default function CredentialDraftsPage() {
       confirmLabel: unpaidCount ? 'Sign Anyway' : 'Sign Selected',
       variant: unpaidCount ? 'warning' : 'success',
       run: async () => {
-        for (const item of targets) {
-          setBusyId(item._id);
-          await signCredentialDraft(item._id, isCredentialPaid(item) ? {} : { allowUnpaid: true });
-        }
+        setBusyId('bulk-sign');
+        await bulkSignCredentialDrafts(targets.map((item) => item._id));
         setBusyId('');
         setSelectedVcIds(new Set());
         await refreshAfterAction(`${targets.length} credential${targets.length === 1 ? '' : 's'} signed.`);
@@ -2888,7 +2912,7 @@ export default function CredentialDraftsPage() {
     const targets = selectedVcRows.filter((item) => canQueueAnchor(item, currentUser));
     const sameDay = mode === 'same_day';
 
-    if (!canManageCredentials) {
+    if (!canUseRegistrarActions) {
       setFeedback({ type: 'warning', text: 'Only registrar users can schedule anchoring.' });
       return;
     }
@@ -2907,10 +2931,8 @@ export default function CredentialDraftsPage() {
       confirmLabel: sameDay ? 'Anchor Today' : 'Schedule 7 Days',
       variant: 'warning',
       run: async () => {
-        for (const item of targets) {
-          setBusyId(item._id);
-          await scheduleCredentialAnchor(item._id, { anchorMode: mode });
-        }
+        setBusyId('bulk-anchor');
+        await bulkScheduleCredentialAnchors(targets.map((item) => item._id), { anchorMode: mode });
         setBusyId('');
         setSelectedVcIds(new Set());
         await refreshAfterAction(
@@ -2918,6 +2940,35 @@ export default function CredentialDraftsPage() {
             ? `${targets.length} credential${targets.length === 1 ? '' : 's'} queued for today.`
             : `${targets.length} credential${targets.length === 1 ? '' : 's'} scheduled for 7 days.`
         );
+      },
+    });
+  }
+
+  function confirmBulkClaimQrSelected() {
+    const targets = selectedVcRows.filter((item) => canShowClaimQr(item));
+
+    if (!canUseRegistrarActions) {
+      setFeedback({ type: 'warning', text: 'Only registrar users can generate claim QR codes.' });
+      return;
+    }
+
+    if (targets.length === 0) {
+      setFeedback({ type: 'warning', text: 'Select at least one signed and paid credential.' });
+      return;
+    }
+
+    setConfirmAction({
+      title: 'Generate claim QR for selected credentials?',
+      subtitle: 'Each selected credential must be signed, paid, and not claimed.',
+      details: `${targets.length} credential${targets.length === 1 ? '' : 's'} selected.`,
+      confirmLabel: 'Generate QR',
+      variant: 'success',
+      run: async () => {
+        setBusyId('bulk-claim-qr');
+        await bulkCreateCredentialClaimTokens(targets.map((item) => item._id));
+        setBusyId('');
+        setSelectedVcIds(new Set());
+        await refreshAfterAction(`${targets.length} claim QR token${targets.length === 1 ? '' : 's'} generated.`);
       },
     });
   }
@@ -2937,7 +2988,7 @@ export default function CredentialDraftsPage() {
 
     const actions = [];
 
-    if (canManageCredentials && canEditCredentialDraft(draft)) {
+    if (canManageDrafts && canEditCredentialDraft(draft)) {
       actions.push({
         key: 'edit',
         label: 'Edit',
@@ -2950,7 +3001,7 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (draft.status === 'draft' && canManageCredentials) {
+    if (draft.status === 'draft' && canManageDrafts) {
       actions.push({
         key: 'submit',
         label: 'Submit',
@@ -2960,7 +3011,7 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (canManageCredentials && canDeleteCredentialDraft(draft)) {
+    if (canManageDrafts && canDeleteCredentialDraft(draft)) {
       actions.push({
         key: 'delete',
         label: 'Delete',
@@ -2971,7 +3022,7 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (draft.status === 'for_signature' && canManageCredentials) {
+    if (draft.status === 'for_signature' && canUseRegistrarActions) {
       actions.push({
         key: 'sign',
         label: 'Sign',
@@ -2989,7 +3040,7 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (canShowClaimQr(draft) && canManageCredentials && hasActiveClaimToken(draft)) {
+    if (canShowClaimQr(draft) && canUseRegistrarActions && hasActiveClaimToken(draft)) {
       actions.push({
         key: 'view-qr',
         label: 'View QR',
@@ -3001,7 +3052,7 @@ export default function CredentialDraftsPage() {
 
     if (
       canShowClaimQr(draft) &&
-      canManageCredentials &&
+      canUseRegistrarActions &&
       !hasActiveClaimToken(draft) &&
       canGenerateFreshClaimQr(draft)
     ) {
@@ -3016,7 +3067,7 @@ export default function CredentialDraftsPage() {
 
     if (
       canShowClaimQr(draft) &&
-      canManageCredentials &&
+      canUseRegistrarActions &&
       !hasActiveClaimToken(draft) &&
       !canGenerateFreshClaimQr(draft)
     ) {
@@ -3070,16 +3121,23 @@ export default function CredentialDraftsPage() {
   }
 
   const canBulkSelectCredential = useCallback((item) => {
-    if (!canManageCredentials) return false;
+    if (!canUseBulkActions) return false;
 
     const status = cleanText(item?.status).toLowerCase();
-    return (
-      status === 'draft' ||
-      status === 'for_signature' ||
-      canDeleteCredentialDraft(item) ||
-      canQueueAnchor(item, currentUser)
-    );
-  }, [canManageCredentials, currentUser]);
+    if (canManageDrafts) {
+      return status === 'draft' && (canDeleteCredentialDraft(item) || canEditCredentialDraft(item));
+    }
+
+    if (canUseRegistrarActions) {
+      return (
+        (status === 'for_signature' && !hasSignedCredential(item)) ||
+        canQueueAnchor(item, currentUser) ||
+        canShowClaimQr(item)
+      );
+    }
+
+    return false;
+  }, [canManageDrafts, canUseBulkActions, canUseRegistrarActions, currentUser]);
 
   const tabs = cashierOnly
     ? [{ key: 'payments', label: 'Payments' }]
@@ -3120,57 +3178,91 @@ export default function CredentialDraftsPage() {
     () => vcRows.filter((item) => selectedVcIds.has(item._id)),
     [selectedVcIds, vcRows]
   );
-  const selectedDraftCount = selectedVcRows.filter(
-    (item) => cleanText(item.status).toLowerCase() === 'draft'
-  ).length;
-  const selectedDeletableCount = selectedVcRows.filter((item) => canDeleteCredentialDraft(item)).length;
-  const selectedSigningCount = selectedVcRows.filter(
-    (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
-  ).length;
-  const selectedAnchorableCount = selectedVcRows.filter((item) => canQueueAnchor(item, currentUser)).length;
+  const hasSelectedVcRows = selectedVcRows.length > 0;
+  const allSelectedDrafts =
+    hasSelectedVcRows && selectedVcRows.every((item) => cleanText(item.status).toLowerCase() === 'draft');
+  const allSelectedDeletable =
+    hasSelectedVcRows && selectedVcRows.every((item) => canDeleteCredentialDraft(item));
+  const allSelectedSignable =
+    hasSelectedVcRows &&
+    selectedVcRows.every(
+      (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
+    );
+  const allSelectedAnchorable =
+    hasSelectedVcRows && selectedVcRows.every((item) => canQueueAnchor(item, currentUser));
+  const allSelectedClaimQr =
+    hasSelectedVcRows && selectedVcRows.every((item) => canShowClaimQr(item));
   const bulkActions = [
-    {
-      key: 'submit-selected',
-      label: `Submit drafts${selectedDraftCount ? ` (${selectedDraftCount})` : ''}`,
-      icon: <FaPaperPlane />,
-      onClick: confirmBulkSubmitSelected,
-      disabled: selectedDraftCount === 0,
-      title: selectedDraftCount ? '' : 'Select draft credentials to submit.',
-    },
-    {
-      key: 'delete-selected',
-      label: `Delete drafts${selectedDeletableCount ? ` (${selectedDeletableCount})` : ''}`,
-      icon: <FaTrash />,
-      variant: 'danger',
-      onClick: confirmBulkDeleteSelected,
-      disabled: selectedDeletableCount === 0,
-      title: selectedDeletableCount ? '' : 'Select unsigned drafts to delete.',
-    },
-    {
-      key: 'sign-selected',
-      label: `Sign ready${selectedSigningCount ? ` (${selectedSigningCount})` : ''}`,
-      icon: <FaSignature />,
-      onClick: confirmBulkSignSelected,
-      disabled: selectedSigningCount === 0,
-      title: selectedSigningCount ? '' : 'Use the Signing tab for signing-ready credentials.',
-    },
-    {
-      key: 'anchor-selected-today',
-      label: `Anchor today${selectedAnchorableCount ? ` (${selectedAnchorableCount})` : ''}`,
-      icon: <FaCalendarDay />,
-      onClick: () => confirmBulkQueueAnchorSelected('same_day'),
-      disabled: selectedAnchorableCount === 0,
-      title: selectedAnchorableCount ? '' : 'Select paid, signed credentials to anchor.',
-    },
-    {
-      key: 'anchor-selected-scheduled',
-      label: `Schedule 7 days${selectedAnchorableCount ? ` (${selectedAnchorableCount})` : ''}`,
-      icon: <FaCalendarAlt />,
-      onClick: () => confirmBulkQueueAnchorSelected('scheduled'),
-      disabled: selectedAnchorableCount === 0,
-      title: selectedAnchorableCount ? '' : 'Select paid, signed credentials to schedule.',
-    },
+    ...(canManageDrafts && allSelectedDrafts
+      ? [
+          {
+            key: 'submit-selected',
+            label: `Submit drafts (${selectedVcRows.length})`,
+            icon: <FaPaperPlane />,
+            onClick: confirmBulkSubmitSelected,
+          },
+        ]
+      : []),
+    ...(canManageDrafts && allSelectedDeletable
+      ? [
+          {
+            key: 'delete-selected',
+            label: `Delete drafts (${selectedVcRows.length})`,
+            icon: <FaTrash />,
+            variant: 'danger',
+            onClick: confirmBulkDeleteSelected,
+          },
+        ]
+      : []),
+    ...(canUseRegistrarActions && allSelectedSignable
+      ? [
+          {
+            key: 'sign-selected',
+            label: `Sign ready (${selectedVcRows.length})`,
+            icon: <FaSignature />,
+            onClick: confirmBulkSignSelected,
+          },
+        ]
+      : []),
+    ...(canUseRegistrarActions && allSelectedAnchorable
+      ? [
+          {
+            key: 'anchor-selected-today',
+            label: `Anchor today (${selectedVcRows.length})`,
+            icon: <FaCalendarDay />,
+            onClick: () => confirmBulkQueueAnchorSelected('same_day'),
+          },
+          {
+            key: 'anchor-selected-scheduled',
+            label: `Schedule 7 days (${selectedVcRows.length})`,
+            icon: <FaCalendarAlt />,
+            onClick: () => confirmBulkQueueAnchorSelected('scheduled'),
+          },
+        ]
+      : []),
+    ...(canUseRegistrarActions && allSelectedClaimQr
+      ? [
+          {
+            key: 'claim-qr-selected',
+            label: `Generate claim QR (${selectedVcRows.length})`,
+            icon: <FaQrcode />,
+            onClick: confirmBulkClaimQrSelected,
+          },
+        ]
+      : []),
   ];
+  const visibleBulkActions =
+    hasSelectedVcRows && bulkActions.length === 0
+      ? [
+          {
+            key: 'no-common-action',
+            label: 'No available bulk action for the selected rows.',
+            icon: <FaBan />,
+            disabled: true,
+            title: 'Select rows with the same valid lifecycle action.',
+          },
+        ]
+      : bulkActions;
 
   useEffect(() => {
     setVcPage((current) => Math.min(Math.max(current, 1), vcPageCount));
@@ -3213,6 +3305,8 @@ export default function CredentialDraftsPage() {
 
         return (
           isAnchorTracked &&
+          isCredentialPaid(item) &&
+          hasSignedCredential(item) &&
           matchesAnchorSchedule(item, anchorScheduleFilter) &&
           matchesAnchorStatus(item, anchorStatusFilter) &&
           matchesAnchorSearch(item, anchorSearch)
@@ -3240,7 +3334,7 @@ export default function CredentialDraftsPage() {
     <>
       <div className="d-flex flex-column gap-4">
         <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
-          {canManageCredentials ? (
+          {canUseRegistrarActions ? (
             <button
               className="btn btn-warning"
               onClick={confirmProcessQueue}
@@ -3301,7 +3395,7 @@ export default function CredentialDraftsPage() {
             onTogglePage={toggleVcPageSelection}
             onPage={setVcPage}
             canSelectRow={canBulkSelectCredential}
-            bulkActions={bulkActions}
+            bulkActions={visibleBulkActions}
             bulkMenuOpen={bulkActionMenuOpen}
             onToggleBulkMenu={() => setBulkActionMenuOpen((value) => !value)}
             onCloseBulkMenu={closeBulkActionMenu}

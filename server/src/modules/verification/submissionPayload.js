@@ -86,7 +86,6 @@ export function normalizeVerificationSubmissionPayload(payload = {}) {
     idBackUrl,
     validIdFrontUrl: idFrontUrl,
     validIdBackUrl: idBackUrl,
-    livenessImageUrl: cleanString(payload.livenessImageUrl || payload.selfieUrl),
     livenessPassed,
     livenessMethod: cleanString(payload.livenessMethod || answers.livenessMethod),
     livenessPassedAt: payload.livenessPassedAt || answers.livenessPassedAt || null,
@@ -102,7 +101,6 @@ export function normalizeVerificationSubmissionPayload(payload = {}) {
   if (!validIdType) throw new ApiError(400, 'Valid ID type is required');
   if (!idFrontUrl) throw new ApiError(400, 'Valid ID front image is required');
   if (!idBackUrl) throw new ApiError(400, 'Valid ID back image is required');
-  if (!normalized.livenessImageUrl) throw new ApiError(400, 'Selfie/liveness image is required');
   if (!livenessPassed) throw new ApiError(400, 'Liveness check must pass before submission');
   if (answers.confirmed !== true && answers.confirmed !== 'true') {
     throw new ApiError(400, 'Confirmation is required');

@@ -234,16 +234,6 @@ const verificationSubmissionSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
-    selfieUrl: {
-      type: String,
-      default: '',
-      trim: true,
-    },
-    livenessImageUrl: {
-      type: String,
-      default: '',
-      trim: true,
-    },
     livenessPassed: {
       type: Boolean,
       default: false,

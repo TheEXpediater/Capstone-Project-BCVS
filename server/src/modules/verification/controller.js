@@ -53,11 +53,6 @@ function buildSubmissionPayload(req) {
       firstFileUrl(req.files, 'idBack') ||
       req.body?.validIdBackUrl ||
       req.body?.idBackUrl,
-    livenessImageUrl:
-      firstFileUrl(req.files, 'selfie') ||
-      firstFileUrl(req.files, 'liveness') ||
-      req.body?.livenessImageUrl ||
-      req.body?.selfieUrl,
   };
 }
 

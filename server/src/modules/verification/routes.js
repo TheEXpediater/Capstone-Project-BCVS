@@ -62,8 +62,6 @@ function handleVerificationUpload(req, res, next) {
     { name: 'idBack', maxCount: 1 },
     { name: 'validIdFront', maxCount: 1 },
     { name: 'validIdBack', maxCount: 1 },
-    { name: 'selfie', maxCount: 1 },
-    { name: 'liveness', maxCount: 1 },
   ])(req, res, (error) => {
     if (!error) return next();
 

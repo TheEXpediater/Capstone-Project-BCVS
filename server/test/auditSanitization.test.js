@@ -13,7 +13,7 @@ test('audit metadata redacts sensitive nested fields while preserving useful con
       privateKeyCiphertext: 'ciphertext',
       authTag: 'tag',
       validIdFrontUrl: '/uploads/verification/front.jpg',
-      livenessImageUrl: 'data:image/jpeg;base64,raw-face-image',
+      livenessimageurl: 'data:image/jpeg;base64,raw-face-image',
       safe: 'kept',
     },
     rows: [{ token: 'claim-token', label: 'QR generated' }],
@@ -26,7 +26,7 @@ test('audit metadata redacts sensitive nested fields while preserving useful con
   assert.equal(sanitized.nested.privateKeyCiphertext, '[REDACTED]');
   assert.equal(sanitized.nested.authTag, '[REDACTED]');
   assert.equal(sanitized.nested.validIdFrontUrl, '[REDACTED]');
-  assert.equal(sanitized.nested.livenessImageUrl, '[REDACTED]');
+  assert.equal(sanitized.nested.livenessimageurl, '[REDACTED]');
   assert.equal(sanitized.nested.safe, 'kept');
   assert.equal(sanitized.rows[0].token, '[REDACTED]');
   assert.equal(sanitized.rows[0].label, 'QR generated');

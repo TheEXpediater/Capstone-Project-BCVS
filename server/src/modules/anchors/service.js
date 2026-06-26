@@ -22,8 +22,9 @@ import {
   verifyMerkleRootOnChain,
 } from '../contracts/service.js';
 import { getMerkleAnchorModel } from './model.js';
+import * as vcPermissions from '../credentials/permissions.js';
 
-const ANCHOR_ROLES = new Set(['admin', 'super_admin', 'developer']);
+const ANCHOR_ROLES = new Set(['super_admin']);
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
@@ -36,7 +37,7 @@ function clonePlain(value) {
 
 function assertAnchorActor(actor) {
   if (!actor || !ANCHOR_ROLES.has(actor.role)) {
-    throw new ApiError(403, 'You do not have permission to anchor credentials.');
+    throw new ApiError(403, vcPermissions.lifecycleDenialMessage(actor, 'anchor'));
   }
 }
 
@@ -69,7 +70,7 @@ function isCredentialAnchored(draft) {
   );
 }
 
-function assertAnchorableCredential(draft) {
+function assertAnchorableCredential(draft, actor) {
   if (!draft) {
     throw new ApiError(404, 'Credential not found.');
   }
@@ -80,6 +81,14 @@ function assertAnchorableCredential(draft) {
 
   if (!draft.signedCredential) {
     throw new ApiError(409, 'Only signed credentials can be anchored.');
+  }
+
+  if (!vcPermissions.isPaid(draft)) {
+    throw new ApiError(409, 'Only paid credentials can be anchored.');
+  }
+
+  if (!vcPermissions.canProcessAnchor(actor, draft)) {
+    throw new ApiError(409, 'Credential is not ready for anchoring yet.');
   }
 }
 
@@ -411,11 +420,12 @@ function buildIdempotentCredentialResponse(draft) {
 export async function anchorCredential(credentialId, _payload = {}, actor = null) {
   assertAnchorActor(actor);
   const draft = await getCredentialOrThrow(credentialId);
-  assertAnchorableCredential(draft);
 
   if (isCredentialAnchored(draft)) {
     return buildIdempotentCredentialResponse(draft);
   }
+
+  assertAnchorableCredential(draft, actor);
 
   const { contract } = await getActiveAnchorContext();
   const plan = buildAnchorPlan([draft]);
@@ -461,10 +471,10 @@ export async function anchorBatch(payload = {}, actor = null) {
     throw new ApiError(404, `Credential(s) not found: ${missingIds.join(', ')}`);
   }
 
-  drafts.forEach(assertAnchorableCredential);
-
   const alreadyAnchored = drafts.filter(isCredentialAnchored).map((draft) => draft._id.toString());
   const pendingDrafts = drafts.filter((draft) => !isCredentialAnchored(draft));
+
+  pendingDrafts.forEach((draft) => assertAnchorableCredential(draft, actor));
 
   if (!pendingDrafts.length) {
     return {

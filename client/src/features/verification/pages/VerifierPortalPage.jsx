@@ -108,6 +108,22 @@ function AnchorExplorerLink({ result, className = 'btn btn-outline-primary' }) {
   );
 }
 
+function anchorStatusText(result = {}) {
+  const status = clean(result.anchorStatus).toLowerCase();
+  if (status === 'anchored') {
+    return result.anchoredAt
+      ? `Blockchain anchored on ${new Date(result.anchoredAt).toLocaleString()}.`
+      : 'Blockchain anchored.';
+  }
+  if (status === 'scheduled') {
+    return result.scheduledAnchorAt || result.anchorDueAt
+      ? `Blockchain anchoring is scheduled. Scheduled anchor date: ${new Date(result.scheduledAnchorAt || result.anchorDueAt).toLocaleString()}.`
+      : 'Blockchain anchoring is scheduled.';
+  }
+  if (status === 'pending') return 'Blockchain anchoring is pending.';
+  return 'Blockchain anchor is not available yet.';
+}
+
 function ProofHelpModal({ open, onClose }) {
   if (!open) return null;
 
@@ -156,9 +172,12 @@ function ResultModal({ open, session, onClose, onOpenHelp }) {
 
   const blockchainVerified = Boolean(checks.blockchain?.verified || result.blockchainAnchorValid);
   const fullyVerified = Boolean(result.verified || result.valid || result.overallValid);
-  const message = blockchainVerified
-    ? 'The credential format, issuer proof, Merkle proof, and blockchain anchor were verified.'
-    : 'The credential payload was checked, but the blockchain anchor could not be fully confirmed.';
+  const credentialConfirmed = Boolean(result.credentialConfirmed || fullyVerified);
+  const message = result.message || (blockchainVerified
+    ? 'VC confirmed. Blockchain anchored.'
+    : credentialConfirmed
+      ? 'VC confirmed. Blockchain anchoring is scheduled/pending.'
+      : 'Credential proof could not be confirmed.');
 
   return (
     <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
@@ -166,18 +185,17 @@ function ResultModal({ open, session, onClose, onOpenHelp }) {
         <div className="modal-content border-0 shadow">
           <div className="modal-header">
             <div>
-              <h2 className="h5 mb-1">{fullyVerified ? 'Credential Verified' : 'Verification Completed'}</h2>
+              <h2 className="h5 mb-1">{credentialConfirmed ? 'VC Confirmed' : 'Verification Completed'}</h2>
               <p className="text-muted mb-0 small">{message}</p>
             </div>
             <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
           </div>
 
           <div className="modal-body">
-            <div className={`alert ${fullyVerified ? 'alert-success' : 'alert-warning'}`}>
-              <div className="fw-bold">{fullyVerified ? 'Credential is valid' : 'Credential needs attention'}</div>
+            <div className={`alert ${credentialConfirmed ? 'alert-success' : 'alert-warning'}`}>
+              <div className="fw-bold">{credentialConfirmed ? 'VC confirmed.' : 'Credential needs attention'}</div>
               <div className="small mt-1">
-                BCVS evaluated the W3C credential format, issuer signature, deterministic hash,
-                Merkle proof, and blockchain anchor.
+                {message}
               </div>
             </div>
 
@@ -194,6 +212,11 @@ function ResultModal({ open, session, onClose, onOpenHelp }) {
               <div className="col-md-3">
                 <CheckBadge label="Blockchain Anchor" valid={blockchainVerified} />
               </div>
+            </div>
+
+            <div className="alert alert-light border mt-3 mb-0">
+              <div className="fw-semibold">Blockchain status</div>
+              <div className="small">{anchorStatusText(result)}</div>
             </div>
 
             <div className="d-flex flex-wrap align-items-center gap-2 mt-4">
@@ -246,6 +269,7 @@ function ResultPanel({ session, nonce, onOpenHelp }) {
   const checks = result?.checks || {};
   const downloads = session?.downloads || {};
   const blockchainVerified = Boolean(checks.blockchain?.verified || result?.blockchainAnchorValid);
+  const credentialConfirmed = Boolean(result?.credentialConfirmed || result?.verified || result?.valid || result?.overallValid);
 
   if (session?.status === 'denied') {
     return <div className="alert alert-danger mb-0">The holder denied this verification request.</div>;
@@ -273,14 +297,16 @@ function ResultPanel({ session, nonce, onOpenHelp }) {
 
   return (
     <div className="d-flex flex-column gap-3">
-      <div className={`alert mb-0 ${result.verified ? 'alert-success' : result.status === 'failed' ? 'alert-danger' : 'alert-warning'}`}>
+      <div className={`alert mb-0 ${credentialConfirmed ? 'alert-success' : result.status === 'failed' ? 'alert-danger' : 'alert-warning'}`}>
         <div className="d-flex flex-wrap justify-content-between align-items-start gap-2">
           <div>
-            <div className="fw-bold">Verification status: {titleCase(result.status)}</div>
+            <div className="fw-bold">
+              {credentialConfirmed ? 'VC confirmed.' : `Verification status: ${titleCase(result.status)}`}
+            </div>
             <div className="small mt-1">
-              {result.note || (blockchainVerified
-                ? 'The credential format and blockchain anchor were evaluated.'
-                : 'Credential payload was checked, but blockchain anchor could not be fully confirmed.')}
+              {result.message || result.note || (blockchainVerified
+                ? 'VC confirmed. Blockchain anchored.'
+                : 'Credential proof could not be confirmed.')}
             </div>
           </div>
           <button className="btn btn-sm btn-outline-secondary" type="button" onClick={onOpenHelp}>
@@ -318,8 +344,13 @@ function ResultPanel({ session, nonce, onOpenHelp }) {
         <ProofRow
           label="Blockchain anchor"
           valid={checks.blockchain?.verified}
-          detail={checks.blockchain?.txHash || checks.blockchain?.reason}
+          detail={checks.blockchain?.txHash || anchorStatusText(result)}
         />
+      </div>
+
+      <div className="alert alert-light border mb-0">
+        <div className="fw-semibold">Blockchain status</div>
+        <div className="small">{anchorStatusText(result)}</div>
       </div>
 
       <div className="d-flex flex-wrap gap-2 align-items-center">
