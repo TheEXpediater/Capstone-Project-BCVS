@@ -16,6 +16,7 @@ import ActivityItem from '@/components/notifications/ActivityItem';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
 import Screen from '@/components/ui/Screen';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -361,7 +362,7 @@ export default function ActivityScreen() {
         )}
         ListEmptyComponent={
           <EmptyState
-            icon="notifications-outline"
+            illustration={illustrations.emptyActivity}
             title="No activity yet"
             body="Updates about requests, payments, verification, and credentials will appear here."
           />

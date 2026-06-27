@@ -13,7 +13,9 @@ import { router, useFocusEffect } from 'expo-router';
 import CredentialCard from '@/components/vc/CredentialCard';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   formatDate,
@@ -67,6 +69,13 @@ function ActionModal({ credential, onClose }) {
                 <Ionicons name="close" size={20} color={colors.text} />
               </Pressable>
             </View>
+            <Illustration
+              source={illustrations.credentialVerified}
+              heightRatio={0.18}
+              minHeight={100}
+              maxHeight={150}
+              accessibilityLabel="Verified credential"
+            />
 
             <View style={styles.summaryBox}>
               <View>
@@ -111,6 +120,7 @@ function ActionModal({ credential, onClose }) {
 export default function CredentialsScreen() {
   const credentials = useAppStore((state) => state.credentials);
   const loadCredentials = useAppStore((state) => state.loadCredentials);
+  const loading = useAppStore((state) => state.loading.credentials);
   const [selectedCredential, setSelectedCredential] = useState(null);
 
   useFocusEffect(
@@ -143,10 +153,19 @@ export default function CredentialsScreen() {
         )}
         ItemSeparatorComponent={() => null}
         ListEmptyComponent={
-          <EmptyState
-            title="No credentials yet"
-            body="Claim an issued credential using the Scan tab once it is ready."
-          />
+          loading ? (
+            <EmptyState
+              illustration={illustrations.loadingCredentials}
+              title="Loading credentials..."
+              body="Your wallet items will appear here shortly."
+            />
+          ) : (
+            <EmptyState
+              illustration={illustrations.emptyCredentials}
+              title="No credentials yet"
+              body="Claim an issued credential using the Scan tab once it is ready."
+            />
+          )
         }
       />
 

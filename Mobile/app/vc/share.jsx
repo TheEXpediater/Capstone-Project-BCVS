@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import Button from '@/components/ui/Button';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import { createShareSession } from '@/services/verificationService';
 import { getCredentialRecordId, getCredentialTitle, getHolderName } from '@/utils/credentialUtils';
@@ -74,8 +76,16 @@ export default function ShareCredentialScreen() {
 
   return (
     <Screen>
-      <Text style={styles.kicker}>Verifier QR</Text>
-      <Text style={styles.title}>Share Credential</Text>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Illustration
+          source={illustrations.credentialShare}
+          heightRatio={0.24}
+          minHeight={130}
+          maxHeight={200}
+          accessibilityLabel="Credential sharing"
+        />
+        <Text style={styles.kicker}>Verifier QR</Text>
+        <Text style={styles.title}>Share Credential</Text>
 
       <View style={styles.card}>
         <Text style={styles.label}>{getCredentialTitle(credential)}</Text>
@@ -112,13 +122,17 @@ export default function ShareCredentialScreen() {
         <Text style={styles.meta}>Verification session: {sessionInfo.sessionId}</Text>
       ) : null}
 
-      <Button title="Open Share Sheet" onPress={nativeShare} disabled={!shareValue} loading={creating} />
-      <Button title="Back" variant="outline" onPress={() => router.back()} />
+        <Button title="Open Share Sheet" onPress={nativeShare} disabled={!shareValue} loading={creating} />
+        <Button title="Back" variant="outline" onPress={() => router.back()} />
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  content: {
+    paddingBottom: spacing.xl
+  },
   kicker: {
     color: colors.primary,
     fontSize: 12,

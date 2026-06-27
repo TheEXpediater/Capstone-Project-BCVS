@@ -10,7 +10,9 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Button from '@/components/ui/Button';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   formatDate,
@@ -79,6 +81,13 @@ export default function CredentialDetailScreen() {
   return (
     <Screen padded={false}>
       <ScrollView contentContainerStyle={styles.content}>
+        <Illustration
+          source={illustrations.credentialDetails}
+          heightRatio={0.26}
+          minHeight={140}
+          maxHeight={220}
+          accessibilityLabel="Credential details"
+        />
         <Text style={styles.title}>{getCredentialTitle(credential)}</Text>
         <Text style={styles.subtitle}>{getHolderName(credential)}</Text>
 

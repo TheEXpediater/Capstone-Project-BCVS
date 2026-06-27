@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Button from '@/components/ui/Button';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
 import TextField from '@/components/ui/TextField';
+import { illustrations } from '@/constants/illustrations';
 import { colors, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -60,8 +62,23 @@ export default function ResetPasswordScreen() {
 
   return (
     <Screen>
-      <View style={styles.wrap}>
-        <Text style={styles.title}>Reset Password</Text>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Illustration
+          source={illustrations.recover}
+          heightRatio={0.3}
+          minHeight={145}
+          maxHeight={230}
+          accessibilityLabel="Password recovery illustration"
+        />
+        <Text style={styles.title}>Forgot Password?</Text>
+        <Text style={styles.subtitle}>
+          Enter your registered email and we'll send password reset instructions.
+        </Text>
+        <View style={styles.form}>
         {step === 'email' && (
           <>
             <TextField label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
@@ -87,24 +104,34 @@ export default function ResetPasswordScreen() {
           </>
         )}
         <Button title="Back to Login" variant="outline" onPress={() => router.replace('/(auth)/login')} />
-      </View>
+        </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
+  content: {
+    flexGrow: 1,
     justifyContent: 'center',
-    gap: spacing.md
+    gap: spacing.sm,
+    paddingVertical: spacing.md
+  },
+  form: {
+    gap: spacing.md,
+    marginTop: spacing.sm
   },
   title: {
     color: colors.text,
     fontSize: 28,
-    fontWeight: '900'
+    fontWeight: '900',
+    textAlign: 'center'
   },
   subtitle: {
-    color: colors.muted
+    color: colors.muted,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+    textAlign: 'center'
   }
 });
 

@@ -72,16 +72,20 @@ const styles = StyleSheet.create({
   wrap: {
     flexGrow: 1,
     justifyContent: 'center',
-    gap: spacing.md
+    gap: spacing.md,
+    paddingVertical: spacing.md
   },
   title: {
     color: colors.text,
     fontSize: 28,
-    fontWeight: '900'
+    fontWeight: '900',
+    textAlign: 'center'
   },
   subtitle: {
     color: colors.muted,
-    marginBottom: spacing.md
+    lineHeight: 20,
+    marginBottom: spacing.md,
+    textAlign: 'center'
   },
   link: {
     color: colors.primary,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Button from '@/components/ui/Button';
 import Screen from '@/components/ui/Screen';
@@ -48,40 +48,54 @@ export default function VerifyEmailScreen() {
 
   return (
     <Screen>
-      <Text style={styles.title}>Verify Email</Text>
-      <Text style={styles.subtitle}>
-        {otpDisabled
-          ? 'Email OTP is currently disabled by MIS. Continue to create your account.'
-          : `Enter the code sent to ${email}.`}
-      </Text>
-      {otpDisabled ? null : (
-        <TextField
-          label="Verification code"
-          value={code}
-          onChangeText={setCode}
-          keyboardType="number-pad"
-          maxLength={6}
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.title}>Verify Email</Text>
+        <Text style={styles.subtitle}>
+          {otpDisabled
+            ? 'Email OTP is currently disabled by MIS. Continue to create your account.'
+            : `Enter the code sent to ${email}.`}
+        </Text>
+        {otpDisabled ? null : (
+          <TextField
+            label="Verification code"
+            value={code}
+            onChangeText={setCode}
+            keyboardType="number-pad"
+            maxLength={6}
+          />
+        )}
+        <Button
+          title={otpDisabled ? 'Create Account' : 'Verify and Create'}
+          onPress={submit}
+          style={{ marginTop: spacing.md }}
         />
-      )}
-      <Button
-        title={otpDisabled ? 'Create Account' : 'Verify and Create'}
-        onPress={submit}
-        style={{ marginTop: spacing.md }}
-      />
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  content: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md
+  },
   title: {
     color: colors.text,
     fontSize: 28,
     fontWeight: '900',
-    marginTop: spacing.xl
+    textAlign: 'center'
   },
   subtitle: {
     color: colors.muted,
-    marginVertical: spacing.md
+    lineHeight: 20,
+    marginBottom: spacing.md,
+    textAlign: 'center'
   }
 });
 

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { router } from 'expo-router';
 import BiometricPromptModal from '@/components/security/BiometricPromptModal';
 import Button from '@/components/ui/Button';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
 import TextField from '@/components/ui/TextField';
+import { illustrations } from '@/constants/illustrations';
 import { colors, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 import {
@@ -206,9 +208,20 @@ export default function LoginScreen() {
 
   return (
     <Screen>
-      <View style={styles.center}>
-        <Text style={styles.brand}>CredPocket</Text>
-        <Text style={styles.subtitle}>Student credential vault</Text>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Illustration
+          source={illustrations.login}
+          heightRatio={0.32}
+          minHeight={150}
+          maxHeight={240}
+          accessibilityLabel="Login illustration"
+        />
+        <Text style={styles.brand}>Welcome Back!</Text>
+        <Text style={styles.subtitle}>Sign in to continue to your account.</Text>
 
         <View style={styles.form}>
           <TextField
@@ -261,7 +274,7 @@ export default function LoginScreen() {
             <Text style={styles.link}>Create an account</Text>
           </Pressable>
         </View>
-      </View>
+      </ScrollView>
 
       <BiometricPromptModal
         visible={promptVisible}
@@ -274,10 +287,11 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
+  content: {
+    flexGrow: 1,
     justifyContent: 'center',
-    gap: spacing.sm
+    gap: spacing.sm,
+    paddingVertical: spacing.md
   },
   brand: {
     color: colors.primary,
@@ -288,7 +302,7 @@ const styles = StyleSheet.create({
   subtitle: {
     color: colors.muted,
     textAlign: 'center',
-    marginBottom: spacing.xl
+    marginBottom: spacing.lg
   },
   form: {
     gap: spacing.md

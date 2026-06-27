@@ -3,8 +3,10 @@ import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } fr
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import Button from '@/components/ui/Button';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
 import TextField from '@/components/ui/TextField';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 import FaceVerifier from '@/components/verification/FaceVerifier';
@@ -59,17 +61,6 @@ function PhotoPreview({ asset, label, style }) {
   }
 
   return <Image source={{ uri: asset.uri }} style={[styles.preview, style]} />;
-}
-
-function SelectChip({ label, selected, onPress }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.chip, selected ? styles.chipSelected : null]}
-    >
-      <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]}>{label}</Text>
-    </Pressable>
-  );
 }
 
 function SelectField({ label, value, options, onChange }) {
@@ -447,12 +438,19 @@ export default function AccountVerificationScreen() {
   function renderStep() {
     if (!started) {
       return (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Get Verified</Text>
-          <Text style={styles.muted}>
-            Submit personal information, valid ID photos, and a FaceVerifier liveness pass for registrar review.
+        <View style={styles.introCard}>
+          <Illustration
+            source={illustrations.studentVerification}
+            heightRatio={0.26}
+            minHeight={150}
+            maxHeight={220}
+            accessibilityLabel="Student verification illustration"
+          />
+          <Text style={styles.introTitle}>{"Let's Verify Your Account"}</Text>
+          <Text style={styles.introText}>
+            We'll guide you through a few simple steps to verify your identity and secure your account.
           </Text>
-          <Button title="Start Verification" onPress={startVerification} style={styles.buttonGap} />
+          <Button title="Continue" onPress={startVerification} style={styles.buttonGap} />
         </View>
       );
     }
@@ -531,8 +529,22 @@ export default function AccountVerificationScreen() {
     if (step === 1) {
       return (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Valid ID</Text>
-          <Text style={styles.muted}>Choose an ID type, then upload or capture the front and back.</Text>
+          <Illustration
+            source={illustrations.validId}
+            heightRatio={0.2}
+            minHeight={110}
+            maxHeight={160}
+            accessibilityLabel="Valid ID upload illustration"
+          />
+          <Text style={styles.cardTitle}>Use a Valid Government ID</Text>
+          <Text style={styles.muted}>Accepted IDs</Text>
+          <View style={styles.acceptedIdGrid}>
+            {['Passport', "Driver's License", 'PhilSys', 'National ID', 'UMID', 'SSS'].map((item) => (
+              <View key={item} style={styles.acceptedIdPill}>
+                <Text style={styles.acceptedIdText}>{item}</Text>
+              </View>
+            ))}
+          </View>
           <SelectField
             label="Valid ID type"
             value={answers.validIdType}
@@ -750,6 +762,43 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900'
   },
+  introCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    gap: spacing.md
+  },
+  introTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+    textAlign: 'center'
+  },
+  introText: {
+    color: colors.muted,
+    lineHeight: 20,
+    textAlign: 'center'
+  },
+  acceptedIdGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm
+  },
+  acceptedIdPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs
+  },
+  acceptedIdText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800'
+  },
   muted: {
     color: colors.muted,
     lineHeight: 20
@@ -813,30 +862,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '800',
     lineHeight: 20
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface
-  },
-  chipSelected: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary
-  },
-  chipText: {
-    color: colors.text,
-    fontWeight: '700'
-  },
-  chipTextSelected: {
-    color: colors.primary
   },
   emptyPreview: {
     minHeight: 180,

@@ -15,11 +15,13 @@ export default function Button({
       accessibilityRole="button"
       onPress={onPress}
       disabled={isDisabled}
-      style={[
+      style={({ pressed }) => [
         styles.base,
         variant === 'primary' && styles.primary,
         variant === 'outline' && styles.outline,
         variant === 'danger' && styles.danger,
+        pressed && !isDisabled && variant === 'primary' && styles.primaryPressed,
+        pressed && !isDisabled && styles.pressed,
         isDisabled && styles.disabled,
         style
       ]}
@@ -51,6 +53,9 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: colors.primary
   },
+  primaryPressed: {
+    backgroundColor: colors.primaryPressed
+  },
   danger: {
     backgroundColor: colors.danger
   },
@@ -61,6 +66,9 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.55
+  },
+  pressed: {
+    transform: [{ scale: 0.99 }]
   },
   text: {
     color: '#FFFFFF',

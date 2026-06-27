@@ -11,9 +11,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import Button from '@/components/ui/Button';
+import EmptyState from '@/components/ui/EmptyState';
 import FaceVerifier from '@/components/verification/FaceVerifier';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
 import TextField from '@/components/ui/TextField';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -212,6 +215,14 @@ function RequestSuccessCard({ request }) {
 
   return (
     <View style={styles.successCard}>
+      <Illustration
+        source={illustrations.success}
+        heightRatio={0.16}
+        minHeight={96}
+        maxHeight={140}
+        accessibilityLabel="Request submitted"
+        style={styles.successIllustration}
+      />
       <Text style={styles.requestTitle}>Request Submitted</Text>
       <Text style={styles.noteText}>
         Processing may take up to 3 working days after payment.
@@ -231,6 +242,7 @@ export default function HomeScreen() {
   const user = useAppStore((state) => state.user);
   const credentials = useAppStore((state) => state.credentials);
   const notifications = useAppStore((state) => state.notifications);
+  const credentialsLoading = useAppStore((state) => state.loading.credentials);
   const loadCredentials = useAppStore((state) => state.loadCredentials);
   const loadNotifications = useAppStore((state) => state.loadNotifications);
   const requestCredential = useAppStore((state) => state.requestCredential);
@@ -343,11 +355,45 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <Text style={styles.eyebrow}>CredPocket</Text>
-      <Text style={styles.title}>Hello, {user?.fullName || user?.username || 'Student'}</Text>
-      <Text style={styles.subtitle}>
-        Your credentials stay on this device until you approve sharing.
-      </Text>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={styles.eyebrow}>CredPocket</Text>
+        <Text style={styles.title}>Hello, {user?.fullName || user?.username || 'Student'}</Text>
+        <Text style={styles.subtitle}>
+          Your credentials stay on this device until you approve sharing.
+        </Text>
+
+        {credentialsLoading ? (
+          <View style={styles.heroCard}>
+            <Illustration
+              source={illustrations.loadingCredentials}
+              heightRatio={0.22}
+              minHeight={120}
+              maxHeight={180}
+              accessibilityLabel="Loading credentials"
+            />
+            <Text style={styles.heroTitle}>Loading credentials...</Text>
+          </View>
+        ) : credentials.length ? (
+          <View style={styles.heroCard}>
+            <Illustration
+              source={illustrations.wallet}
+              heightRatio={0.24}
+              minHeight={130}
+              maxHeight={190}
+              accessibilityLabel="Digital wallet"
+            />
+            <Text style={styles.heroTitle}>Your wallet is ready</Text>
+            <Text style={styles.noteText}>View, scan, and share academic credentials securely.</Text>
+          </View>
+        ) : (
+          <View style={styles.heroCard}>
+            <EmptyState
+              illustration={illustrations.emptyCredentials}
+              title="No credentials yet"
+              body="Claim an issued credential using the Scan tab once it is ready."
+            />
+          </View>
+        )}
 
       {!verifiedAndLinked ? (
         <Pressable style={styles.verifyCard} onPress={() => router.push('/verification/account')}>
@@ -405,11 +451,15 @@ export default function HomeScreen() {
         }}
         onSubmit={beginLivenessCheck}
       />
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  content: {
+    paddingBottom: spacing.xl
+  },
   eyebrow: {
     color: colors.primary,
     fontWeight: '900',
@@ -425,6 +475,21 @@ const styles = StyleSheet.create({
     color: colors.muted,
     lineHeight: 20,
     marginTop: spacing.sm,
+  },
+  heroCard: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    alignItems: 'center',
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   verifyCard: {
     marginTop: spacing.lg,
@@ -477,6 +542,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.lg,
     gap: spacing.xs,
+  },
+  successIllustration: {
+    marginBottom: spacing.xs,
   },
   noteText: {
     color: colors.muted,
