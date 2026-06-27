@@ -42,6 +42,43 @@ const PERMISSION_COLUMNS = [
   ['canManageSettings', 'Manage Settings'],
 ];
 
+const PERMISSION_GROUPS = [
+  {
+    module: 'Payments',
+    permissions: [
+      ['canConfirmPayments', 'Confirm Payments'],
+    ],
+  },
+  {
+    module: 'Students',
+    permissions: [
+      ['canManageVC', 'Manage VC'],
+      ['canManageUsers', 'Manage Users'],
+    ],
+  },
+  {
+    module: 'Credentials',
+    permissions: [
+      ['canSignVC', 'Sign VC'],
+      ['canGenerateClaimQr', 'Generate Claim QR'],
+      ['canAnchorVC', 'Anchor VC'],
+    ],
+  },
+  {
+    module: 'System',
+    permissions: [
+      ['canManageSettings', 'Manage Settings'],
+    ],
+  },
+];
+
+const ROLE_LABELS = {
+  admin: 'Registrar',
+  super_admin: 'Registrar Head',
+  developer: 'MIS Administrator',
+  cashier: 'Cashier',
+};
+
 const EMPTY_SETTINGS = {
   anchoring: {
     enabled: true,
@@ -142,6 +179,16 @@ function shortText(value, start = 18, end = 8) {
   return `${text.slice(0, start)}...${text.slice(-end)}`;
 }
 
+function shortWalletAddress(value) {
+  return shortText(value, 6, 4);
+}
+
+function roleLabel(value) {
+  const role = String(value || '').trim();
+  if (!role) return 'Role';
+  return ROLE_LABELS[role] || role.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function cleanUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
@@ -156,7 +203,7 @@ function healthUrlFor(apiBaseUrl) {
   return normalizeApiBaseUrl(apiBaseUrl).replace(/\/api\/?$/i, '/api/health');
 }
 
-function copyToClipboard(value, setFeedback) {
+function copyToClipboard(value, setFeedback, itemLabel = 'value') {
   const text = String(value || '').trim();
   if (!text) return;
 
@@ -164,11 +211,11 @@ function copyToClipboard(value, setFeedback) {
     navigator.clipboard
       .writeText(text)
       .then(() => setFeedback({ type: 'success', text: 'Copied to clipboard.' }))
-      .catch(() => setFeedback({ type: 'warning', text: 'Copy failed. Select and copy the URL manually.' }));
+      .catch(() => setFeedback({ type: 'warning', text: `Copy failed. Select and copy the ${itemLabel} manually.` }));
     return;
   }
 
-  setFeedback({ type: 'warning', text: 'Clipboard is unavailable. Select and copy the URL manually.' });
+  setFeedback({ type: 'warning', text: `Clipboard is unavailable. Select and copy the ${itemLabel} manually.` });
 }
 
 function contractRecordKey(contract) {
@@ -269,7 +316,10 @@ function ConfirmModal({ action, busy, onCancel, onConfirm }) {
         </>
       }
     >
-      {action.details ? <div className="alert alert-light border mb-0">{action.details}</div> : null}
+      <div className="d-flex flex-column gap-3">
+        {action.details ? <div className="alert alert-light border mb-0">{action.details}</div> : null}
+        {action.error ? <div className="alert alert-danger mb-0">{action.error}</div> : null}
+      </div>
     </ModalShell>
   );
 }
@@ -313,23 +363,15 @@ function TextModal({ action, busy, onCancel, onConfirm }) {
   );
 }
 
-function BlockchainAccountEmptyState({ onAddAccount, disabled = false }) {
+function BlockchainAccountEmptyState() {
   return (
     <div className="border rounded-3 bg-light p-4 text-center">
       <h3 className="h5 mb-2">No Blockchain Accounts</h3>
-      <p className="text-muted mb-3">
-        No blockchain account has been configured yet.
+      <p className="text-muted mb-0">
+        No blockchain wallet has been configured.
         <br />
-        Add your first blockchain wallet to start anchoring credentials.
+        Use the Add Account button above the wallet table to begin anchoring credentials.
       </p>
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={onAddAccount}
-        disabled={disabled}
-      >
-        + Add Account
-      </button>
     </div>
   );
 }
@@ -338,6 +380,7 @@ function AddBlockchainAccountModal({
   open,
   busy,
   form,
+  error,
   onFormChange,
   onSave,
   onCancel,
@@ -355,22 +398,27 @@ function AddBlockchainAccountModal({
       onClose={busy ? () => {} : onCancel}
       footer={
         <>
-          <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
+          <button type="button" className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={onSave} disabled={busy || !canSave}>
+          <button type="button" className="btn btn-primary" onClick={onSave} disabled={busy || !canSave}>
             {busy ? 'Saving...' : 'Save'}
           </button>
         </>
       }
     >
       <div className="d-flex flex-column gap-3">
+        {error ? <div className="alert alert-danger mb-0">{error}</div> : null}
         <div>
-          <label className="form-label fw-semibold">Account Name</label>
+          <label className="form-label fw-semibold">Account Alias</label>
           <input
             className="form-control"
-            value={form.name}
+            id="blockchain-wallet-alias"
+            name="blockchain-wallet-alias"
+            autoComplete="off"
+            value={form.name || ''}
             onChange={(event) => onFormChange({ ...form, name: event.target.value })}
+            placeholder="2026 Account"
             disabled={busy}
             autoFocus
           />
@@ -381,11 +429,13 @@ function AddBlockchainAccountModal({
             <input
               type={showPrivateKey ? 'text' : 'password'}
               className="form-control"
-              value={form.privateKey}
+              id="blockchain-wallet-private-key"
+              name="blockchain-wallet-private-key"
+              value={form.privateKey || ''}
               onChange={(event) => onFormChange({ ...form, privateKey: event.target.value })}
-              placeholder="Enter the private key of your blockchain wallet."
+              placeholder="Enter the private key of the blockchain wallet."
               disabled={busy}
-              autoComplete="off"
+              autoComplete="new-password"
             />
             <button
               type="button"
@@ -477,7 +527,17 @@ function ReadinessModal({ check, onClose }) {
   );
 }
 
-function AccountActionMenu({ account, isOpen, onToggle, onClose, onEdit, onActivate, onDelete, busy }) {
+function AccountActionMenu({
+  account,
+  isOpen,
+  onToggle,
+  onClose,
+  onEdit,
+  onActivate,
+  onDelete,
+  onViewCredentials,
+  busy,
+}) {
   return (
     <FloatingActionMenu
       isOpen={isOpen}
@@ -498,7 +558,7 @@ function AccountActionMenu({ account, isOpen, onToggle, onClose, onEdit, onActiv
           disabled={busy}
         >
           <FaEdit className="me-2" />
-          Edit Name
+          Edit Alias
         </button>
         <button
           type="button"
@@ -518,10 +578,21 @@ function AccountActionMenu({ account, isOpen, onToggle, onClose, onEdit, onActiv
             onClose();
             onDelete(account);
           }}
-          disabled={busy || account.isActive}
+          disabled={busy}
         >
           <FaTrash className="me-2" />
           Delete
+        </button>
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onViewCredentials(account);
+          }}
+          disabled={busy}
+        >
+          View Anchored Credentials
         </button>
       </div>
     </FloatingActionMenu>
@@ -536,13 +607,13 @@ function BlockchainAccountsModal({
   onSelectAccount,
   activeTab,
   onTabChange,
-  onOpenAddAccount,
   openMenuId,
   onMenuToggle,
   onMenuClose,
   onEditAccount,
   onActivateAccount,
   onDeleteAccount,
+  onViewCredentials,
   credentials,
   credentialsLoading,
   credentialsError,
@@ -557,11 +628,11 @@ function BlockchainAccountsModal({
     null;
   const hasAccounts = accounts.length > 0;
 
-  const tabs = ['Accounts', 'Anchored Credentials'];
+  const tabs = ['Wallets', 'Anchored Credentials'];
 
   return (
     <ModalShell
-      title="Manage Blockchain Accounts"
+      title="Manage Blockchain Wallets"
       body="Private keys are encrypted on save and are never shown again."
       onClose={busy ? () => {} : onClose}
       size="modal-xl"
@@ -588,25 +659,14 @@ function BlockchainAccountsModal({
         </div>
 
         {!hasAccounts ? (
-          <BlockchainAccountEmptyState onAddAccount={onOpenAddAccount} disabled={busy} />
-        ) : activeTab === 'Accounts' ? (
+          <BlockchainAccountEmptyState />
+        ) : activeTab === 'Wallets' ? (
           <>
-            <div className="d-flex justify-content-end">
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={onOpenAddAccount}
-                disabled={busy}
-              >
-                + Add Account
-              </button>
-            </div>
-
             <div className="table-responsive">
               <table className="table align-middle mb-0">
                 <thead>
                   <tr>
-                    <th style={{ minWidth: 180 }}>Name</th>
+                    <th style={{ minWidth: 180 }}>Alias</th>
                     <th style={{ minWidth: 360 }}>Wallet Address</th>
                     <th style={{ minWidth: 120 }}>Status</th>
                     <th style={{ width: 110 }}>Actions</th>
@@ -624,8 +684,12 @@ function BlockchainAccountsModal({
                         onClick={() => onSelectAccount(id)}
                         style={{ cursor: 'pointer' }}
                       >
-                        <td className="fw-semibold">{account.name || 'Unnamed Account'}</td>
-                        <td className="text-break small">{account.address}</td>
+                        <td className="fw-semibold">{account.name || 'Unnamed Wallet'}</td>
+                        <td>
+                          <span className="small font-monospace" title={account.address}>
+                            {shortWalletAddress(account.address)}
+                          </span>
+                        </td>
                         <td>
                           <span className={`badge ${account.isActive ? 'text-bg-success' : 'text-bg-secondary'}`}>
                             {account.isActive ? 'Active' : 'Inactive'}
@@ -640,6 +704,7 @@ function BlockchainAccountsModal({
                             onEdit={onEditAccount}
                             onActivate={onActivateAccount}
                             onDelete={onDeleteAccount}
+                            onViewCredentials={onViewCredentials}
                             busy={busy}
                           />
                         </td>
@@ -653,9 +718,11 @@ function BlockchainAccountsModal({
         ) : (
           <div className="d-flex flex-column gap-3">
             <div className="border rounded-3 p-3 bg-light">
-              <div className="small text-muted">Selected Account</div>
-              <div className="fw-semibold">{selectedAccount?.name || 'No account selected'}</div>
-              <div className="small text-break">{selectedAccount?.address || 'Select an account from the Accounts tab.'}</div>
+              <div className="small text-muted">Selected Wallet</div>
+              <div className="fw-semibold">{selectedAccount?.name || 'No wallet selected'}</div>
+              <div className="small font-monospace text-break">
+                {selectedAccount?.address ? shortWalletAddress(selectedAccount.address) : 'Select a wallet from the Wallets tab.'}
+              </div>
             </div>
 
             {credentialsError ? <div className="alert alert-danger mb-0">{credentialsError}</div> : null}
@@ -666,9 +733,9 @@ function BlockchainAccountsModal({
                   <tr>
                     <th style={{ minWidth: 180 }}>Credential ID</th>
                     <th style={{ minWidth: 180 }}>Student</th>
-                    <th style={{ minWidth: 120 }}>VC Type</th>
+                    <th style={{ minWidth: 120 }}>Credential Type</th>
                     <th style={{ minWidth: 260 }}>Transaction Hash</th>
-                    <th style={{ minWidth: 170 }}>Anchor Date</th>
+                    <th style={{ minWidth: 170 }}>Anchored Date</th>
                     <th style={{ minWidth: 100 }}>Status</th>
                   </tr>
                 </thead>
@@ -695,7 +762,7 @@ function BlockchainAccountsModal({
                   ) : (
                     <tr>
                       <td colSpan="6" className="text-center text-muted py-4">
-                        No anchored credentials found for this account.
+                        No anchored credentials found for this wallet.
                       </td>
                     </tr>
                   )}
@@ -709,14 +776,150 @@ function BlockchainAccountsModal({
   );
 }
 
-function Toggle({ checked, disabled, onChange }) {
+function AnchoredCredentialsModal({
+  open,
+  account,
+  credentials,
+  credentialsLoading,
+  credentialsError,
+  onClose,
+}) {
+  if (!open) return null;
+
   return (
-    <input
-      className="form-check-input"
-      type="checkbox"
-      checked={Boolean(checked)}
+    <ModalShell
+      title="Anchored Credentials"
+      body={`Wallet: ${account?.name || 'Selected Wallet'}`}
+      onClose={onClose}
+      size="modal-xl"
+      scrollable
+      footer={
+        <button className="btn btn-outline-secondary" onClick={onClose}>
+          Close
+        </button>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        {credentialsError ? <div className="alert alert-danger mb-0">{credentialsError}</div> : null}
+
+        <div className="table-responsive">
+          <table className="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th style={{ minWidth: 180 }}>Credential ID</th>
+                <th style={{ minWidth: 180 }}>Student</th>
+                <th style={{ minWidth: 120 }}>Credential Type</th>
+                <th style={{ minWidth: 260 }}>Transaction Hash</th>
+                <th style={{ minWidth: 170 }}>Anchor Date</th>
+                <th style={{ minWidth: 100 }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {credentialsLoading ? (
+                <tr>
+                  <td colSpan="6" className="text-center text-muted py-4">
+                    Loading anchored credentials...
+                  </td>
+                </tr>
+              ) : credentials.length ? (
+                credentials.map((credential) => (
+                  <tr key={credential.id || credential.credentialId}>
+                    <td className="small text-break">{credential.credentialId}</td>
+                    <td>{credential.student || 'Not available'}</td>
+                    <td>{credential.vcType || 'VC'}</td>
+                    <td className="small text-break">{credential.transactionHash || 'Not available'}</td>
+                    <td>{formatDate(credential.anchorDate)}</td>
+                    <td>
+                      <span className="badge text-bg-success">{credential.status || 'anchored'}</span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" className="text-center text-muted py-4">
+                    No anchored credentials found for this wallet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function RolePermissionsModal({
+  roleState,
+  saving,
+  canEdit,
+  onTogglePermission,
+  onCancel,
+  onSave,
+}) {
+  if (!roleState) return null;
+
+  return (
+    <ModalShell
+      title="Role Permissions"
+      body={`Role: ${roleLabel(roleState.role)}`}
+      onClose={saving ? () => {} : onCancel}
+      size="modal-lg"
+      scrollable
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={onSave} disabled={!canEdit || saving}>
+            {saving ? 'Saving...' : 'Save Permissions'}
+          </button>
+        </>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        {!canEdit ? (
+          <div className="alert alert-light border mb-0">
+            Permission overrides are read only for your role.
+          </div>
+        ) : null}
+
+        {PERMISSION_GROUPS.map((group) => (
+          <div className="border rounded-3 p-3" key={group.module}>
+            <h3 className="h6 mb-2">{group.module}</h3>
+            {group.permissions.map(([key, label]) => {
+              const checked = Boolean(roleState.permissions?.[key]);
+
+              return (
+                <div className="mis-permission-row" key={key}>
+                  <div className="fw-semibold">{label}</div>
+                  <span className="mis-switch-label">{checked ? 'ON' : 'OFF'}</span>
+                  <Toggle
+                    checked={checked}
+                    disabled={!canEdit || saving}
+                    onChange={(value) => onTogglePermission(key, value)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </ModalShell>
+  );
+}
+
+function Toggle({ checked, disabled, onChange }) {
+  const active = Boolean(checked);
+
+  return (
+    <button
+      type="button"
+      className={`mis-switch ${active ? 'on' : ''}`}
+      role="switch"
+      aria-checked={active}
       disabled={disabled}
-      onChange={(event) => onChange(event.target.checked)}
+      onClick={() => onChange(!active)}
     />
   );
 }
@@ -734,6 +937,7 @@ export default function SystemSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [savingUserId, setSavingUserId] = useState('');
+  const [permissionRoleModal, setPermissionRoleModal] = useState(null);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [confirmAction, setConfirmAction] = useState(null);
   const [textAction, setTextAction] = useState(null);
@@ -745,15 +949,18 @@ export default function SystemSettingsPage() {
   const [networkTest, setNetworkTest] = useState({ status: 'idle', message: '' });
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [emailSecret, setEmailSecret] = useState('');
+  const [blockchainSettingsTab, setBlockchainSettingsTab] = useState('Contract Manager');
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
-  const [accountsModalTab, setAccountsModalTab] = useState('Accounts');
+  const [anchoredCredentialsModalOpen, setAnchoredCredentialsModalOpen] = useState(false);
+  const [accountsModalTab, setAccountsModalTab] = useState('Wallets');
   const [selectedBlockchainAccountId, setSelectedBlockchainAccountId] = useState('');
   const [accountMenuId, setAccountMenuId] = useState('');
   const [accountForm, setAccountForm] = useState({
     name: '',
     privateKey: '',
   });
+  const [accountFormError, setAccountFormError] = useState('');
   const [anchoredCredentials, setAnchoredCredentials] = useState([]);
   const [anchoredCredentialsLoading, setAnchoredCredentialsLoading] = useState(false);
   const [anchoredCredentialsError, setAnchoredCredentialsError] = useState('');
@@ -826,6 +1033,40 @@ export default function SystemSettingsPage() {
     settings.blockchain,
     wallet?.activeContract,
   ]);
+  const permissionRoleRows = useMemo(() => {
+    const groups = new Map();
+
+    admins.forEach((admin) => {
+      const role = admin.role || 'admin';
+      const current = groups.get(role) || {
+        role,
+        users: [],
+        activeUsers: 0,
+        permissions: {},
+      };
+
+      current.users.push(admin);
+      if (admin.isActive) current.activeUsers += 1;
+      groups.set(role, current);
+    });
+
+    return Array.from(groups.values())
+      .map((group) => {
+        const permissions = Object.fromEntries(
+          PERMISSION_COLUMNS.map(([key]) => [
+            key,
+            group.users.length > 0 && group.users.every((user) => Boolean(user.permissions?.[key])),
+          ])
+        );
+
+        return {
+          ...group,
+          permissions,
+          status: group.activeUsers > 0 ? 'Active' : 'Inactive',
+        };
+      })
+      .sort((a, b) => roleLabel(a.role).localeCompare(roleLabel(b.role)));
+  }, [admins]);
   const effectiveNetwork = useMemo(() => {
     const saved = settings.network || {};
     const envInfo = networkInfo?.environment || {};
@@ -934,16 +1175,23 @@ export default function SystemSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (!accountsModalOpen || selectedBlockchainAccountId) return;
+    if (selectedBlockchainAccountId) return;
 
     const account = activeBlockchainAccount || blockchainAccounts[0] || null;
     if (account) {
       setSelectedBlockchainAccountId(account.id || account._id || '');
     }
-  }, [accountsModalOpen, activeBlockchainAccount, blockchainAccounts, selectedBlockchainAccountId]);
+  }, [activeBlockchainAccount, blockchainAccounts, selectedBlockchainAccountId]);
 
   useEffect(() => {
-    if (!accountsModalOpen || accountsModalTab !== 'Anchored Credentials' || !selectedBlockchainAccountId) {
+    const shouldLoadAnchoredCredentials =
+      selectedBlockchainAccountId &&
+      (
+        anchoredCredentialsModalOpen ||
+        (accountsModalOpen && accountsModalTab === 'Anchored Credentials')
+      );
+
+    if (!shouldLoadAnchoredCredentials) {
       return undefined;
     }
 
@@ -970,7 +1218,7 @@ export default function SystemSettingsPage() {
     return () => {
       active = false;
     };
-  }, [accountsModalOpen, accountsModalTab, selectedBlockchainAccountId]);
+  }, [accountsModalOpen, accountsModalTab, anchoredCredentialsModalOpen, selectedBlockchainAccountId]);
 
   useEffect(() => {
     let active = true;
@@ -1003,17 +1251,14 @@ export default function SystemSettingsPage() {
 
   function openAddBlockchainAccountModal() {
     setAccountForm({ name: '', privateKey: '' });
+    setAccountFormError('');
     setAddAccountModalOpen(true);
   }
 
   function closeAddBlockchainAccountModal() {
     setAddAccountModalOpen(false);
     setAccountForm({ name: '', privateKey: '' });
-  }
-
-  function openBlockchainAccountsModal() {
-    setAccountsModalTab('Accounts');
-    setAccountsModalOpen(true);
+    setAccountFormError('');
   }
 
   async function runConfirmedAction() {
@@ -1024,7 +1269,9 @@ export default function SystemSettingsPage() {
       await confirmAction.run();
       closeActionModals();
     } catch (error) {
-      setFeedback({ type: 'danger', text: actionError(error, 'Action failed.') });
+      const message = actionError(error, 'Action failed.');
+      setFeedback({ type: 'danger', text: message });
+      setConfirmAction((prev) => (prev ? { ...prev, error: message } : prev));
     } finally {
       setBusy(false);
     }
@@ -1054,30 +1301,51 @@ export default function SystemSettingsPage() {
     }));
   }
 
-  function togglePermission(userId, key) {
-    setAdmins((prev) =>
-      prev.map((admin) =>
-        admin._id === userId
-          ? {
-              ...admin,
-              permissions: {
-                ...(admin.permissions || {}),
-                [key]: !admin.permissions?.[key],
-              },
-            }
-          : admin
-      )
+  function openPermissionRoleModal(roleRow) {
+    setPermissionRoleModal({
+      role: roleRow.role,
+      users: roleRow.users,
+      permissions: { ...roleRow.permissions },
+    });
+  }
+
+  function toggleRolePermission(key, nextValue) {
+    setPermissionRoleModal((current) =>
+      current
+        ? {
+            ...current,
+            permissions: {
+              ...(current.permissions || {}),
+              [key]: nextValue,
+            },
+          }
+        : current
     );
   }
 
-  async function saveAdmin(admin) {
+  async function saveRolePermissions() {
+    if (!permissionRoleModal?.role) return;
+
     try {
-      setSavingUserId(admin._id);
-      const updated = await updateAdminPermissions(admin._id, admin.permissions);
-      setAdmins((prev) =>
-        prev.map((item) => (item._id === admin._id ? { ...item, ...updated } : item))
+      setSavingUserId(permissionRoleModal.role);
+      const updates = await Promise.all(
+        permissionRoleModal.users.map((admin) =>
+          updateAdminPermissions(admin._id, permissionRoleModal.permissions)
+        )
       );
-      setFeedback({ type: 'success', text: `Permissions updated for ${admin.fullName}.` });
+      const updateMap = new Map(updates.map((item) => [String(item._id), item]));
+
+      setAdmins((prev) =>
+        prev.map((item) => {
+          const updated = updateMap.get(String(item._id));
+          return updated ? { ...item, ...updated } : item;
+        })
+      );
+      setPermissionRoleModal(null);
+      setFeedback({
+        type: 'success',
+        text: `Permissions updated for ${roleLabel(permissionRoleModal.role)}.`,
+      });
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -1229,14 +1497,20 @@ export default function SystemSettingsPage() {
   async function handleAddBlockchainAccount() {
     try {
       setBusy(true);
-      const created = await createBlockchainAccount(accountForm);
+      setAccountFormError('');
+      const created = await createBlockchainAccount({
+        name: accountForm.name.trim(),
+        privateKey: accountForm.privateKey.trim(),
+      });
+      await loadDashboard();
       setAccountForm({ name: '', privateKey: '' });
       setAddAccountModalOpen(false);
       setSelectedBlockchainAccountId(created.id || created._id || '');
       setFeedback({ type: 'success', text: 'Blockchain account added.' });
-      await loadDashboard();
     } catch (error) {
-      setFeedback({ type: 'danger', text: actionError(error, 'Failed to add blockchain account.') });
+      const message = actionError(error, 'Failed to add blockchain account.');
+      setAccountFormError(message);
+      setFeedback({ type: 'danger', text: message });
     } finally {
       setBusy(false);
     }
@@ -1244,26 +1518,33 @@ export default function SystemSettingsPage() {
 
   function editBlockchainAccount(account) {
     setTextAction({
-      title: 'Edit blockchain account name',
-      body: 'Private keys cannot be edited. Create a new account when a new key is required.',
-      label: 'Account Name',
+      title: 'Edit Wallet Alias',
+      body: 'Private keys cannot be edited. Create a new blockchain account when a new key is required.',
+      label: 'Account Alias',
       initialValue: account.name || '',
       required: true,
       confirmLabel: 'Save',
       run: async (name) => {
         await updateBlockchainAccount(account.id || account._id, { name });
-        setFeedback({ type: 'success', text: 'Blockchain account name updated.' });
+        setFeedback({ type: 'success', text: 'Blockchain account alias updated.' });
         await loadDashboard();
       },
     });
+  }
+
+  function viewAnchoredCredentialsForAccount(account) {
+    setSelectedBlockchainAccountId(account.id || account._id || '');
+    setAnchoredCredentials([]);
+    setAnchoredCredentialsError('');
+    setAnchoredCredentialsModalOpen(true);
   }
 
   function confirmActivateBlockchainAccount(account) {
     setSelectedBlockchainAccountId(account.id || account._id || '');
     setConfirmAction({
       title: 'Change Active Blockchain Account',
-      body: 'Future blockchain transactions will use the selected account. Existing anchored credentials will remain unchanged.',
-      details: `${account.name || 'Blockchain Account'} - ${account.address}`,
+      body: 'Future blockchain transactions will use this wallet. Previously anchored credentials will remain associated with their original blockchain account.',
+      details: `${account.name || 'Blockchain Wallet'} - ${account.address}`,
       confirmLabel: 'Confirm',
       run: async () => {
         await activateBlockchainAccount(account.id || account._id);
@@ -1276,8 +1557,8 @@ export default function SystemSettingsPage() {
   function confirmDeleteBlockchainAccount(account) {
     setConfirmAction({
       title: 'Delete blockchain account?',
-      body: 'Only unused inactive accounts can be deleted.',
-      details: `${account.name || 'Blockchain Account'} - ${account.address}`,
+      body: 'Active accounts and accounts with existing anchored credentials cannot be deleted. Only inactive, unused accounts may be removed.',
+      details: `${account.name || 'Blockchain Wallet'} - ${account.address}`,
       confirmLabel: 'Delete',
       variant: 'danger',
       run: async () => {
@@ -1398,9 +1679,9 @@ export default function SystemSettingsPage() {
         <div className="card-body p-4">
           <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
             <div>
-              <h2 className="h5 mb-1">Permissions</h2>
+              <h2 className="h5 mb-1">Role Permission Manager</h2>
               <p className="text-muted mb-0">
-                One account per row. Backend permissions still enforce restricted operations.
+                Permissions are organized by role. Backend permissions still enforce restricted operations.
               </p>
             </div>
           </div>
@@ -1412,57 +1693,59 @@ export default function SystemSettingsPage() {
           ) : null}
 
           <div className="table-responsive">
-            <table className="table align-middle mb-0">
+            <table className="table align-middle mb-0 mis-table">
               <thead>
                 <tr>
-                  <th>Account</th>
                   <th>Role</th>
-                  <th>Active</th>
-                  {PERMISSION_COLUMNS.map(([, label]) => (
-                    <th key={label}>{label}</th>
-                  ))}
-                  <th>Save</th>
+                  <th>Status</th>
+                  <th className="text-end">Users</th>
+                  <th className="text-end">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {admins.map((admin) => (
-                  <tr key={admin._id}>
-                    <td style={{ minWidth: 220 }}>
-                      <div className="fw-semibold">{admin.fullName || admin.username}</div>
-                      <div className="small text-muted">{admin.email}</div>
-                    </td>
-                    <td>
-                      <span className="badge text-bg-secondary text-uppercase">{admin.role}</span>
-                    </td>
-                    <td>
-                      <span className={`badge ${admin.isActive ? 'text-bg-success' : 'text-bg-danger'}`}>
-                        {admin.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    {PERMISSION_COLUMNS.map(([key]) => (
-                      <td key={key} className="text-center">
-                        <Toggle
-                          checked={admin.permissions?.[key]}
-                          disabled={!access.canEditPermissions}
-                          onChange={() => togglePermission(admin._id, key)}
-                        />
+                {permissionRoleRows.length ? (
+                  permissionRoleRows.map((roleRow) => (
+                    <tr key={roleRow.role}>
+                      <td className="fw-semibold">{roleLabel(roleRow.role)}</td>
+                      <td>
+                        <span className={`badge ${roleRow.status === 'Active' ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                          {roleRow.status}
+                        </span>
                       </td>
-                    ))}
-                    <td>
-                      <button
-                        className="btn btn-outline-primary btn-sm"
-                        onClick={() => saveAdmin(admin)}
-                        disabled={!access.canEditPermissions || savingUserId === admin._id}
-                      >
-                        {savingUserId === admin._id ? 'Saving...' : 'Save'}
-                      </button>
+                      <td className="text-end">{roleRow.users.length}</td>
+                      <td className="text-end">
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          onClick={() => openPermissionRoleModal(roleRow)}
+                          disabled={savingUserId === roleRow.role}
+                          aria-label={`Manage permissions for ${roleLabel(roleRow.role)}`}
+                        >
+                          <FaCog />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4">
+                      <div className="mis-empty-state">No web roles are available.</div>
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
         </div>
+
+        <RolePermissionsModal
+          roleState={permissionRoleModal}
+          saving={savingUserId === permissionRoleModal?.role}
+          canEdit={access.canEditPermissions}
+          onTogglePermission={toggleRolePermission}
+          onCancel={() => setPermissionRoleModal(null)}
+          onSave={saveRolePermissions}
+        />
       </div>
     );
   }
@@ -2211,20 +2494,27 @@ export default function SystemSettingsPage() {
     );
   }
 
-  function renderBlockchain() {
+  function renderWalletManager() {
     const hasActiveAccount = Boolean(activeBlockchainAccount?.address);
     const hasBlockchainAccounts = blockchainAccounts.length > 0;
     const statusLabel = hasActiveAccount ? (wallet?.ok ? 'Active' : 'Needs attention') : 'Not configured';
     const statusClass = hasActiveAccount ? (wallet?.ok ? 'text-bg-success' : 'text-bg-warning') : 'text-bg-secondary';
+    const selectedAccount =
+      blockchainAccounts.find(
+        (account) => account.id === selectedBlockchainAccountId || account._id === selectedBlockchainAccountId
+      ) ||
+      activeBlockchainAccount ||
+      blockchainAccounts[0] ||
+      null;
 
     return (
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
           <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
             <div>
-              <h2 className="h5 mb-1">Blockchain Account</h2>
+              <h2 className="h5 mb-1">Wallet Manager</h2>
               <p className="text-muted mb-0">
-                Future blockchain transactions use the active account selected here.
+                Future blockchain transactions use the active wallet selected here.
               </p>
             </div>
 
@@ -2232,34 +2522,22 @@ export default function SystemSettingsPage() {
               <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
                 {loading ? 'Refreshing...' : 'Refresh'}
               </button>
-              {!hasBlockchainAccounts ? (
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={openAddBlockchainAccountModal}
-                  disabled={!access.canManageBlockchainAccounts || busy}
-                >
-                  + Add Account
-                </button>
-              ) : null}
               <button
-                className={`btn btn-sm ${hasBlockchainAccounts ? 'btn-primary' : 'btn-outline-primary'}`}
-                onClick={openBlockchainAccountsModal}
-                disabled={!access.canManageBlockchainAccounts}
+                className="btn btn-primary btn-sm"
+                onClick={openAddBlockchainAccountModal}
+                disabled={!access.canManageBlockchainAccounts || busy}
               >
-                Manage Accounts
+                + Add Account
               </button>
             </div>
           </div>
 
           {!hasBlockchainAccounts ? (
             <>
-              <BlockchainAccountEmptyState
-                onAddAccount={openAddBlockchainAccountModal}
-                disabled={!access.canManageBlockchainAccounts || busy}
-              />
+              <BlockchainAccountEmptyState />
               {!access.canManageBlockchainAccounts ? (
                 <div className="alert alert-light border mt-3 mb-0">
-                  Blockchain accounts are read only for your role.
+                  Blockchain wallet management is unavailable for this session.
                 </div>
               ) : null}
             </>
@@ -2268,15 +2546,17 @@ export default function SystemSettingsPage() {
               <div className="row g-3 mb-4">
                 <div className="col-md-6 col-xl-4">
                   <div className="border rounded-3 p-3 h-100 bg-light">
-                    <div className="small text-muted">Active Account</div>
+                    <div className="small text-muted">Active Wallet</div>
                     <div className="fw-semibold">{activeBlockchainAccount?.name || 'Not configured'}</div>
                   </div>
                 </div>
                 <div className="col-md-6 col-xl-5">
                   <div className="border rounded-3 p-3 h-100 bg-light">
-                    <div className="small text-muted">Account Address</div>
-                    <div className="fw-semibold small text-break">
-                      {activeBlockchainAccount?.address || 'Not configured'}
+                    <div className="small text-muted">Wallet Address</div>
+                    <div className="fw-semibold small font-monospace text-break">
+                      {activeBlockchainAccount?.address
+                        ? shortWalletAddress(activeBlockchainAccount.address)
+                        : 'Not configured'}
                     </div>
                   </div>
                 </div>
@@ -2296,9 +2576,69 @@ export default function SystemSettingsPage() {
 
                   {!access.canManageBlockchainAccounts ? (
                     <div className="alert alert-light border mb-0">
-                      Blockchain accounts are read only for your role.
+                      Blockchain wallet management is unavailable for this session.
                     </div>
                   ) : null}
+
+                  <section className="mt-4">
+                    <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                      <h3 className="h6 mb-0">Wallet Table</h3>
+                    </div>
+
+                    <div className="table-responsive">
+                      <table className="table align-middle mb-0">
+                        <thead>
+                          <tr>
+                            <th style={{ minWidth: 180 }}>Alias</th>
+                            <th style={{ minWidth: 260 }}>Wallet Address</th>
+                            <th style={{ minWidth: 120 }}>Status</th>
+                            <th style={{ width: 110 }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {blockchainAccounts.map((account) => {
+                            const id = account.id || account._id;
+                            const isSelected = selectedAccount?.id === id || selectedAccount?._id === id;
+
+                            return (
+                              <tr
+                                key={id || account.address}
+                                className={isSelected ? 'table-active' : ''}
+                                onClick={() => setSelectedBlockchainAccountId(id)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <td className="fw-semibold">{account.name || 'Unnamed Wallet'}</td>
+                                <td>
+                                  <span className="small font-monospace" title={account.address}>
+                                    {shortWalletAddress(account.address)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className={`badge ${account.isActive ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                                    {account.isActive ? 'Active' : 'Inactive'}
+                                  </span>
+                                </td>
+                                <td onClick={(event) => event.stopPropagation()}>
+                                  <AccountActionMenu
+                                    account={account}
+                                    isOpen={accountMenuId === id}
+                                    onToggle={() => setAccountMenuId((current) => (current === id ? '' : id))}
+                                    onClose={() => setAccountMenuId('')}
+                                    onEdit={editBlockchainAccount}
+                                    onActivate={confirmActivateBlockchainAccount}
+                                    onDelete={confirmDeleteBlockchainAccount}
+                                    onViewCredentials={viewAnchoredCredentialsForAccount}
+                                    busy={busy || !access.canManageBlockchainAccounts}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
                 </>
               ) : (
             <div className="table-responsive">
@@ -2379,6 +2719,187 @@ export default function SystemSettingsPage() {
             </div>
               )}
             </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderBlockchain() {
+    const activeContractKey = contractRecordKey(activeContract);
+    const activeContractAddress =
+      activeContract?.address ||
+      activeContract?.selectedContractAddress ||
+      activeContractKey ||
+      '';
+    const activeContractNetwork =
+      activeContract?.network ||
+      activeContract?.selectedContractNetwork ||
+      settings.blockchain?.selectedContractNetwork ||
+      settings.blockchain?.networkLabel ||
+      '';
+    const blockchainTabs = ['Contract Manager', 'Wallet Manager'];
+
+    return (
+      <div>
+        <ul className="nav nav-tabs">
+          {blockchainTabs.map((tab) => (
+            <li className="nav-item" key={tab}>
+              <button
+                type="button"
+                className={`nav-link ${blockchainSettingsTab === tab ? 'active' : ''}`}
+                onClick={() => setBlockchainSettingsTab(tab)}
+              >
+                {tab}
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <div className="border border-top-0 rounded-bottom p-3 bg-white">
+          {blockchainSettingsTab === 'Contract Manager' ? (
+        <div className="card border-0 shadow-sm">
+          <div className="card-body p-4">
+            <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+              <div>
+                <h2 className="h5 mb-1">Contract Manager</h2>
+                <p className="text-muted mb-0">
+                  Smart contract deployment, network, and active contract selection are managed independently from wallets.
+                </p>
+              </div>
+
+              <div className="d-flex flex-wrap gap-2">
+                <a className="btn btn-primary btn-sm" href="/contracts">
+                  Deploy Contract
+                </a>
+                <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
+                  {loading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            <div className="row g-3 mb-4">
+              <div className="col-md-6 col-xl-5">
+                <div className="border rounded-3 p-3 h-100 bg-light">
+                  <div className="small text-muted">Contract Address</div>
+                  <div className="fw-semibold small text-break">
+                    {activeContractAddress || 'Not configured'}
+                  </div>
+                </div>
+              </div>
+              <div className="col-md-6 col-xl-4">
+                <div className="border rounded-3 p-3 h-100 bg-light">
+                  <div className="small text-muted">Network</div>
+                  <div className="fw-semibold">{activeContractNetwork || 'Not configured'}</div>
+                </div>
+              </div>
+              <div className="col-md-6 col-xl-3">
+                <div className="border rounded-3 p-3 h-100 bg-light">
+                  <div className="small text-muted">Deployment Status</div>
+                  <span className={`badge ${activeContract ? contractStatusBadge(activeContract) : 'text-bg-secondary'}`}>
+                    {activeContract ? contractStatusLabel(activeContract) : 'Not configured'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {selectableContracts.length ? (
+              <div>
+                <h3 className="h6 mb-3">Existing Contracts</h3>
+                <div className="table-responsive">
+                  <table className="table align-middle mb-0">
+                    <thead>
+                      <tr>
+                        <th style={{ minWidth: 320 }}>Contract Address</th>
+                        <th style={{ minWidth: 160 }}>Network</th>
+                        <th style={{ minWidth: 150 }}>Deployment Status</th>
+                        <th style={{ minWidth: 150 }}>Current Contract</th>
+                        <th style={{ minWidth: 220 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                    {selectableContracts.map((contract) => {
+                      const key = contractRecordKey(contract);
+                      const isActive = [
+                        activeContract?._id,
+                        activeContract?.address,
+                        activeContract?.selectedContractId,
+                        activeContract?.selectedContractAddress,
+                        settings.blockchain?.selectedContractId,
+                        settings.blockchain?.selectedContractAddress,
+                      ]
+                        .filter(Boolean)
+                        .some((value) => isSameContract(contract, value));
+                      const networkLabel =
+                        contract.network ||
+                        contract.selectedContractNetwork ||
+                        contract.chainId ||
+                        settings.blockchain?.selectedContractNetwork ||
+                        'Not configured';
+
+                      return (
+                        <tr key={key} className={isActive ? 'table-success' : ''}>
+                          <td>
+                            <div className="fw-semibold text-break">
+                              {contractAddressUrl(contract) ? (
+                                <a href={contractAddressUrl(contract)} target="_blank" rel="noreferrer">
+                                  {contract.address}
+                                </a>
+                              ) : (
+                                contract.address || key
+                              )}
+                            </div>
+                            <div className="small text-muted">{contractName(contract)}</div>
+                          </td>
+                          <td>{networkLabel}</td>
+                          <td>
+                            <span className={`badge ${contractStatusBadge(contract)}`}>
+                              {contractStatusLabel(contract)}
+                            </span>
+                          </td>
+                          <td>
+                            {isActive ? (
+                              <span className="badge text-bg-success">Current</span>
+                            ) : (
+                              <span className="text-muted small">Inactive</span>
+                            )}
+                          </td>
+                          <td>
+                            <div className="d-flex flex-wrap gap-2">
+                              <button
+                                className="btn btn-outline-success btn-sm"
+                                type="button"
+                                onClick={() => handleCheckReadiness(contract)}
+                                disabled={checkingContractId === key}
+                              >
+                                {checkingContractId === key ? 'Checking...' : 'Check'}
+                              </button>
+                              <button
+                                className="btn btn-success btn-sm"
+                                type="button"
+                                onClick={() => confirmSaveContract(contract)}
+                                disabled={isActive || !access.canManageActiveContract}
+                              >
+                                {isActive ? 'Current' : 'Set Current'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="alert alert-light border mb-0">
+                No deployed anchor contracts are available.
+              </div>
+            )}
+          </div>
+        </div>
+          ) : (
+            renderWalletManager()
           )}
         </div>
       </div>
@@ -2491,13 +3012,13 @@ export default function SystemSettingsPage() {
         onSelectAccount={setSelectedBlockchainAccountId}
         activeTab={accountsModalTab}
         onTabChange={setAccountsModalTab}
-        onOpenAddAccount={openAddBlockchainAccountModal}
         openMenuId={accountMenuId}
         onMenuToggle={(id) => setAccountMenuId((current) => (current === id ? '' : id))}
         onMenuClose={() => setAccountMenuId('')}
         onEditAccount={editBlockchainAccount}
         onActivateAccount={confirmActivateBlockchainAccount}
         onDeleteAccount={confirmDeleteBlockchainAccount}
+        onViewCredentials={viewAnchoredCredentialsForAccount}
         credentials={anchoredCredentials}
         credentialsLoading={anchoredCredentialsLoading}
         credentialsError={anchoredCredentialsError}
@@ -2507,7 +3028,11 @@ export default function SystemSettingsPage() {
         open={addAccountModalOpen}
         busy={busy}
         form={accountForm}
-        onFormChange={setAccountForm}
+        error={accountFormError}
+        onFormChange={(nextForm) => {
+          setAccountForm(nextForm);
+          if (accountFormError) setAccountFormError('');
+        }}
         onSave={handleAddBlockchainAccount}
         onCancel={closeAddBlockchainAccountModal}
       />

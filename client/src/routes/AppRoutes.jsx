@@ -117,7 +117,7 @@ export default function AppRoutes() {
         path="/system-settings"
         element={
           <ProtectedRoute>
-            <RoleRoute allowedRoles={['developer', 'super_admin']}>
+            <RoleRoute allowedRoles={['developer']}>
               <AppShell>
                 <SystemSettingsPage />
               </AppShell>

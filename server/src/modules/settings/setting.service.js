@@ -48,7 +48,7 @@ const DEFAULT_PERMISSIONS = {
     canIssueVC: true,
     canSendQrEmail: true,
     canApproveAnchoring: true,
-    canManageSystemSettings: true,
+    canManageSystemSettings: false,
     canManageContracts: false,
     canViewWallet: true,
     canConfirmPayments: true,
@@ -57,7 +57,7 @@ const DEFAULT_PERMISSIONS = {
     canGenerateClaimQr: true,
     canAnchorVC: true,
     canManageUsers: true,
-    canManageSettings: true,
+    canManageSettings: false,
   },
   developer: {
     canIssueVC: false,
@@ -102,7 +102,7 @@ function assertDeveloper(actor, message = 'Only the MIS developer can perform th
 }
 
 function assertSettingsViewer(actor) {
-  if (!actor || !['admin', 'super_admin', 'developer'].includes(actor.role)) {
+  if (!actor || actor.role !== 'developer') {
     throw new ApiError(403, 'You do not have access to settings');
   }
 }
@@ -138,19 +138,19 @@ function serializeIssuerKey(key) {
 
 function buildAccess(actor) {
   return {
-    canViewPage: ['admin', 'super_admin', 'developer'].includes(actor.role),
-    canEditBusinessSettings: actor.role === 'super_admin',
+    canViewPage: actor.role === 'developer',
+    canEditBusinessSettings: actor.role === 'developer',
     canEditSystemLocks: actor.role === 'developer',
     canEditPermissions: actor.role === 'developer',
-    canViewNetworkSettings: ['admin', 'super_admin', 'developer'].includes(actor.role),
-    canManageNetworkSettings: ['super_admin', 'developer'].includes(actor.role),
-    canViewBlockchain: ['super_admin', 'developer'].includes(actor.role),
-    canViewIssuerKeys: ['admin', 'super_admin', 'developer'].includes(actor.role),
+    canViewNetworkSettings: actor.role === 'developer',
+    canManageNetworkSettings: actor.role === 'developer',
+    canViewBlockchain: actor.role === 'developer',
+    canViewIssuerKeys: actor.role === 'developer',
     canManageIssuerKeys: actor.role === 'developer',
     canManageActiveContract: actor.role === 'developer',
     canManageBlockchainAccounts: actor.role === 'developer',
-    canViewEmailSettings: ['super_admin', 'developer'].includes(actor.role),
-    canManageEmailSettings: ['super_admin', 'developer'].includes(actor.role),
+    canViewEmailSettings: actor.role === 'developer',
+    canManageEmailSettings: actor.role === 'developer',
   };
 }
 
@@ -809,9 +809,7 @@ export async function updateActiveContract(contractId, actor) {
 }
 
 export async function updateBusinessSettings(payload, actor) {
-  if (actor.role !== 'super_admin') {
-    throw new ApiError(403, 'Only the super admin can edit business settings');
-  }
+  assertDeveloper(actor, 'Only the MIS developer can edit business settings');
 
   const settings = await ensureMainSettings();
 
@@ -838,9 +836,7 @@ export async function updateBusinessSettings(payload, actor) {
 }
 
 export async function updateNetworkSettings(payload, actor) {
-  if (!actor || !['developer', 'super_admin'].includes(actor.role)) {
-    throw new ApiError(403, 'Only the MIS developer or super admin can edit network settings');
-  }
+  assertDeveloper(actor, 'Only the MIS developer can edit network settings');
 
   const settings = await ensureMainSettings();
   const next = payload?.network || payload || {};
@@ -884,9 +880,7 @@ export async function updateNetworkSettings(payload, actor) {
 }
 
 export async function updateEmailOtpSettings(payload, actor) {
-  if (!actor || !['developer', 'super_admin'].includes(actor.role)) {
-    throw new ApiError(403, 'Only MIS developer or super admin can edit email OTP settings');
-  }
+  assertDeveloper(actor, 'Only the MIS developer can edit email OTP settings');
 
   const SystemSetting = getSystemSettingModel();
   let settings = await SystemSetting.findOne({ code: 'main' }).select(

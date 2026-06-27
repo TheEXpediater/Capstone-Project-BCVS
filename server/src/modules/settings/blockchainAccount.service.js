@@ -14,6 +14,15 @@ function cleanString(value, fallback = '') {
   return cleaned || fallback;
 }
 
+function normalizePrivateKey(value) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return '';
+
+  const unquoted = cleaned.replace(/^['"]|['"]$/g, '');
+  if (/^0X/.test(unquoted)) return `0x${unquoted.slice(2)}`;
+  return /^[a-fA-F0-9]{64}$/.test(unquoted) ? `0x${unquoted}` : unquoted;
+}
+
 function assertDeveloper(actor, message = 'Only the MIS developer can manage blockchain accounts') {
   if (!actor || actor.role !== 'developer') {
     throw new ApiError(403, message);
@@ -121,7 +130,7 @@ export async function getActiveBlockchainAccount() {
 
 export async function getActiveBlockchainWallet(provider) {
   const account = await getActiveBlockchainAccount();
-  const privateKey = decryptBlockchainPrivateKey(account.encryptedPrivateKey);
+  const privateKey = normalizePrivateKey(decryptBlockchainPrivateKey(account.encryptedPrivateKey));
   const wallet = new ethers.Wallet(privateKey, provider);
 
   if (wallet.address.toLowerCase() !== account.address.toLowerCase()) {
@@ -137,7 +146,7 @@ export async function getActiveBlockchainWallet(provider) {
 export async function createBlockchainAccount(payload = {}, actor = null) {
   assertDeveloper(actor);
 
-  const privateKey = cleanString(payload.privateKey);
+  const privateKey = normalizePrivateKey(payload.privateKey);
   if (!privateKey) {
     throw new ApiError(400, 'Private key is required.');
   }
@@ -155,8 +164,8 @@ export async function createBlockchainAccount(payload = {}, actor = null) {
     throw new ApiError(409, 'A blockchain account with this wallet address already exists.');
   }
 
-  const shouldActivate =
-    payload.isActive === true || (await BlockchainAccount.countDocuments()) === 0;
+  const activeAccount = await BlockchainAccount.findOne({ isActive: true }).lean();
+  const shouldActivate = payload.isActive === true || !activeAccount;
 
   if (shouldActivate) {
     await BlockchainAccount.updateMany(

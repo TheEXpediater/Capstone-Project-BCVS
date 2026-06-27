@@ -105,13 +105,16 @@ export default function AppShell({ children }) {
   const [logoutQueueResult, setLogoutQueueResult] = useState(null);
   const [logoutError, setLogoutError] = useState('');
   const [logoutBusy, setLogoutBusy] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   async function performLogout() {
     await dispatch(signOut());
     navigate('/login', { replace: true });
   }
 
-  async function handleLogout() {
+  async function continueLogoutAfterConfirmation() {
+    setLogoutConfirmOpen(false);
+
     if (['admin', 'super_admin', 'developer'].includes(user?.role)) {
       const summary = await getTodaysAnchorQueueSummary().catch(() => null);
 
@@ -122,6 +125,10 @@ export default function AppShell({ children }) {
     }
 
     await performLogout();
+  }
+
+  function handleLogout() {
+    setLogoutConfirmOpen(true);
   }
 
   async function processQueueBeforeLogout() {
@@ -144,7 +151,7 @@ export default function AppShell({ children }) {
 
   const isDeveloper = user?.role === 'developer';
   
-  const canSeeSettings = ['developer', 'super_admin'].includes(user?.role);
+  const canSeeSettings = user?.role === 'developer';
   const canSeeContracts = ['developer', 'super_admin'].includes(user?.role);
   const canSeeCurriculum = ['admin', 'super_admin', 'developer'].includes(user?.role);
   const canSeeStudents = ['admin', 'super_admin', 'developer'].includes(user?.role);
@@ -331,6 +338,41 @@ export default function AppShell({ children }) {
                     disabled={logoutBusy}
                   >
                     {logoutBusy ? 'Processing...' : 'Process Queue'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
+
+      {logoutConfirmOpen ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <h2 className="h5 mb-0">Sign Out</h2>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => setLogoutConfirmOpen(false)}
+                    aria-label="Close"
+                  />
+                </div>
+                <div className="modal-body">
+                  Are you sure you want to sign out?
+                </div>
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-outline-secondary"
+                    onClick={() => setLogoutConfirmOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button className="btn btn-danger" onClick={continueLogoutAfterConfirmation}>
+                    Sign Out
                   </button>
                 </div>
               </div>

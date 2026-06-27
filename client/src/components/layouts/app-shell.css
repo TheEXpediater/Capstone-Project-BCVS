@@ -328,6 +328,120 @@
   background: #f7fbf4;
 }
 
+.mis-table {
+  --mis-row-selected: #e7f6e7;
+  --mis-row-hover: #f6fbf4;
+  font-size: 0.92rem;
+}
+
+.mis-table thead th {
+  color: #52665a;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: #f7fbf4;
+  border-bottom-color: #d9e7d1;
+  padding-block: 0.78rem;
+}
+
+.mis-table tbody td {
+  padding-block: 0.78rem;
+  border-bottom-color: #e6f2df;
+}
+
+.mis-table tbody tr.mis-row-selectable {
+  cursor: pointer;
+}
+
+.mis-table tbody tr.mis-row-selectable:hover > * {
+  background: var(--mis-row-hover);
+}
+
+.mis-table tbody tr.mis-row-selected > * {
+  background: var(--mis-row-selected);
+}
+
+.mis-table .mis-table-checkbox {
+  width: 44px;
+  text-align: center;
+}
+
+.mis-table .mis-table-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.mis-empty-state {
+  border: 1px solid #d9e7d1;
+  border-radius: 8px;
+  background: #f7fbf4;
+  color: #52665a;
+  padding: 18px;
+  text-align: center;
+}
+
+.mis-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 48px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #b8c9b2;
+  border-radius: 999px;
+  background: #dbe5d8;
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+.mis-switch::after {
+  content: '';
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(16, 36, 24, 0.22);
+  transition: transform 0.18s ease;
+}
+
+.mis-switch.on {
+  background: #166534;
+  border-color: #166534;
+}
+
+.mis-switch.on::after {
+  transform: translateX(22px);
+}
+
+.mis-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.mis-switch-label {
+  min-width: 34px;
+  color: #52665a;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.mis-permission-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e6f2df;
+}
+
+.mis-permission-row:last-child {
+  border-bottom: 0;
+}
+
 .app-sidebar-backdrop {
   position: fixed;
   inset: 0;

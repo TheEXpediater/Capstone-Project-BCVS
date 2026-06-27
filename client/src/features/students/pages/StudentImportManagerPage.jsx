@@ -1242,6 +1242,7 @@ export default function StudentImportManagerPage() {
 
   const [profileLoading, setProfileLoading] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedStudentIds, setSelectedStudentIds] = useState(() => new Set());
   const [profileMode, setProfileMode] = useState('view');
   const [gradesLoadingId, setGradesLoadingId] = useState('');
   const [selectedGradesData, setSelectedGradesData] = useState(null);

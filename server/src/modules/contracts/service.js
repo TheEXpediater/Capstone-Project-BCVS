@@ -387,12 +387,41 @@ export async function getBlockchainRuntimeOverview() {
   };
 }
 
+async function getOptionalBlockchainRuntimeOverview() {
+  try {
+    return await getBlockchainRuntimeOverview();
+  } catch (error) {
+    const fallback = {
+      health: {
+        ok: false,
+        walletAddress: '',
+        chainId: env.blockchain.chainId || null,
+        network: 'Unavailable',
+      },
+      account: null,
+      activeAccount: null,
+      error: error.message || 'Blockchain wallet is unavailable.',
+    };
+
+    try {
+      const provider = getProvider();
+      const network = await provider.getNetwork();
+      fallback.health.chainId = Number(network.chainId || env.blockchain.chainId);
+      fallback.health.network = network.name || 'Unavailable';
+    } catch {
+      // Contract listings should remain available even when runtime health cannot be checked.
+    }
+
+    return fallback;
+  }
+}
+
 export async function getContractsDashboard() {
   const Contract = getContractModel();
   const SystemSetting = getSystemSettingModel();
 
   const [overview, contracts, settings] = await Promise.all([
-    getBlockchainRuntimeOverview(),
+    getOptionalBlockchainRuntimeOverview(),
     Contract.find().sort({ createdAt: -1 }).lean(),
     SystemSetting.findOne({ code: 'main' }).lean(),
   ]);
