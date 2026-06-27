@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   FaArrowLeft,
+  FaCog,
   FaEdit,
   FaEllipsisV,
   FaEye,
@@ -408,17 +409,17 @@ function CurriculumViewer({ curriculum }) {
         <div className="row g-3 mb-3">
           <div className="col-md-3">
             <div className="small text-muted">Program</div>
-            <div className="fw-semibold">{curriculum.program || '—'}</div>
+            <div className="fw-semibold">{curriculum.program || 'â€”'}</div>
           </div>
 
           <div className="col-md-5">
             <div className="small text-muted">Program Name</div>
-            <div className="fw-semibold">{curriculum.programName || '—'}</div>
+            <div className="fw-semibold">{curriculum.programName || 'â€”'}</div>
           </div>
 
           <div className="col-md-4">
             <div className="small text-muted">Curriculum Year</div>
-            <div className="fw-semibold">{curriculum.curriculumYear || '—'}</div>
+            <div className="fw-semibold">{curriculum.curriculumYear || 'â€”'}</div>
           </div>
         </div>
 
@@ -458,10 +459,10 @@ function CurriculumViewer({ curriculum }) {
                         <tbody>
                           {subjects.map((subject, index) => (
                             <tr key={`${yearLabel}-${semesterLabel}-${index}`}>
-                              <td className="fw-semibold">{subject.code || '—'}</td>
-                              <td>{subject.title || '—'}</td>
+                              <td className="fw-semibold">{subject.code || 'â€”'}</td>
+                              <td>{subject.title || 'â€”'}</td>
                               <td>{subject.units ?? 0}</td>
-                              <td>{subject.prerequisite || '—'}</td>
+                              <td>{subject.prerequisite || 'â€”'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -561,15 +562,16 @@ function CurriculumLibrary({
           </div>
         ) : (
           <div className="table-responsive">
-            <table className="table align-middle mb-0">
+            <table className="table align-middle mb-0 mis-table">
               <thead>
                 <tr>
+                  <th className="mis-table-checkbox"></th>
                   <th style={{ minWidth: 130 }}>Program</th>
                   <th style={{ minWidth: 260 }}>Program Name</th>
                   <th style={{ minWidth: 140 }}>Year</th>
                   <th style={{ minWidth: 110 }}>Subjects</th>
                   <th style={{ minWidth: 100 }}>Units</th>
-                  <th style={{ width: 150 }}>Actions</th>
+                  <th className="text-end mis-table-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -578,14 +580,28 @@ function CurriculumLibrary({
                   const isBusy = loadingId === item._id || deletingId === item._id;
 
                   return (
-                    <tr key={item._id} className={isSelected ? 'table-primary' : ''}>
-                      <td className="fw-semibold">{item.program || '—'}</td>
-                      <td>{item.programName || '—'}</td>
-                      <td>{item.curriculumYear || '—'}</td>
+                    <tr
+                      key={item._id}
+                      className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
+                      onClick={() => onView(item._id)}
+                    >
+                      <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onView(item._id)}
+                          disabled={isBusy}
+                          aria-label={`Select ${item.program || 'curriculum'}`}
+                        />
+                      </td>
+                      <td className="fw-semibold">{item.program || '-'}</td>
+                      <td>{item.programName || '-'}</td>
+                      <td>{item.curriculumYear || '-'}</td>
                       <td>{item.subjectCount || 0}</td>
                       <td>{item.totalUnits || 0}</td>
-                      <td>
-                        <div className="d-flex align-items-center gap-2">
+                      <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
+                        <div className="d-inline-flex align-items-center gap-2">
                           <button
                             className="btn btn-outline-primary btn-sm"
                             onClick={() => onView(item._id)}
@@ -600,7 +616,7 @@ function CurriculumLibrary({
                             onToggle={() => onMenuToggle(item._id)}
                             onClose={onMenuClose}
                             buttonClassName="btn btn-outline-secondary btn-sm"
-                            buttonContent={<FaEllipsisV />}
+                            buttonContent={<FaCog />}
                             ariaLabel={`Open actions for ${item.program || 'curriculum'}`}
                             menuWidth={190}
                           >

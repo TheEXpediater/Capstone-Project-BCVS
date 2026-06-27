@@ -663,13 +663,14 @@ function BlockchainAccountsModal({
         ) : activeTab === 'Wallets' ? (
           <>
             <div className="table-responsive">
-              <table className="table align-middle mb-0">
+              <table className="table align-middle mb-0 mis-table">
                 <thead>
                   <tr>
+                    <th className="mis-table-checkbox"></th>
                     <th style={{ minWidth: 180 }}>Alias</th>
                     <th style={{ minWidth: 360 }}>Wallet Address</th>
                     <th style={{ minWidth: 120 }}>Status</th>
-                    <th style={{ width: 110 }}>Actions</th>
+                    <th className="text-end mis-table-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -680,10 +681,18 @@ function BlockchainAccountsModal({
                     return (
                       <tr
                         key={id || account.address}
-                        className={isSelected ? 'table-active' : ''}
+                        className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
                         onClick={() => onSelectAccount(id)}
-                        style={{ cursor: 'pointer' }}
                       >
+                        <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => onSelectAccount(id)}
+                            aria-label={`Select ${account.name || 'wallet account'}`}
+                          />
+                        </td>
                         <td className="fw-semibold">{account.name || 'Unnamed Wallet'}</td>
                         <td>
                           <span className="small font-monospace" title={account.address}>
@@ -695,7 +704,7 @@ function BlockchainAccountsModal({
                             {account.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </td>
-                        <td onClick={(event) => event.stopPropagation()}>
+                        <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
                           <AccountActionMenu
                             account={account}
                             isOpen={openMenuId === id}
@@ -909,6 +918,41 @@ function RolePermissionsModal({
   );
 }
 
+function PermissionRoleActionMenu({
+  roleRow,
+  isOpen,
+  onToggle,
+  onClose,
+  onManage,
+  disabled,
+}) {
+  return (
+    <FloatingActionMenu
+      isOpen={isOpen}
+      onToggle={onToggle}
+      onClose={onClose}
+      buttonContent={<FaCog />}
+      ariaLabel={`Open actions for ${roleLabel(roleRow.role)}`}
+      menuWidth={210}
+    >
+      <div className="list-group list-group-flush">
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onManage(roleRow);
+          }}
+          disabled={disabled}
+        >
+          <FaEdit className="me-2" />
+          Manage Permissions
+        </button>
+      </div>
+    </FloatingActionMenu>
+  );
+}
+
 function Toggle({ checked, disabled, onChange }) {
   const active = Boolean(checked);
 
@@ -938,6 +982,7 @@ export default function SystemSettingsPage() {
   const [busy, setBusy] = useState(false);
   const [savingUserId, setSavingUserId] = useState('');
   const [permissionRoleModal, setPermissionRoleModal] = useState(null);
+  const [permissionMenuOpenRole, setPermissionMenuOpenRole] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [confirmAction, setConfirmAction] = useState(null);
   const [textAction, setTextAction] = useState(null);
@@ -1302,6 +1347,7 @@ export default function SystemSettingsPage() {
   }
 
   function openPermissionRoleModal(roleRow) {
+    setPermissionMenuOpenRole('');
     setPermissionRoleModal({
       role: roleRow.role,
       users: roleRow.users,
@@ -1705,7 +1751,11 @@ export default function SystemSettingsPage() {
               <tbody>
                 {permissionRoleRows.length ? (
                   permissionRoleRows.map((roleRow) => (
-                    <tr key={roleRow.role}>
+                    <tr
+                      key={roleRow.role}
+                      className={`mis-row-selectable ${permissionRoleModal?.role === roleRow.role ? 'mis-row-selected' : ''}`}
+                      onClick={() => openPermissionRoleModal(roleRow)}
+                    >
                       <td className="fw-semibold">{roleLabel(roleRow.role)}</td>
                       <td>
                         <span className={`badge ${roleRow.status === 'Active' ? 'text-bg-success' : 'text-bg-secondary'}`}>
@@ -1713,16 +1763,19 @@ export default function SystemSettingsPage() {
                         </span>
                       </td>
                       <td className="text-end">{roleRow.users.length}</td>
-                      <td className="text-end">
-                        <button
-                          type="button"
-                          className="btn btn-outline-secondary btn-sm"
-                          onClick={() => openPermissionRoleModal(roleRow)}
+                      <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
+                        <PermissionRoleActionMenu
+                          roleRow={roleRow}
+                          isOpen={permissionMenuOpenRole === roleRow.role}
+                          onToggle={() =>
+                            setPermissionMenuOpenRole((current) =>
+                              current === roleRow.role ? '' : roleRow.role
+                            )
+                          }
+                          onClose={() => setPermissionMenuOpenRole('')}
+                          onManage={openPermissionRoleModal}
                           disabled={savingUserId === roleRow.role}
-                          aria-label={`Manage permissions for ${roleLabel(roleRow.role)}`}
-                        >
-                          <FaCog />
-                        </button>
+                        />
                       </td>
                     </tr>
                   ))
@@ -2586,13 +2639,14 @@ export default function SystemSettingsPage() {
                     </div>
 
                     <div className="table-responsive">
-                      <table className="table align-middle mb-0">
+                      <table className="table align-middle mb-0 mis-table">
                         <thead>
                           <tr>
+                            <th className="mis-table-checkbox"></th>
                             <th style={{ minWidth: 180 }}>Alias</th>
                             <th style={{ minWidth: 260 }}>Wallet Address</th>
                             <th style={{ minWidth: 120 }}>Status</th>
-                            <th style={{ width: 110 }}>Actions</th>
+                            <th className="text-end mis-table-actions">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2603,10 +2657,18 @@ export default function SystemSettingsPage() {
                             return (
                               <tr
                                 key={id || account.address}
-                                className={isSelected ? 'table-active' : ''}
+                                className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
                                 onClick={() => setSelectedBlockchainAccountId(id)}
-                                style={{ cursor: 'pointer' }}
                               >
+                                <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
+                                  <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => setSelectedBlockchainAccountId(id)}
+                                    aria-label={`Select ${account.name || 'wallet account'}`}
+                                  />
+                                </td>
                                 <td className="fw-semibold">{account.name || 'Unnamed Wallet'}</td>
                                 <td>
                                   <span className="small font-monospace" title={account.address}>
@@ -2618,7 +2680,7 @@ export default function SystemSettingsPage() {
                                     {account.isActive ? 'Active' : 'Inactive'}
                                   </span>
                                 </td>
-                                <td onClick={(event) => event.stopPropagation()}>
+                                <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
                                   <AccountActionMenu
                                     account={account}
                                     isOpen={accountMenuId === id}

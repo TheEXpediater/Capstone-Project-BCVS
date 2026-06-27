@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   FaChevronLeft,
   FaChevronRight,
@@ -77,7 +77,7 @@ const EMPTY_PAGINATION = {
 };
 
 function formatDate(value) {
-  if (!value) return '—';
+  if (!value) return 'â€”';
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -88,10 +88,10 @@ function formatDate(value) {
 }
 
 function formatYear(value) {
-  if (!value) return '—';
+  if (!value) return 'â€”';
 
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '—';
+  if (Number.isNaN(parsed.getTime())) return 'â€”';
 
   return String(parsed.getFullYear());
 }
@@ -667,7 +667,7 @@ function DetailItem({ label, value }) {
   return (
     <div className="col-md-6">
       <div className="small text-muted">{label}</div>
-      <div className="fw-semibold">{value || '—'}</div>
+      <div className="fw-semibold">{value || 'â€”'}</div>
     </div>
   );
 }
@@ -805,14 +805,14 @@ function buildGradeDisplayRows(grades) {
 
   return (grades || []).map((grade) => ({
     ...grade,
-    yearLevel: grade.yearLevel || '—',
-    semester: grade.semester || '—',
-    subjectCode: grade.subjectCode || '—',
-    subjectTitle: grade.subjectTitle || '—',
-    units: grade.units ?? '—',
-    finalGrade: grade.finalGrade || '—',
-    remarks: grade.remarks || '—',
-    schoolYear: grade.schoolYear || '—',
+    yearLevel: grade.yearLevel || 'â€”',
+    semester: grade.semester || 'â€”',
+    subjectCode: grade.subjectCode || 'â€”',
+    subjectTitle: grade.subjectTitle || 'â€”',
+    units: grade.units ?? 'â€”',
+    finalGrade: grade.finalGrade || 'â€”',
+    remarks: grade.remarks || 'â€”',
+    schoolYear: grade.schoolYear || 'â€”',
   }));
 }
 
@@ -831,15 +831,15 @@ function StudentGradesModal({ data, onClose }) {
               <div>
                 <h2 className="h5 mb-1">Student Grades</h2>
                 <p className="text-muted mb-0 small">
-                  {student.studentNo} · {student.studentName}
+                  {student.studentNo} Â· {student.studentName}
                 </p>
               </div>
               <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
             </div>
             <div className="modal-body">
               <div className="alert alert-light border d-flex flex-wrap gap-3 align-items-center">
-                <span><strong>Program:</strong> {student.programCode || '—'}</span>
-                <span><strong>Curriculum:</strong> {student.curriculum?.curriculumYear || student.curriculumYear || '—'}</span>
+                <span><strong>Program:</strong> {student.programCode || 'â€”'}</span>
+                <span><strong>Curriculum:</strong> {student.curriculum?.curriculumYear || student.curriculumYear || 'â€”'}</span>
                 <span><strong>Graduated:</strong> {student.graduated ? 'Yes' : 'No'}</span>
               </div>
 
@@ -904,77 +904,77 @@ function StudentActionMenu({
   canCreateVcDraft,
 }) {
   return (
-    <div className="d-inline-flex align-items-center gap-2">
-      <button
-        type="button"
-        className="btn btn-outline-primary btn-sm"
-        onClick={() => onOpenProfile(student._id, 'view')}
-        disabled={profileLoading}
-      >
-        <FaIdCard className="me-1" />
-        Profile
-      </button>
-
-      <FloatingActionMenu
-        isOpen={isOpen}
-        onToggle={onToggle}
-        onClose={onClose}
-        buttonContent={<FaCog />}
-        ariaLabel="Student actions"
-        menuWidth={220}
-      >
-        <div className="list-group list-group-flush">
+    <FloatingActionMenu
+      isOpen={isOpen}
+      onToggle={onToggle}
+      onClose={onClose}
+      buttonContent={<FaCog />}
+      ariaLabel="Student actions"
+      menuWidth={220}
+    >
+      <div className="list-group list-group-flush">
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onOpenProfile(student._id, 'view');
+          }}
+          disabled={profileLoading}
+        >
+          <FaIdCard className="me-2" />
+          View Profile
+        </button>
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onOpenProfile(student._id, 'edit');
+          }}
+        >
+          <FaEdit className="me-2" />
+          Edit Profile
+        </button>
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onOpenGrades(student._id);
+          }}
+          disabled={gradesLoadingId === student._id}
+        >
+          <FaListAlt className="me-2" />
+          {gradesLoadingId === student._id ? 'Loading Grades...' : 'View Grades'}
+        </button>
+        {canCreateVcDraft ? (
           <button
             type="button"
             className="list-group-item list-group-item-action"
             onClick={() => {
               onClose();
-              onOpenProfile(student._id, 'edit');
+              onConfirmVcDraft(student);
             }}
+            disabled={creatingVcDraftId === student._id}
           >
-            <FaEdit className="me-2" />
-            Edit Profile
+            <FaFileSignature className="me-2" />
+            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
           </button>
-          <button
-            type="button"
-            className="list-group-item list-group-item-action"
-            onClick={() => {
-              onClose();
-              onOpenGrades(student._id);
-            }}
-            disabled={gradesLoadingId === student._id}
-          >
-            <FaListAlt className="me-2" />
-            {gradesLoadingId === student._id ? 'Loading Grades...' : 'View Grades'}
-          </button>
-          {canCreateVcDraft ? (
-            <button
-              type="button"
-              className="list-group-item list-group-item-action"
-              onClick={() => {
-                onClose();
-                onConfirmVcDraft(student);
-              }}
-              disabled={creatingVcDraftId === student._id}
-            >
-              <FaFileSignature className="me-2" />
-              {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="list-group-item list-group-item-action text-danger"
-            onClick={() => {
-              onClose();
-              onDeleteStudent(student);
-            }}
-          >
-            <FaTrash className="me-2" />
-            Delete Student
-          </button>
-        </div>
-      </FloatingActionMenu>
-    </div>
+        ) : null}
+        <button
+          type="button"
+          className="list-group-item list-group-item-action text-danger"
+          onClick={() => {
+            onClose();
+            onDeleteStudent(student);
+          }}
+        >
+          <FaTrash className="me-2" />
+          Delete Student
+        </button>
+      </div>
+    </FloatingActionMenu>
   );
 }
 
@@ -1265,6 +1265,11 @@ export default function StudentImportManagerPage() {
     return `Showing ${start}-${end} of ${total} students`;
   }, [pagination]);
 
+  const allStudentsSelected = useMemo(
+    () => students.length > 0 && students.every((student) => selectedStudentIds.has(student._id)),
+    [students, selectedStudentIds]
+  );
+
   async function loadCurricula() {
     try {
       setLoadingCurricula(true);
@@ -1303,6 +1308,7 @@ export default function StudentImportManagerPage() {
 
       if (Array.isArray(data)) {
         setStudents(data);
+        setSelectedStudentIds(new Set());
         setPagination({
           ...EMPTY_PAGINATION,
           page,
@@ -1313,6 +1319,7 @@ export default function StudentImportManagerPage() {
       }
 
       setStudents(data?.rows || []);
+      setSelectedStudentIds(new Set());
       setPagination(data?.pagination || EMPTY_PAGINATION);
     } catch (error) {
       setFeedback({
@@ -1675,6 +1682,24 @@ export default function StudentImportManagerPage() {
     loadStudents({ page, showBusy: true });
   }
 
+  function toggleStudentSelection(studentId, checked) {
+    setSelectedStudentIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(studentId);
+      else next.delete(studentId);
+      return next;
+    });
+  }
+
+  function toggleAllStudents(checked) {
+    setSelectedStudentIds(checked ? new Set(students.map((student) => student._id)) : new Set());
+  }
+
+  function openStudentRow(student) {
+    toggleStudentSelection(student._id, true);
+    handleOpenProfile(student._id, 'view');
+  }
+
   return (
     <>
       <div className="d-flex flex-column gap-4">
@@ -1732,61 +1757,84 @@ export default function StudentImportManagerPage() {
             {loadingStudents ? (
               <div className="text-muted">Loading students...</div>
             ) : students.length === 0 ? (
-              <div className="alert alert-light border mb-0">No student records found.</div>
+              <div className="mis-empty-state">No student records found.</div>
             ) : (
               <>
                 <div className="table-responsive">
-                  <table className="table align-middle mb-0">
+                  <table className="table align-middle mb-0 mis-table">
                     <thead>
                       <tr>
+                        <th className="mis-table-checkbox">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={allStudentsSelected}
+                            onChange={(event) => toggleAllStudents(event.target.checked)}
+                            aria-label="Select all visible students"
+                          />
+                        </th>
                         <th>Student No.</th>
                         <th>Name</th>
-                        <th>Program</th>
+                        <th>Program Code</th>
                         <th>Year Graduated</th>
                         <th>Graduated</th>
-                        <th className="text-end" style={{ minWidth: 170 }}>Actions</th>
+                        <th className="text-end mis-table-actions">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {students.map((student) => (
-                        <tr key={student._id}>
-                          <td className="fw-semibold">{student.studentNo}</td>
-                          <td>{student.studentName}</td>
-                          <td>
-                            <div className="fw-semibold">{student.programCode || student.program || '—'}</div>
-                            <div className="small text-muted">
-                              {student.programName || '—'}
-                              {student.curriculumYear ? ` · Curriculum ${student.curriculumYear}` : ''}
-                            </div>
-                          </td>
-                          <td>{formatYear(student.dateGraduated || student.dateGraduation)}</td>
-                          <td>
-                            <span className={`badge ${student.graduated ? 'text-bg-success' : 'text-bg-secondary'}`}>
-                              {student.graduated ? 'Yes' : 'No'}
-                            </span>
-                          </td>
-                          <td className="text-end">
-                            <StudentActionMenu
-                              student={student}
-                              isOpen={actionMenuOpenId === student._id}
-                              onToggle={() =>
-                                setActionMenuOpenId((prev) =>
-                                  prev === student._id ? '' : student._id
-                                )
-                              }
-                              onClose={() => setActionMenuOpenId('')}
-                              onOpenProfile={handleOpenProfile}
-                              onOpenGrades={handleOpenGrades}
-                              onConfirmVcDraft={requestCreateVcDraft}
-                              onDeleteStudent={requestDeleteStudent}
-                              profileLoading={profileLoading}
-                              gradesLoadingId={gradesLoadingId}
-                              creatingVcDraftId={creatingVcDraftId}
-                              canCreateVcDraft={canCreateVcDraft}
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {students.map((student) => {
+                        const isSelected =
+                          selectedStudentIds.has(student._id) || selectedStudent?._id === student._id;
+
+                        return (
+                          <tr
+                            key={student._id}
+                            className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
+                            onClick={() => openStudentRow(student)}
+                          >
+                            <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={selectedStudentIds.has(student._id)}
+                                onChange={(event) =>
+                                  toggleStudentSelection(student._id, event.target.checked)
+                                }
+                                aria-label={`Select ${student.studentName || 'student'}`}
+                              />
+                            </td>
+                            <td className="fw-semibold">{student.studentNo}</td>
+                            <td>{student.studentName}</td>
+                            <td className="fw-semibold">{student.programCode || student.program || '—'}</td>
+                            <td>{formatYear(student.dateGraduated || student.dateGraduation)}</td>
+                            <td>
+                              <span className={`badge ${student.graduated ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                                {student.graduated ? 'Yes' : 'No'}
+                              </span>
+                            </td>
+                            <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
+                              <StudentActionMenu
+                                student={student}
+                                isOpen={actionMenuOpenId === student._id}
+                                onToggle={() =>
+                                  setActionMenuOpenId((prev) =>
+                                    prev === student._id ? '' : student._id
+                                  )
+                                }
+                                onClose={() => setActionMenuOpenId('')}
+                                onOpenProfile={handleOpenProfile}
+                                onOpenGrades={handleOpenGrades}
+                                onConfirmVcDraft={requestCreateVcDraft}
+                                onDeleteStudent={requestDeleteStudent}
+                                profileLoading={profileLoading}
+                                gradesLoadingId={gradesLoadingId}
+                                creatingVcDraftId={creatingVcDraftId}
+                                canCreateVcDraft={canCreateVcDraft}
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

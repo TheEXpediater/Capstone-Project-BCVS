@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  FaEye,
+  FaChevronLeft,
+  FaChevronRight,
+  FaCog,
   FaFilter,
   FaSearch,
   FaSyncAlt,
   FaTimes,
   FaTrash,
 } from 'react-icons/fa';
+import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import {
   bulkDeleteAuditLogs,
   deleteAuditLog,
@@ -53,6 +56,16 @@ const MODULE_OPTIONS = [
 
 const ACTOR_KIND_OPTIONS = ['', 'web', 'mobile', 'system'];
 const ROLE_OPTIONS = ['', 'developer', 'super_admin', 'admin', 'cashier', 'student', 'system'];
+
+const DEFAULT_FILTERS = {
+  search: '',
+  module: '',
+  actorKind: 'web',
+  role: '',
+  status: '',
+  from: '',
+  to: '',
+};
 
 function formatDate(value) {
   if (!value) return '-';
@@ -276,6 +289,50 @@ function LogDetailsModal({ log, onClose, onDelete }) {
   );
 }
 
+function AuditLogActionMenu({
+  log,
+  isOpen,
+  onToggle,
+  onClose,
+  onView,
+  onDelete,
+}) {
+  return (
+    <FloatingActionMenu
+      isOpen={isOpen}
+      onToggle={onToggle}
+      onClose={onClose}
+      buttonContent={<FaCog />}
+      ariaLabel={`Open actions for ${actionLabel(log.action)}`}
+      menuWidth={190}
+    >
+      <div className="list-group list-group-flush">
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onView(log);
+          }}
+        >
+          View Details
+        </button>
+        <button
+          type="button"
+          className="list-group-item list-group-item-action text-danger"
+          onClick={() => {
+            onClose();
+            onDelete(log._id);
+          }}
+        >
+          <FaTrash className="me-2" />
+          Delete
+        </button>
+      </div>
+    </FloatingActionMenu>
+  );
+}
+
 export default function AuditLogsPage({ embedded = false }) {
   const [rows, setRows] = useState([]);
   const [pagination, setPagination] = useState({
@@ -286,23 +343,30 @@ export default function AuditLogsPage({ embedded = false }) {
   });
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectedLog, setSelectedLog] = useState(null);
+  const [actionMenuOpenId, setActionMenuOpenId] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
-  const [filters, setFilters] = useState({
-    search: '',
-    module: '',
-    actorKind: '',
-    role: '',
-    status: '',
-    from: '',
-    to: '',
-  });
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
 
   const allSelected = useMemo(
     () => rows.length > 0 && rows.every((row) => selectedIds.includes(row._id)),
     [rows, selectedIds]
   );
+
+  const paginationPages = useMemo(() => {
+    const currentPage = pagination.page || 1;
+    const pageTotal = pagination.pages || 1;
+    const start = Math.max(1, currentPage - 2);
+    const end = Math.min(pageTotal, currentPage + 2);
+    const pages = [];
+
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
+    }
+
+    return pages;
+  }, [pagination.page, pagination.pages]);
 
   function requestParams(nextPage, nextFilters = filters) {
     return {
@@ -333,6 +397,7 @@ export default function AuditLogsPage({ embedded = false }) {
         pages: 1,
       });
       setSelectedIds([]);
+      setActionMenuOpenId('');
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -361,30 +426,26 @@ export default function AuditLogsPage({ embedded = false }) {
   }
 
   function clearFilters() {
-    const nextFilters = {
-      search: '',
-      module: '',
-      actorKind: '',
-      role: '',
-      status: '',
-      from: '',
-      to: '',
-    };
+    const nextFilters = DEFAULT_FILTERS;
     setFilters(nextFilters);
     setShowFilterModal(false);
     loadLogs(1, nextFilters);
   }
 
-  function toggleOne(id) {
-    setSelectedIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((item) => item !== id)
-        : [...prev, id]
-    );
-  }
-
   function toggleAll() {
     setSelectedIds(allSelected ? [] : rows.map((row) => row._id));
+  }
+
+  function toggleLogSelection(id, checked) {
+    setSelectedIds((prev) => {
+      if (checked) return prev.includes(id) ? prev : [...prev, id];
+      return prev.filter((item) => item !== id);
+    });
+  }
+
+  function selectLogRow(log) {
+    setSelectedLog(log);
+    toggleLogSelection(log._id, true);
   }
 
   async function handleDeleteOne(id) {
@@ -494,32 +555,51 @@ export default function AuditLogsPage({ embedded = false }) {
           </div>
 
           <div className="table-responsive">
-            <table className="table table-hover align-middle">
+            <table className="table align-middle mb-0 mis-table">
               <thead>
                 <tr>
+                  <th className="mis-table-checkbox">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      aria-label="Select all logs"
+                    />
+                  </th>
                   <th>Time</th>
                   <th>User</th>
                   <th>Role</th>
-                  <th>Module</th>
                   <th>Action</th>
-                  <th>Target</th>
-                  <th>View</th>
-                  <th style={{ width: 64 }}>
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all logs" />
-                  </th>
+                  <th className="text-end mis-table-actions">Actions</th>
                 </tr>
               </thead>
 
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan="8" className="text-center text-muted py-4">
+                    <td colSpan="6">
+                      <div className="mis-empty-state">
                       Loading action logs...
+                      </div>
                     </td>
                   </tr>
                 ) : rows.length ? (
                   rows.map((log) => (
-                    <tr key={log._id}>
+                    <tr
+                      key={log._id}
+                      className={`mis-row-selectable ${selectedLog?._id === log._id || selectedIds.includes(log._id) ? 'mis-row-selected' : ''}`}
+                      onClick={() => selectLogRow(log)}
+                    >
+                      <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          checked={selectedIds.includes(log._id)}
+                          onChange={(event) => toggleLogSelection(log._id, event.target.checked)}
+                          aria-label={`Select log ${log._id}`}
+                        />
+                      </td>
                       <td className="small">{formatDate(log.createdAt)}</td>
                       <td>
                         <div className="fw-semibold">{actorName(log)}</div>
@@ -530,37 +610,25 @@ export default function AuditLogsPage({ embedded = false }) {
                           {titleCase(log.actor?.role || 'system')}
                         </span>
                       </td>
-                      <td>{titleCase(log.module)}</td>
                       <td>{actionLabel(log.action)}</td>
-                      <td>
-                        <div>{targetLabel(log)}</div>
-                        <div className="small text-muted">{log.target?.type ? titleCase(log.target.type) : ''}</div>
-                      </td>
-                      <td>
-                        <div className="btn-group btn-group-sm">
-                          <button className="btn btn-outline-primary" onClick={() => setSelectedLog(log)}>
-                            <FaEye className="me-1" />
-                            View
-                          </button>
-                          <button className="btn btn-outline-danger" onClick={() => handleDeleteOne(log._id)} title="Delete log">
-                            <FaTrash />
-                          </button>
-                        </div>
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.includes(log._id)}
-                          onChange={() => toggleOne(log._id)}
-                          aria-label={`Select log ${log._id}`}
+                      <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
+                        <AuditLogActionMenu
+                          log={log}
+                          isOpen={actionMenuOpenId === log._id}
+                          onToggle={() =>
+                            setActionMenuOpenId((current) => (current === log._id ? '' : log._id))
+                          }
+                          onClose={() => setActionMenuOpenId('')}
+                          onView={setSelectedLog}
+                          onDelete={handleDeleteOne}
                         />
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="8" className="text-center text-muted py-4">
-                      No audit logs found.
+                    <td colSpan="6">
+                      <div className="mis-empty-state">No audit logs found.</div>
                     </td>
                   </tr>
                 )}
@@ -569,25 +637,40 @@ export default function AuditLogsPage({ embedded = false }) {
           </div>
 
           <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
-            <button
-              className="btn btn-outline-secondary btn-sm"
-              disabled={pagination.page <= 1 || loading}
-              onClick={() => loadLogs(pagination.page - 1)}
-            >
-              Previous
-            </button>
-
             <div className="small text-muted">
               Page {pagination.page} of {pagination.pages}
             </div>
-
-            <button
-              className="btn btn-outline-secondary btn-sm"
-              disabled={pagination.page >= pagination.pages || loading}
-              onClick={() => loadLogs(pagination.page + 1)}
-            >
-              Next
-            </button>
+            <div className="btn-group">
+              <button
+                type="button"
+                className="btn btn-outline-secondary btn-sm"
+                disabled={pagination.page <= 1 || loading}
+                onClick={() => loadLogs(pagination.page - 1)}
+              >
+                <FaChevronLeft className="me-1" />
+                Previous
+              </button>
+              {paginationPages.map((page) => (
+                <button
+                  type="button"
+                  key={page}
+                  className={`btn btn-sm ${page === pagination.page ? 'btn-primary' : 'btn-outline-secondary'}`}
+                  disabled={loading || page === pagination.page}
+                  onClick={() => loadLogs(page)}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn-outline-secondary btn-sm"
+                disabled={pagination.page >= pagination.pages || loading}
+                onClick={() => loadLogs(pagination.page + 1)}
+              >
+                Next
+                <FaChevronRight className="ms-1" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
