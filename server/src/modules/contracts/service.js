@@ -7,6 +7,7 @@ import { ApiError } from '../../shared/utils/ApiError.js';
 import { normalizeHex } from '../../shared/utils/vcProof.js';
 import { getContractModel } from './model.js';
 import { getSystemSettingModel } from '../settings/setting.model.js';
+import { getActiveBlockchainWallet } from '../settings/blockchainAccount.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,7 +142,7 @@ export function loadArtifact(contractType = 'admin') {
   if (!fs.existsSync(artifactPath)) {
     throw new ApiError(
       500,
-      `${config.contractName} artifact not found. Run npm run compile:contracts or copy ${config.artifactFile} into server/src/modules/contracts/artifacts/`
+      `${config.contractName} artifact not found. Copy ${config.artifactFile} into server/src/modules/contracts/artifacts/`
     );
   }
 
@@ -249,23 +250,18 @@ function requireRpcEnv() {
   }
 }
 
-function requireBlockchainEnv() {
-  requireRpcEnv();
-
-  if (!env.blockchain.contractOperatorPrivateKey) {
-    throw new ApiError(500, 'Missing CONTRACT_OPERATOR_PRIVATE_KEY in server .env');
-  }
-}
-
 function getProvider() {
   requireRpcEnv();
   return new ethers.JsonRpcProvider(env.blockchain.rpcUrl);
 }
 
-function getWallet() {
-  requireBlockchainEnv();
-  const provider = getProvider();
-  return new ethers.Wallet(env.blockchain.contractOperatorPrivateKey, provider);
+async function getWallet(provider = getProvider()) {
+  const active = await getActiveBlockchainWallet(provider);
+  return active.wallet;
+}
+
+async function getWalletContext(provider = getProvider()) {
+  return getActiveBlockchainWallet(provider);
 }
 
 async function ensureMainSettings() {
@@ -339,7 +335,7 @@ function serializeContract(contract = {}) {
 async function buildEstimateInternal(contractType = 'admin') {
   const config = getContractConfig(contractType);
   const provider = getProvider();
-  const wallet = getWallet();
+  const { wallet } = await getWalletContext(provider);
   const artifact = loadArtifact(config.contractType);
 
   const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
@@ -375,7 +371,7 @@ async function buildEstimateInternal(contractType = 'admin') {
 
 export async function getBlockchainRuntimeOverview() {
   const provider = getProvider();
-  const wallet = getWallet();
+  const { wallet, account: activeAccount } = await getWalletContext(provider);
   const network = await provider.getNetwork();
   const account = await getAccountInfo(provider, wallet);
 
@@ -387,6 +383,7 @@ export async function getBlockchainRuntimeOverview() {
       network: network.name,
     },
     account,
+    activeAccount,
   };
 }
 
@@ -442,7 +439,7 @@ export async function estimateDeployment({ contractType = 'admin' } = {}) {
 export async function deployContract({ contractType = 'admin' } = {}) {
   const config = getContractConfig(contractType);
   const provider = getProvider();
-  const wallet = getWallet();
+  const { wallet } = await getWalletContext(provider);
   const artifact = loadArtifact(config.contractType);
   const Contract = getContractModel();
   const capabilities = detectContractCapabilities(artifact.abi);
@@ -860,7 +857,7 @@ export async function checkAnchorReadinessWithDependencies(
 
   if (provider) {
     try {
-      wallet = wallet || (dependencies.getWallet ? dependencies.getWallet(provider) : getWallet());
+      wallet = wallet || (await (dependencies.getWallet ? dependencies.getWallet(provider) : getWallet(provider)));
       walletLoaded = true;
       const balanceWei = await provider.getBalance(wallet.address);
       walletBalance = formatEther(balanceWei);
@@ -1359,7 +1356,7 @@ export async function anchorMerkleRoot({
   }
 
   const provider = getProvider();
-  const wallet = getWallet();
+  const { wallet, account: blockchainAccount } = await getWalletContext(provider);
   const abi = getAbiForContract(record);
   const contract = new ethers.Contract(address, abi, wallet);
   const network = await provider.getNetwork();
@@ -1407,6 +1404,9 @@ export async function anchorMerkleRoot({
     anchorBatchId: anchorCall.batchId || '',
     anchorContractAddress: address,
     contractAddress: address,
+    anchorBlockchainAccountId: blockchainAccount.id,
+    anchorBlockchainAccountName: blockchainAccount.name,
+    anchorBlockchainAccountAddress: blockchainAccount.address,
     anchorNetwork: record.network || network.name || '',
     anchorChainId: chainId,
     anchorExplorerUrl: buildExplorerTxUrl(chainId, receipt.hash || receipt.transactionHash || tx.hash),

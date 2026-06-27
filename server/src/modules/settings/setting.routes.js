@@ -2,8 +2,13 @@ import express from 'express';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import {
   activateIssuerKey,
+  activateBlockchainAccount,
+  createBlockchainAccount,
   createIssuerKey,
+  deleteBlockchainAccount,
   deleteIssuerKey,
+  getBlockchainAccountCredentials,
+  getBlockchainAccounts,
   getDashboard,
   getIssuerKeys,
   rotateIssuerKey,
@@ -11,6 +16,7 @@ import {
   updateAdminPermissions,
   updateBusinessSettings,
   updateEmailSettings,
+  updateBlockchainAccount,
   updateIssuerKey,
   updateNetworkSettings,
   updateSystemLocks,
@@ -26,6 +32,13 @@ router.post('/issuer-keys/rotate', protect({ kind: 'web' }), allowRoles('develop
 router.put('/issuer-keys/:keyId/activate', protect({ kind: 'web' }), allowRoles('developer'), activateIssuerKey);
 router.put('/issuer-keys/:keyId', protect({ kind: 'web' }), allowRoles('developer'), updateIssuerKey);
 router.delete('/issuer-keys/:keyId', protect({ kind: 'web' }), allowRoles('developer'), deleteIssuerKey);
+
+router.get('/blockchain/accounts', protect({ kind: 'web' }), allowRoles('developer'), getBlockchainAccounts);
+router.post('/blockchain/accounts', protect({ kind: 'web' }), allowRoles('developer'), createBlockchainAccount);
+router.put('/blockchain/accounts/:accountId', protect({ kind: 'web' }), allowRoles('developer'), updateBlockchainAccount);
+router.put('/blockchain/accounts/:accountId/activate', protect({ kind: 'web' }), allowRoles('developer'), activateBlockchainAccount);
+router.delete('/blockchain/accounts/:accountId', protect({ kind: 'web' }), allowRoles('developer'), deleteBlockchainAccount);
+router.get('/blockchain/accounts/:accountId/credentials', protect({ kind: 'web' }), allowRoles('developer'), getBlockchainAccountCredentials);
 
 router.put('/blockchain/active-contract', protect({ kind: 'web' }), allowRoles('developer'), updateActiveContract);
 

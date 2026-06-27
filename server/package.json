@@ -7,13 +7,8 @@
     "test": "node --test",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "seed:registrar": "node src/script/seed_registrar_demo.js",
-    "seed:students-grades": "node src/script/seed_registrar_demo.js",
-    "generate:grade-template": "node src/script/students/generate_grade_import_template.js",
-    "generate:grade-import-db": "node src/script/students/generate_grade_import_from_db.js",
-    "generate:manual-test-imports": "node src/script/students/generate_manual_test_imports_from_curricula.js",
-    "backfill:student-curriculum": "node src/script/students/backfill_student_curriculum.js",
-    "compile:contracts": "node src/script/compile_contracts.js"
+    "configure:system": "node src/script/configure_system.js",
+    "seed": "node src/script/configure_system.js"
   },
   "keywords": [],
   "author": "",

@@ -29,6 +29,89 @@ export const getIssuerKeys = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data });
 });
 
+export const getBlockchainAccounts = asyncHandler(async (req, res) => {
+  const data = await settingService.listBlockchainAccounts(req.user);
+  res.status(200).json({ success: true, data });
+});
+
+export const createBlockchainAccount = asyncHandler(async (req, res) => {
+  const data = await settingService.createBlockchainAccount(req.body, req.user);
+  await logSettingsAction(req, {
+    module: 'settings',
+    action: 'BLOCKCHAIN_ACCOUNT_CREATED',
+    description: 'Created blockchain account',
+    target: {
+      id: data?.id || '',
+      type: 'blockchain_account',
+      label: data?.name || data?.address || '',
+    },
+    metadata: {
+      address: data?.address || '',
+      isActive: Boolean(data?.isActive),
+    },
+  });
+  res.status(201).json({ success: true, data, message: 'Blockchain account created successfully.' });
+});
+
+export const updateBlockchainAccount = asyncHandler(async (req, res) => {
+  const data = await settingService.updateBlockchainAccount(req.params.accountId, req.body, req.user);
+  await logSettingsAction(req, {
+    module: 'settings',
+    action: 'BLOCKCHAIN_ACCOUNT_UPDATED',
+    description: 'Updated blockchain account',
+    target: {
+      id: data?.id || req.params.accountId,
+      type: 'blockchain_account',
+      label: data?.name || data?.address || '',
+    },
+    metadata: {
+      address: data?.address || '',
+    },
+  });
+  res.status(200).json({ success: true, data, message: 'Blockchain account updated successfully.' });
+});
+
+export const activateBlockchainAccount = asyncHandler(async (req, res) => {
+  const data = await settingService.activateBlockchainAccount(req.params.accountId, req.user);
+  await logSettingsAction(req, {
+    module: 'settings',
+    action: 'BLOCKCHAIN_ACCOUNT_ACTIVATED',
+    description: 'Changed active blockchain account',
+    target: {
+      id: data?.id || req.params.accountId,
+      type: 'blockchain_account',
+      label: data?.name || data?.address || '',
+    },
+    metadata: {
+      address: data?.address || '',
+    },
+  });
+  res.status(200).json({ success: true, data, message: 'Active blockchain account updated successfully.' });
+});
+
+export const deleteBlockchainAccount = asyncHandler(async (req, res) => {
+  const data = await settingService.deleteBlockchainAccount(req.params.accountId, req.user);
+  await logSettingsAction(req, {
+    module: 'settings',
+    action: 'BLOCKCHAIN_ACCOUNT_DELETED',
+    description: 'Deleted blockchain account',
+    target: {
+      id: data?.account?.id || req.params.accountId,
+      type: 'blockchain_account',
+      label: data?.account?.name || data?.account?.address || '',
+    },
+    metadata: {
+      address: data?.account?.address || '',
+    },
+  });
+  res.status(200).json({ success: true, data, message: 'Blockchain account deleted successfully.' });
+});
+
+export const getBlockchainAccountCredentials = asyncHandler(async (req, res) => {
+  const data = await settingService.listAnchoredCredentialsForAccount(req.params.accountId, req.user);
+  res.status(200).json({ success: true, data });
+});
+
 export const createIssuerKey = asyncHandler(async (req, res) => {
   const data = await settingService.createIssuerKey(req.body, req.user);
   res.status(201).json({ success: true, data, message: 'Issuer key created successfully.' });
@@ -124,10 +207,7 @@ export const updateEmailSettings = asyncHandler(async (req, res) => {
     metadata: {
       emailEnabled: Boolean(data?.enabled),
       provider: data?.provider || '',
-      senderEmail: data?.senderEmail || '',
-      smtpHost: data?.smtpHost || '',
-      smtpPort: data?.smtpPort || null,
-      secretConfigured: Boolean(data?.secretConfigured),
+      apiKeyConfigured: Boolean(data?.apiKeyConfigured || data?.secretConfigured),
     },
   });
   res.status(200).json({

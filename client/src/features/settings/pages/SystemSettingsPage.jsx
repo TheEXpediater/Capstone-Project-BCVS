@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { FaCog, FaEdit, FaPlus, FaTrash } from 'react-icons/fa';
+import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import {
+  activateBlockchainAccount,
   activateIssuerKey,
+  createBlockchainAccount,
   createIssuerKey,
+  deleteBlockchainAccount,
   deleteIssuerKey,
   fetchNetworkInfo,
   fetchNetworkQrConfig,
   getSettingsDashboard,
+  listBlockchainAccountCredentials,
   rotateIssuerKey,
   updateActiveContract,
   updateAdminPermissions,
+  updateBlockchainAccount,
   updateBusinessSettings,
   updateEmailSettings,
   updateIssuerKey,
@@ -88,19 +95,16 @@ const EMPTY_SETTINGS = {
   },
   emailOtp: {
     enabled: false,
-    provider: '',
-    senderEmail: '',
-    senderName: '',
-    smtpHost: '',
-    smtpPort: '',
-    smtpSecure: true,
+    provider: 'resend',
+    apiKeyConfigured: false,
     secretConfigured: false,
-    secretMasked: '',
   },
 };
 
 const EMPTY_WALLET = {
   ok: false,
+  activeAccount: null,
+  blockchainAccounts: [],
   walletAddress: '',
   networkLabel: 'Unavailable',
   walletBalance: '0.0000',
@@ -119,6 +123,7 @@ const EMPTY_ACCESS = {
   canViewIssuerKeys: false,
   canManageIssuerKeys: false,
   canManageActiveContract: false,
+  canManageBlockchainAccounts: false,
   canViewEmailSettings: false,
   canManageEmailSettings: false,
 };
@@ -218,11 +223,11 @@ function contractAddressUrl(contract) {
   return base && address ? `${base}/address/${encodeURIComponent(address)}` : '';
 }
 
-function ModalShell({ title, body, children, footer, onClose }) {
+function ModalShell({ title, body, children, footer, onClose, size = '', scrollable = false }) {
   return (
     <>
       <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-        <div className="modal-dialog modal-dialog-centered">
+        <div className={`modal-dialog modal-dialog-centered ${scrollable ? 'modal-dialog-scrollable' : ''} ${size}`}>
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
               <div>
@@ -383,6 +388,269 @@ function ReadinessModal({ check, onClose }) {
   );
 }
 
+function AccountActionMenu({ account, isOpen, onToggle, onClose, onEdit, onActivate, onDelete, busy }) {
+  return (
+    <FloatingActionMenu
+      isOpen={isOpen}
+      onToggle={onToggle}
+      onClose={onClose}
+      buttonContent={<FaCog />}
+      ariaLabel={`Open actions for ${account.name || account.address || 'blockchain account'}`}
+      menuWidth={210}
+    >
+      <div className="list-group list-group-flush">
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onEdit(account);
+          }}
+          disabled={busy}
+        >
+          <FaEdit className="me-2" />
+          Edit Name
+        </button>
+        <button
+          type="button"
+          className="list-group-item list-group-item-action"
+          onClick={() => {
+            onClose();
+            onActivate(account);
+          }}
+          disabled={busy || account.isActive}
+        >
+          Set Active
+        </button>
+        <button
+          type="button"
+          className="list-group-item list-group-item-action text-danger"
+          onClick={() => {
+            onClose();
+            onDelete(account);
+          }}
+          disabled={busy || account.isActive}
+        >
+          <FaTrash className="me-2" />
+          Delete
+        </button>
+      </div>
+    </FloatingActionMenu>
+  );
+}
+
+function BlockchainAccountsModal({
+  open,
+  busy,
+  accounts,
+  selectedAccountId,
+  onSelectAccount,
+  activeTab,
+  onTabChange,
+  addForm,
+  onAddFormChange,
+  onAddAccount,
+  openMenuId,
+  onMenuToggle,
+  onMenuClose,
+  onEditAccount,
+  onActivateAccount,
+  onDeleteAccount,
+  credentials,
+  credentialsLoading,
+  credentialsError,
+  onClose,
+}) {
+  if (!open) return null;
+
+  const selectedAccount =
+    accounts.find((account) => account.id === selectedAccountId || account._id === selectedAccountId) ||
+    accounts.find((account) => account.isActive) ||
+    accounts[0] ||
+    null;
+
+  const tabs = ['Accounts', 'Anchored Credentials'];
+
+  return (
+    <ModalShell
+      title="Manage Blockchain Accounts"
+      body="Private keys are encrypted on save and are never shown again."
+      onClose={busy ? () => {} : onClose}
+      size="modal-xl"
+      scrollable
+      footer={
+        <button className="btn btn-outline-secondary" onClick={onClose} disabled={busy}>
+          Close
+        </button>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        <div className="d-flex flex-wrap gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={`btn btn-sm ${activeTab === tab ? 'btn-primary' : 'btn-outline-primary'}`}
+              onClick={() => onTabChange(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'Accounts' ? (
+          <>
+            <div className="border rounded-3 p-3 bg-light">
+              <div className="row g-2 align-items-end">
+                <div className="col-md-4">
+                  <label className="form-label small fw-semibold">Account Name</label>
+                  <input
+                    className="form-control form-control-sm"
+                    value={addForm.name}
+                    onChange={(event) => onAddFormChange({ ...addForm, name: event.target.value })}
+                    disabled={busy}
+                  />
+                </div>
+                <div className="col-md-6">
+                  <label className="form-label small fw-semibold">Private Key</label>
+                  <input
+                    type="password"
+                    className="form-control form-control-sm"
+                    value={addForm.privateKey}
+                    onChange={(event) => onAddFormChange({ ...addForm, privateKey: event.target.value })}
+                    disabled={busy}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="col-md-2 d-grid">
+                  <button
+                    type="button"
+                    className="btn btn-success btn-sm"
+                    onClick={onAddAccount}
+                    disabled={busy || !addForm.name.trim() || !addForm.privateKey.trim()}
+                  >
+                    <FaPlus className="me-2" />
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="table-responsive">
+              <table className="table align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 180 }}>Name</th>
+                    <th style={{ minWidth: 360 }}>Wallet Address</th>
+                    <th style={{ minWidth: 120 }}>Status</th>
+                    <th style={{ width: 110 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.length ? (
+                    accounts.map((account) => {
+                      const id = account.id || account._id;
+                      const isSelected = selectedAccount?.id === id || selectedAccount?._id === id;
+
+                      return (
+                        <tr
+                          key={id || account.address}
+                          className={isSelected ? 'table-active' : ''}
+                          onClick={() => onSelectAccount(id)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <td className="fw-semibold">{account.name || 'Unnamed Account'}</td>
+                          <td className="text-break small">{account.address}</td>
+                          <td>
+                            <span className={`badge ${account.isActive ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                              {account.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td onClick={(event) => event.stopPropagation()}>
+                            <AccountActionMenu
+                              account={account}
+                              isOpen={openMenuId === id}
+                              onToggle={() => onMenuToggle(id)}
+                              onClose={onMenuClose}
+                              onEdit={onEditAccount}
+                              onActivate={onActivateAccount}
+                              onDelete={onDeleteAccount}
+                              busy={busy}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan="4" className="text-center text-muted py-4">
+                        No blockchain accounts saved yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="d-flex flex-column gap-3">
+            <div className="border rounded-3 p-3 bg-light">
+              <div className="small text-muted">Selected Account</div>
+              <div className="fw-semibold">{selectedAccount?.name || 'No account selected'}</div>
+              <div className="small text-break">{selectedAccount?.address || 'Select an account from the Accounts tab.'}</div>
+            </div>
+
+            {credentialsError ? <div className="alert alert-danger mb-0">{credentialsError}</div> : null}
+
+            <div className="table-responsive">
+              <table className="table align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 180 }}>Credential ID</th>
+                    <th style={{ minWidth: 180 }}>Student</th>
+                    <th style={{ minWidth: 120 }}>VC Type</th>
+                    <th style={{ minWidth: 260 }}>Transaction Hash</th>
+                    <th style={{ minWidth: 170 }}>Anchor Date</th>
+                    <th style={{ minWidth: 100 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {credentialsLoading ? (
+                    <tr>
+                      <td colSpan="6" className="text-center text-muted py-4">
+                        Loading anchored credentials...
+                      </td>
+                    </tr>
+                  ) : credentials.length ? (
+                    credentials.map((credential) => (
+                      <tr key={credential.id || credential.credentialId}>
+                        <td className="small text-break">{credential.credentialId}</td>
+                        <td>{credential.student || 'Not available'}</td>
+                        <td>{credential.vcType || 'VC'}</td>
+                        <td className="small text-break">{credential.transactionHash || 'Not available'}</td>
+                        <td>{formatDate(credential.anchorDate)}</td>
+                        <td>
+                          <span className="badge text-bg-success">{credential.status || 'anchored'}</span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="text-center text-muted py-4">
+                        No anchored credentials found for this account.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
 function Toggle({ checked, disabled, onChange }) {
   return (
     <input
@@ -419,6 +687,17 @@ export default function SystemSettingsPage() {
   const [networkTest, setNetworkTest] = useState({ status: 'idle', message: '' });
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [emailSecret, setEmailSecret] = useState('');
+  const [accountsModalOpen, setAccountsModalOpen] = useState(false);
+  const [accountsModalTab, setAccountsModalTab] = useState('Accounts');
+  const [selectedBlockchainAccountId, setSelectedBlockchainAccountId] = useState('');
+  const [accountMenuId, setAccountMenuId] = useState('');
+  const [accountForm, setAccountForm] = useState({
+    name: '',
+    privateKey: '',
+  });
+  const [anchoredCredentials, setAnchoredCredentials] = useState([]);
+  const [anchoredCredentialsLoading, setAnchoredCredentialsLoading] = useState(false);
+  const [anchoredCredentialsError, setAnchoredCredentialsError] = useState('');
   const [newKeyForm, setNewKeyForm] = useState({
     name: '',
     activate: true,
@@ -459,6 +738,14 @@ export default function SystemSettingsPage() {
   const selectedContractOption = useMemo(
     () => selectableContracts.find((item) => isSameContract(item, selectedContractId)),
     [selectableContracts, selectedContractId]
+  );
+  const blockchainAccounts = useMemo(
+    () => wallet?.blockchainAccounts || [],
+    [wallet?.blockchainAccounts]
+  );
+  const activeBlockchainAccount = useMemo(
+    () => wallet?.activeAccount || blockchainAccounts.find((account) => account.isActive) || null,
+    [blockchainAccounts, wallet?.activeAccount]
   );
   const activeContract = useMemo(() => {
     const activeKeys = [
@@ -586,6 +873,45 @@ export default function SystemSettingsPage() {
   useEffect(() => {
     loadDashboard();
   }, []);
+
+  useEffect(() => {
+    if (!accountsModalOpen || selectedBlockchainAccountId) return;
+
+    const account = activeBlockchainAccount || blockchainAccounts[0] || null;
+    if (account) {
+      setSelectedBlockchainAccountId(account.id || account._id || '');
+    }
+  }, [accountsModalOpen, activeBlockchainAccount, blockchainAccounts, selectedBlockchainAccountId]);
+
+  useEffect(() => {
+    if (!accountsModalOpen || accountsModalTab !== 'Anchored Credentials' || !selectedBlockchainAccountId) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function loadAnchoredCredentials() {
+      try {
+        setAnchoredCredentialsLoading(true);
+        setAnchoredCredentialsError('');
+        const data = await listBlockchainAccountCredentials(selectedBlockchainAccountId);
+        if (active) setAnchoredCredentials(data.credentials || []);
+      } catch (error) {
+        if (active) {
+          setAnchoredCredentials([]);
+          setAnchoredCredentialsError(actionError(error, 'Failed to load anchored credentials.'));
+        }
+      } finally {
+        if (active) setAnchoredCredentialsLoading(false);
+      }
+    }
+
+    loadAnchoredCredentials();
+
+    return () => {
+      active = false;
+    };
+  }, [accountsModalOpen, accountsModalTab, selectedBlockchainAccountId]);
 
   useEffect(() => {
     let active = true;
@@ -754,7 +1080,7 @@ export default function SystemSettingsPage() {
         const updated = await updateEmailSettings({
           emailOtp: {
             ...settings.emailOtp,
-            secret: emailSecret,
+            apiKey: emailSecret,
           },
         });
         setSettings((prev) => ({
@@ -822,6 +1148,68 @@ export default function SystemSettingsPage() {
           type: updated.warning ? 'warning' : 'success',
           text: updated.warning || 'Active contract updated.',
         });
+      },
+    });
+  }
+
+  async function handleAddBlockchainAccount() {
+    try {
+      setBusy(true);
+      const created = await createBlockchainAccount(accountForm);
+      setAccountForm({ name: '', privateKey: '' });
+      setSelectedBlockchainAccountId(created.id || created._id || '');
+      setFeedback({ type: 'success', text: 'Blockchain account added.' });
+      await loadDashboard();
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Failed to add blockchain account.') });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function editBlockchainAccount(account) {
+    setTextAction({
+      title: 'Edit blockchain account name',
+      body: 'Private keys cannot be edited. Create a new account when a new key is required.',
+      label: 'Account Name',
+      initialValue: account.name || '',
+      required: true,
+      confirmLabel: 'Save',
+      run: async (name) => {
+        await updateBlockchainAccount(account.id || account._id, { name });
+        setFeedback({ type: 'success', text: 'Blockchain account name updated.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function confirmActivateBlockchainAccount(account) {
+    setSelectedBlockchainAccountId(account.id || account._id || '');
+    setConfirmAction({
+      title: 'Change Active Blockchain Account',
+      body: 'Future blockchain transactions will use the selected account. Existing anchored credentials will remain unchanged.',
+      details: `${account.name || 'Blockchain Account'} - ${account.address}`,
+      confirmLabel: 'Confirm',
+      run: async () => {
+        await activateBlockchainAccount(account.id || account._id);
+        setFeedback({ type: 'success', text: 'Active blockchain account updated.' });
+        await loadDashboard();
+      },
+    });
+  }
+
+  function confirmDeleteBlockchainAccount(account) {
+    setConfirmAction({
+      title: 'Delete blockchain account?',
+      body: 'Only unused inactive accounts can be deleted.',
+      details: `${account.name || 'Blockchain Account'} - ${account.address}`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+      run: async () => {
+        await deleteBlockchainAccount(account.id || account._id);
+        setFeedback({ type: 'success', text: 'Blockchain account deleted.' });
+        setSelectedBlockchainAccountId('');
+        await loadDashboard();
       },
     });
   }
@@ -1247,110 +1635,57 @@ export default function SystemSettingsPage() {
         <div className="card-body p-4">
           <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
             <div>
-              <h2 className="h5 mb-1">Email / OTP</h2>
+              <h2 className="h5 mb-1">Email Provider</h2>
               <p className="text-muted mb-0">
-                Control whether mobile registration requires delivered email OTP codes.
+                Configure delivered OTP email for mobile registration and password resets.
               </p>
             </div>
             <span className={`badge ${emailOtp.enabled ? 'text-bg-success' : 'text-bg-secondary'}`}>
-              {emailOtp.enabled ? 'Enabled' : 'Disabled by MIS'}
+              {emailOtp.enabled ? 'Enabled' : 'Disabled'}
             </span>
           </div>
 
           <div className="alert alert-light border">
             {emailOtp.enabled
-              ? 'When enabled, provider details must be configured before mobile users can request OTP codes.'
-              : 'When disabled, the mobile app will show a clear MIS-disabled message and allow capstone registration to continue.'}
+              ? 'Resend is enabled for OTP delivery. The API key is encrypted and never returned.'
+              : 'OTP email delivery is disabled. Mobile registration will use the MIS-disabled flow.'}
           </div>
 
           <div className="row g-3">
             <div className="col-md-4">
-              <label className="form-label fw-semibold">Email OTP</label>
+              <label className="form-label fw-semibold">Provider</label>
+              <select
+                className="form-select"
+                value={emailOtp.provider || 'resend'}
+                disabled={!canEdit}
+                onChange={(event) => updateNested('emailOtp', 'provider', event.target.value)}
+              >
+                <option value="resend">Resend</option>
+              </select>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label fw-semibold">Status</label>
               <select
                 className="form-select"
                 value={emailOtp.enabled ? 'enabled' : 'disabled'}
                 disabled={!canEdit}
                 onChange={(event) => updateNested('emailOtp', 'enabled', event.target.value === 'enabled')}
               >
-                <option value="disabled">Disabled by MIS</option>
+                <option value="disabled">Disabled</option>
                 <option value="enabled">Enabled</option>
               </select>
             </div>
             <div className="col-md-4">
-              <label className="form-label fw-semibold">Provider</label>
-              <select
-                className="form-select"
-                value={emailOtp.provider || ''}
-                disabled={!canEdit}
-                onChange={(event) => updateNested('emailOtp', 'provider', event.target.value)}
-              >
-                <option value="">Choose provider</option>
-                <option value="smtp">SMTP</option>
-                <option value="api">API provider</option>
-              </select>
-            </div>
-            <div className="col-md-4">
-              <label className="form-label fw-semibold">Secret</label>
+              <label className="form-label fw-semibold">API Key</label>
               <input
                 className="form-control"
                 value={emailSecret}
                 disabled={!canEdit}
                 type="password"
-                placeholder={emailOtp.secretMasked || (emailOtp.secretConfigured ? 'Configured' : 'API key or SMTP password')}
+                placeholder={emailOtp.apiKeyConfigured || emailOtp.secretConfigured ? 'Configured' : 'Resend API key'}
                 onChange={(event) => setEmailSecret(event.target.value)}
               />
-              <div className="form-text">Leave blank to keep the current encrypted secret.</div>
-            </div>
-            <div className="col-md-6">
-              <label className="form-label fw-semibold">Sender Email</label>
-              <input
-                className="form-control"
-                value={emailOtp.senderEmail || ''}
-                disabled={!canEdit}
-                placeholder="registrar@psau.edu.ph"
-                onChange={(event) => updateNested('emailOtp', 'senderEmail', event.target.value)}
-              />
-            </div>
-            <div className="col-md-6">
-              <label className="form-label fw-semibold">Sender Name</label>
-              <input
-                className="form-control"
-                value={emailOtp.senderName || ''}
-                disabled={!canEdit}
-                placeholder="PSAU Registrar"
-                onChange={(event) => updateNested('emailOtp', 'senderName', event.target.value)}
-              />
-            </div>
-            <div className="col-md-5">
-              <label className="form-label fw-semibold">SMTP Host</label>
-              <input
-                className="form-control"
-                value={emailOtp.smtpHost || ''}
-                disabled={!canEdit}
-                placeholder="smtp.example.com"
-                onChange={(event) => updateNested('emailOtp', 'smtpHost', event.target.value)}
-              />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label fw-semibold">SMTP Port</label>
-              <input
-                type="number"
-                className="form-control"
-                value={emailOtp.smtpPort || ''}
-                disabled={!canEdit}
-                placeholder="465"
-                onChange={(event) => updateNested('emailOtp', 'smtpPort', event.target.value)}
-              />
-            </div>
-            <div className="col-md-4 d-flex align-items-end">
-              <label className="form-check form-switch d-flex align-items-center gap-2 mb-2">
-                <Toggle
-                  checked={emailOtp.smtpSecure}
-                  disabled={!canEdit}
-                  onChange={(value) => updateNested('emailOtp', 'smtpSecure', value)}
-                />
-                <span className="fw-semibold">Use TLS / SSL</span>
-              </label>
+              <div className="form-text">Leave blank to keep the current encrypted API key.</div>
             </div>
           </div>
 
@@ -1802,62 +2137,70 @@ export default function SystemSettingsPage() {
   }
 
   function renderBlockchain() {
+    const hasActiveAccount = Boolean(activeBlockchainAccount?.address);
+    const statusLabel = hasActiveAccount ? (wallet?.ok ? 'Active' : 'Needs attention') : 'Not configured';
+    const statusClass = hasActiveAccount ? (wallet?.ok ? 'text-bg-success' : 'text-bg-warning') : 'text-bg-secondary';
+
     return (
       <div className="card border-0 shadow-sm">
         <div className="card-body p-4">
           <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
             <div>
-              <h2 className="h5 mb-1">Anchor Contracts</h2>
+              <h2 className="h5 mb-1">Blockchain Account</h2>
               <p className="text-muted mb-0">
-                The active contract appears first and is used for future anchoring.
+                Future blockchain transactions use the active account selected here.
               </p>
             </div>
 
-            <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
+            <div className="d-flex flex-wrap gap-2">
+              <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setAccountsModalOpen(true)}
+                disabled={!access.canManageBlockchainAccounts}
+              >
+                Manage Accounts
+              </button>
+            </div>
           </div>
 
-          {!wallet?.ok ? (
-            <div className="alert alert-warning">
-              Contract health is unavailable.
-              {wallet?.error ? <div className="small mt-2">{wallet.error}</div> : null}
-            </div>
-          ) : null}
-
           <div className="row g-3 mb-4">
-            <div className="col-md-6 col-xl-3">
+            <div className="col-md-6 col-xl-4">
               <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Wallet</div>
-                <div className="fw-semibold small text-break">{wallet?.walletAddress || 'Not configured'}</div>
+                <div className="small text-muted">Active Account</div>
+                <div className="fw-semibold">{activeBlockchainAccount?.name || 'Not configured'}</div>
               </div>
             </div>
-            <div className="col-md-6 col-xl-3">
+            <div className="col-md-6 col-xl-5">
               <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Network</div>
-                <div className="fw-semibold">{wallet?.networkLabel || 'Unavailable'}</div>
-              </div>
-            </div>
-            <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Chain ID</div>
-                <div className="fw-semibold">{wallet?.chainId ?? 'Not available'}</div>
-              </div>
-            </div>
-            <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Balance</div>
-                <div className="fw-semibold">
-                  {wallet?.walletBalance || '0.0000'} {wallet?.gasToken || 'POL'}
+                <div className="small text-muted">Account Address</div>
+                <div className="fw-semibold small text-break">
+                  {activeBlockchainAccount?.address || 'Not configured'}
                 </div>
               </div>
             </div>
+            <div className="col-md-6 col-xl-3">
+              <div className="border rounded-3 p-3 h-100 bg-light">
+                <div className="small text-muted">Status</div>
+                <span className={`badge ${statusClass}`}>{statusLabel}</span>
+              </div>
+            </div>
           </div>
 
-          {selectableContracts.length === 0 ? (
-            <div className="alert alert-light border mb-0">
-              No MerkleAnchor contracts are registered yet. Register or deploy one from Contract Manager first.
-            </div>
+          {true ? (
+            <>
+              {!wallet?.ok && wallet?.error ? (
+                <div className="alert alert-warning mb-0">{wallet.error}</div>
+              ) : null}
+
+              {!access.canManageBlockchainAccounts ? (
+                <div className="alert alert-light border mb-0">
+                  Blockchain accounts are read only for your role.
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="table-responsive">
               <table className="table align-middle mb-0">

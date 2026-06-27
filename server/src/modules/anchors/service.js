@@ -208,6 +208,9 @@ function buildAnchorResultFromRecord(anchorRecord, contract) {
     anchorBlockNumber: anchorRecord.blockNumber ?? null,
     anchorContractAddress: anchorRecord.contractAddress,
     contractAddress: anchorRecord.contractAddress,
+    anchorBlockchainAccountId: anchorRecord.blockchainAccountId || '',
+    anchorBlockchainAccountName: anchorRecord.blockchainAccountName || '',
+    anchorBlockchainAccountAddress: anchorRecord.blockchainAccountAddress || '',
     anchorNetwork: anchorRecord.network || contract?.network || '',
     anchorChainId: anchorRecord.chainId ?? contract?.chainId ?? null,
     anchorExplorerUrl: anchorRecord.explorerUrl || '',
@@ -295,6 +298,9 @@ async function createOrReuseAnchorRecord({ plan, contract, actor, anchorType }) 
     anchorRecord.explorerUrl = anchorResult.anchorExplorerUrl || '';
     anchorRecord.eventName = anchorResult.anchorEventName || '';
     anchorRecord.eventArgs = anchorResult.anchorEventArgs || null;
+    anchorRecord.blockchainAccountId = anchorResult.anchorBlockchainAccountId || '';
+    anchorRecord.blockchainAccountName = anchorResult.anchorBlockchainAccountName || '';
+    anchorRecord.blockchainAccountAddress = anchorResult.anchorBlockchainAccountAddress || '';
     anchorRecord.anchoredAt = anchorResult.anchoredAt || new Date();
     anchorRecord.anchoredBy = actor?._id || null;
     anchorRecord.failureReason = '';
@@ -330,6 +336,9 @@ function applyAnchorToDraft(draft, { anchorRecord, anchorResult, proof, tree }) 
   draft.anchorContractAddress = anchorResult.anchorContractAddress || anchorResult.contractAddress || '';
   draft.contractAddress = anchorResult.contractAddress || anchorResult.anchorContractAddress || '';
   draft.anchorNetwork = anchorResult.anchorNetwork || '';
+  draft.anchorBlockchainAccountId = anchorResult.anchorBlockchainAccountId || '';
+  draft.anchorBlockchainAccountName = anchorResult.anchorBlockchainAccountName || '';
+  draft.anchorBlockchainAccountAddress = anchorResult.anchorBlockchainAccountAddress || '';
   draft.anchorChainId = anchorResult.anchorChainId ?? null;
   draft.anchorExplorerUrl = anchorResult.anchorExplorerUrl || '';
   draft.anchorEventName = anchorResult.anchorEventName || '';
@@ -348,6 +357,9 @@ function applyAnchorToDraft(draft, { anchorRecord, anchorResult, proof, tree }) 
     blockNumber: draft.anchorBlockNumber,
     contractAddress: draft.anchorContractAddress || draft.contractAddress,
     contractId: String(anchorRecord.contractId || ''),
+    blockchainAccountId: draft.anchorBlockchainAccountId,
+    blockchainAccountName: draft.anchorBlockchainAccountName,
+    blockchainAccountAddress: draft.anchorBlockchainAccountAddress,
     chainId: draft.anchorChainId,
     network: draft.anchorNetwork,
     explorerUrl: draft.anchorExplorerUrl,

@@ -76,6 +76,7 @@ const settingSchema = new mongoose.Schema(
     emailOtp: {
       enabled: { type: Boolean, default: false },
       provider: { type: String, default: '', trim: true },
+      encryptedApiKey: { type: String, default: '', select: false },
       senderEmail: { type: String, default: '', trim: true },
       senderName: { type: String, default: '', trim: true },
       smtpHost: { type: String, default: '', trim: true },

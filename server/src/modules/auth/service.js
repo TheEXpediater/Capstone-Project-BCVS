@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { randomBytes, randomInt } from 'node:crypto';
 import { Types } from 'mongoose';
 import { env } from '../../config/env.js';
 import { ApiError } from '../../shared/utils/ApiError.js';
@@ -7,6 +8,7 @@ import { getRoleModel } from './role.model.js';
 import { getUserModel } from './user.model.js';
 import { getSessionModel } from './session.model.js';
 import { getEmailOtpStatus } from '../settings/setting.service.js';
+import { sendOtpEmail } from '../email/service.js';
 
 const DEFAULT_ROLES = [
   {
@@ -45,6 +47,11 @@ const DEFAULT_ROLES = [
     description: 'Mobile holder account.',
   },
 ];
+
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const otpStore = new Map();
+const resetSessions = new Map();
 
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
@@ -143,6 +150,74 @@ function normalizeManagedUser(user) {
   }
 
   return normalized;
+}
+
+function otpStoreKey(purpose, email) {
+  return `${purpose}:${cleanString(email).toLowerCase()}`;
+}
+
+function generateOtpCode() {
+  return String(randomInt(100000, 1000000));
+}
+
+function saveOtp(purpose, email, code) {
+  otpStore.set(otpStoreKey(purpose, email), {
+    code,
+    expiresAt: Date.now() + OTP_TTL_MS,
+    attempts: 0,
+  });
+}
+
+function verifyStoredOtp(purpose, email, code) {
+  const key = otpStoreKey(purpose, email);
+  const record = otpStore.get(key);
+  const submitted = cleanString(code);
+
+  if (!record) {
+    throw new ApiError(400, 'Verification code was not requested or has expired.');
+  }
+
+  if (record.expiresAt < Date.now()) {
+    otpStore.delete(key);
+    throw new ApiError(400, 'Verification code has expired.');
+  }
+
+  record.attempts += 1;
+  if (record.attempts > OTP_MAX_ATTEMPTS) {
+    otpStore.delete(key);
+    throw new ApiError(429, 'Too many verification attempts. Request a new code.');
+  }
+
+  if (record.code !== submitted) {
+    throw new ApiError(400, 'Invalid verification code.');
+  }
+
+  otpStore.delete(key);
+}
+
+function createResetSession(email) {
+  const token = randomBytes(24).toString('hex');
+  resetSessions.set(token, {
+    email: cleanString(email).toLowerCase(),
+    expiresAt: Date.now() + OTP_TTL_MS,
+  });
+  return token;
+}
+
+function consumeResetSession(email, token) {
+  const sessionToken = cleanString(token);
+  const record = resetSessions.get(sessionToken);
+
+  if (!record || record.email !== cleanString(email).toLowerCase()) {
+    throw new ApiError(400, 'Password reset session is invalid or expired.');
+  }
+
+  if (record.expiresAt < Date.now()) {
+    resetSessions.delete(sessionToken);
+    throw new ApiError(400, 'Password reset session has expired.');
+  }
+
+  resetSessions.delete(sessionToken);
 }
 
 function getRequestContext(req) {
@@ -445,7 +520,15 @@ export async function requestMobileEmailOtp(payload = {}) {
     throw new ApiError(409, 'Email OTP is enabled but the email provider is not configured by MIS.');
   }
 
-  throw new ApiError(501, 'Email OTP delivery is not available yet. Ask MIS to disable OTP for capstone testing or finish provider setup.');
+  const code = generateOtpCode();
+  await sendOtpEmail({ to: email, code, purpose: 'registration' });
+  saveOtp('registration', email, code);
+
+  return {
+    success: true,
+    emailSent: true,
+    expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+  };
 }
 
 export async function verifyMobileEmailOtp(payload = {}) {
@@ -462,7 +545,12 @@ export async function verifyMobileEmailOtp(payload = {}) {
     };
   }
 
-  throw new ApiError(400, 'Email OTP verification requires a delivered code.');
+  verifyStoredOtp('registration', email, payload.code);
+
+  return {
+    success: true,
+    verified: true,
+  };
 }
 
 export async function requestMobilePasswordResetOtp(payload = {}) {
@@ -482,25 +570,68 @@ export async function requestMobilePasswordResetOtp(payload = {}) {
     throw new ApiError(409, 'Password reset email is enabled but the email provider is not configured by MIS.');
   }
 
-  throw new ApiError(501, 'Password reset email delivery is not available yet.');
+  const User = getUserModel();
+  const user = await User.findOne({ email, kind: 'mobile' }).lean();
+  if (!user) {
+    throw new ApiError(404, 'No mobile account was found for this email.');
+  }
+
+  const code = generateOtpCode();
+  await sendOtpEmail({ to: email, code, purpose: 'password_reset' });
+  saveOtp('password_reset', email, code);
+
+  return {
+    success: true,
+    emailSent: true,
+    expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+  };
 }
 
-export async function verifyMobilePasswordResetOtp() {
+export async function verifyMobilePasswordResetOtp(payload = {}) {
+  const email = cleanString(payload.email).toLowerCase();
+  if (!email) throw new ApiError(400, 'Email is required');
+
   const status = await getEmailOtpStatus();
   if (!status.enabled) {
     throw new ApiError(409, 'Email OTP is currently disabled by MIS. Please contact the registrar or MIS.');
   }
 
-  throw new ApiError(400, 'Password reset OTP verification requires a delivered code.');
+  verifyStoredOtp('password_reset', email, payload.code);
+
+  return {
+    success: true,
+    verified: true,
+    resetSession: createResetSession(email),
+  };
 }
 
-export async function resetMobilePassword() {
+export async function resetMobilePassword(payload = {}) {
+  const email = cleanString(payload.email).toLowerCase();
+  const newPassword = cleanString(payload.newPassword || payload.password);
+
+  if (!email) throw new ApiError(400, 'Email is required');
+  if (newPassword.length < 8) throw new ApiError(400, 'New password must be at least 8 characters.');
+
   const status = await getEmailOtpStatus();
   if (!status.enabled) {
     throw new ApiError(409, 'Email OTP is currently disabled by MIS. Please contact the registrar or MIS.');
   }
 
-  throw new ApiError(400, 'Password reset requires a verified reset session.');
+  consumeResetSession(email, payload.resetSession || payload.reset_session);
+
+  const User = getUserModel();
+  const user = await User.findOne({ email, kind: 'mobile' }).select('+password');
+  if (!user) {
+    throw new ApiError(404, 'No mobile account was found for this email.');
+  }
+
+  user.password = await bcrypt.hash(newPassword, Number(env.bcryptSaltRounds || 10));
+  await user.save();
+
+  return {
+    success: true,
+    message: 'Password updated successfully.',
+  };
 }
 
 export async function getMe(userId) {

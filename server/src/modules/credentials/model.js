@@ -472,6 +472,26 @@ const credentialDraftSchema = new mongoose.Schema(
       trim: true,
     },
 
+    anchorBlockchainAccountId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
+    anchorBlockchainAccountName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+
+    anchorBlockchainAccountAddress: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+
     anchorBlockNumber: {
       type: Number,
       default: null,
@@ -510,6 +530,9 @@ const credentialDraftSchema = new mongoose.Schema(
       blockNumber: { type: Number, default: null },
       contractAddress: { type: String, default: '', trim: true },
       contractId: { type: String, default: '', trim: true },
+      blockchainAccountId: { type: String, default: '', trim: true },
+      blockchainAccountName: { type: String, default: '', trim: true },
+      blockchainAccountAddress: { type: String, default: '', trim: true },
       chainId: { type: Number, default: null },
       network: { type: String, default: '', trim: true },
       explorerUrl: { type: String, default: '', trim: true },

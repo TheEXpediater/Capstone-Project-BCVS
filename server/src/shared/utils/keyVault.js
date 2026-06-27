@@ -7,6 +7,10 @@ function getMasterKey() {
   return crypto.createHash('sha256').update(env.keyEncryptionSecret).digest();
 }
 
+function getSettingsKey() {
+  return crypto.createHash('sha256').update(env.settingsEncryptionKey || env.keyEncryptionSecret).digest();
+}
+
 export function encryptPrivateKey(privateKeyPem) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv(ALGORITHM, getMasterKey(), iv);
@@ -27,7 +31,7 @@ export function encryptPrivateKey(privateKeyPem) {
 
 export function encryptSecret(value) {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGORITHM, getMasterKey(), iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, getSettingsKey(), iv);
   const encrypted = Buffer.concat([
     cipher.update(String(value || ''), 'utf8'),
     cipher.final(),
@@ -48,7 +52,7 @@ export function decryptSecret({ ciphertext, iv, authTag }) {
 
   const decipher = crypto.createDecipheriv(
     ALGORITHM,
-    getMasterKey(),
+    getSettingsKey(),
     Buffer.from(iv, 'base64')
   );
   decipher.setAuthTag(Buffer.from(authTag, 'base64'));

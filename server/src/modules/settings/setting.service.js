@@ -5,6 +5,7 @@ import { ApiError } from '../../shared/utils/ApiError.js';
 import {
   buildIssuerKid,
   buildPublicKeyFingerprint,
+  decryptSecret,
   encryptSecret,
   encryptPrivateKey,
 } from '../../shared/utils/keyVault.js';
@@ -16,6 +17,14 @@ import {
   getContractsDashboard,
 } from '../contracts/service.js';
 import { getAdminPermissionModel } from './adminPermission.model.js';
+import {
+  activateBlockchainAccount as activateBlockchainAccountRecord,
+  createBlockchainAccount as createBlockchainAccountRecord,
+  deleteBlockchainAccount as deleteBlockchainAccountRecord,
+  listAnchoredCredentialsForAccount as listAnchoredCredentialsForBlockchainAccount,
+  listBlockchainAccounts as listBlockchainAccountRecords,
+  updateBlockchainAccount as updateBlockchainAccountRecord,
+} from './blockchainAccount.service.js';
 import { getIssuerKeyModel } from './issuerKey.model.js';
 import { getSystemSettingModel } from './setting.model.js';
 
@@ -139,6 +148,7 @@ function buildAccess(actor) {
     canViewIssuerKeys: ['admin', 'super_admin', 'developer'].includes(actor.role),
     canManageIssuerKeys: actor.role === 'developer',
     canManageActiveContract: actor.role === 'developer',
+    canManageBlockchainAccounts: actor.role === 'developer',
     canViewEmailSettings: ['super_admin', 'developer'].includes(actor.role),
     canManageEmailSettings: ['super_admin', 'developer'].includes(actor.role),
   };
@@ -232,24 +242,12 @@ function serializeNetworkSettings(network = {}) {
   };
 }
 
-function maskSecretHint(value) {
-  const text = cleanString(value);
-  if (!text) return '';
-  if (text.length <= 4) return 'configured';
-  return `configured (${text.slice(-4)})`;
-}
-
 function serializeEmailOtpSettings(emailOtp = {}) {
   return {
     enabled: Boolean(emailOtp.enabled),
-    provider: cleanString(emailOtp.provider),
-    senderEmail: cleanString(emailOtp.senderEmail),
-    senderName: cleanString(emailOtp.senderName),
-    smtpHost: cleanString(emailOtp.smtpHost),
-    smtpPort: emailOtp.smtpPort ?? null,
-    smtpSecure: emailOtp.smtpSecure !== false,
-    secretConfigured: Boolean(emailOtp.secretCiphertext || emailOtp.secretHint),
-    secretMasked: maskSecretHint(emailOtp.secretHint),
+    provider: cleanString(emailOtp.provider || 'resend').toLowerCase(),
+    apiKeyConfigured: Boolean(emailOtp.encryptedApiKey || emailOtp.secretCiphertext || emailOtp.secretHint),
+    secretConfigured: Boolean(emailOtp.encryptedApiKey || emailOtp.secretCiphertext || emailOtp.secretHint),
     updatedAt: emailOtp.updatedAt || null,
   };
 }
@@ -257,17 +255,42 @@ function serializeEmailOtpSettings(emailOtp = {}) {
 function isEmailProviderConfigured(emailOtp = {}) {
   if (!emailOtp.enabled) return true;
 
-  const provider = cleanString(emailOtp.provider);
-  const senderEmail = cleanString(emailOtp.senderEmail);
-  const hasSecret = Boolean(emailOtp.secretCiphertext || emailOtp.secretHint);
+  const provider = cleanString(emailOtp.provider || 'resend').toLowerCase();
+  const hasApiKey = Boolean(emailOtp.encryptedApiKey || emailOtp.secretCiphertext || emailOtp.secretHint);
+  return provider === 'resend' && hasApiKey;
+}
 
-  if (!provider || !senderEmail || !hasSecret) return false;
+function parseEncryptedApiKey(value) {
+  const raw = cleanString(value);
+  if (!raw) return null;
 
-  if (provider === 'smtp') {
-    return Boolean(cleanString(emailOtp.smtpHost) && emailOtp.smtpPort);
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      ciphertext: cleanString(parsed.ciphertext),
+      iv: cleanString(parsed.iv),
+      authTag: cleanString(parsed.authTag),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getEncryptedApiKeyPayload(emailOtp = {}) {
+  const encryptedApiKey = parseEncryptedApiKey(emailOtp.encryptedApiKey);
+  if (encryptedApiKey?.ciphertext && encryptedApiKey?.iv && encryptedApiKey?.authTag) {
+    return encryptedApiKey;
   }
 
-  return true;
+  if (emailOtp.secretCiphertext && emailOtp.secretIv && emailOtp.secretAuthTag) {
+    return {
+      ciphertext: emailOtp.secretCiphertext,
+      iv: emailOtp.secretIv,
+      authTag: emailOtp.secretAuthTag,
+    };
+  }
+
+  return null;
 }
 
 function serializeSettings(settings) {
@@ -341,12 +364,13 @@ async function getSafeContractsDashboard() {
         gasToken: 'POL',
       },
       contracts: [],
+      activeAccount: null,
       error: error.message || 'Blockchain runtime is unavailable.',
     };
   }
 }
 
-function buildWalletResponse(settings, contractsDashboard) {
+function buildWalletResponse(settings, contractsDashboard, blockchainAccounts = {}) {
   const selectedContractId = settings.blockchain.selectedContractId || '';
   const activeContract = (contractsDashboard.contracts || []).find(
     (contract) => contract.address === selectedContractId || String(contract._id) === selectedContractId
@@ -365,8 +389,12 @@ function buildWalletResponse(settings, contractsDashboard) {
 
   return {
     ok: Boolean(contractsDashboard?.health?.ok),
+    activeAccount: contractsDashboard?.activeAccount || blockchainAccounts.activeAccount || null,
+    blockchainAccounts: blockchainAccounts.accounts || [],
     walletAddress:
       contractsDashboard?.account?.address ||
+      contractsDashboard?.activeAccount?.address ||
+      blockchainAccounts.activeAccount?.address ||
       contractsDashboard?.health?.walletAddress ||
       '',
     networkLabel:
@@ -529,11 +557,14 @@ export async function getDashboard(actor) {
     };
   }
 
-  const [settings, admins, keyDocs, contractsDashboard] = await Promise.all([
+  const [settings, admins, keyDocs, contractsDashboard, blockchainAccounts] = await Promise.all([
     ensureMainSettings(),
     buildWebUsersWithPermissions(),
     getIssuerKeyModel().find().sort({ createdAt: -1 }).lean(),
     getSafeContractsDashboard(),
+    actor.role === 'developer'
+      ? listBlockchainAccountRecords(actor).catch(() => ({ accounts: [], activeAccount: null }))
+      : Promise.resolve({ accounts: [], activeAccount: null }),
   ]);
 
   const issuerKeys = keyDocs.map(serializeIssuerKey);
@@ -542,7 +573,7 @@ export async function getDashboard(actor) {
   return {
     settings: serializeSettings(settings),
     admins,
-    wallet: buildWalletResponse(settings, contractsDashboard),
+    wallet: buildWalletResponse(settings, contractsDashboard, blockchainAccounts),
     availableContracts: contractsDashboard.contracts || [],
     issuerKeys,
     activeIssuerKey,
@@ -563,6 +594,30 @@ export async function listIssuerKeys(actor) {
     issuerKeys,
     activeIssuerKey,
   };
+}
+
+export async function listBlockchainAccounts(actor) {
+  return listBlockchainAccountRecords(actor);
+}
+
+export async function createBlockchainAccount(payload, actor) {
+  return createBlockchainAccountRecord(payload, actor);
+}
+
+export async function updateBlockchainAccount(accountId, payload, actor) {
+  return updateBlockchainAccountRecord(accountId, payload, actor);
+}
+
+export async function activateBlockchainAccount(accountId, actor) {
+  return activateBlockchainAccountRecord(accountId, actor);
+}
+
+export async function deleteBlockchainAccount(accountId, actor) {
+  return deleteBlockchainAccountRecord(accountId, actor);
+}
+
+export async function listAnchoredCredentialsForAccount(accountId, actor) {
+  return listAnchoredCredentialsForBlockchainAccount(accountId, actor);
 }
 
 export async function createIssuerKey(payload, actor) {
@@ -835,13 +890,13 @@ export async function updateEmailOtpSettings(payload, actor) {
 
   const SystemSetting = getSystemSettingModel();
   let settings = await SystemSetting.findOne({ code: 'main' }).select(
-    '+emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
+    '+emailOtp.encryptedApiKey +emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
   );
 
   if (!settings) {
     settings = await SystemSetting.create({ code: 'main' });
     settings = await SystemSetting.findOne({ code: 'main' }).select(
-      '+emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
+      '+emailOtp.encryptedApiKey +emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
     );
   }
 
@@ -849,26 +904,24 @@ export async function updateEmailOtpSettings(payload, actor) {
   settings.emailOtp = settings.emailOtp || {};
 
   if (typeof next.enabled === 'boolean') settings.emailOtp.enabled = next.enabled;
-  if (typeof next.provider === 'string') settings.emailOtp.provider = cleanString(next.provider).toLowerCase();
-  if (typeof next.senderEmail === 'string') settings.emailOtp.senderEmail = cleanString(next.senderEmail).toLowerCase();
-  if (typeof next.senderName === 'string') settings.emailOtp.senderName = cleanString(next.senderName);
-  if (typeof next.smtpHost === 'string') settings.emailOtp.smtpHost = cleanString(next.smtpHost);
-  if (next.smtpPort !== undefined) {
-    const port = Number(next.smtpPort);
-    settings.emailOtp.smtpPort = Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
-  }
-  if (typeof next.smtpSecure === 'boolean') settings.emailOtp.smtpSecure = next.smtpSecure;
-
-  const secretValue = cleanString(next.secret || next.apiKey || next.smtpPassword);
-  if (secretValue) {
-    const encrypted = encryptSecret(secretValue);
-    settings.emailOtp.secretCiphertext = encrypted.ciphertext;
-    settings.emailOtp.secretIv = encrypted.iv;
-    settings.emailOtp.secretAuthTag = encrypted.authTag;
-    settings.emailOtp.secretHint = secretValue.slice(-4);
+  if (typeof next.provider === 'string') {
+    const provider = cleanString(next.provider).toLowerCase();
+    settings.emailOtp.provider = provider || 'resend';
+  } else if (!settings.emailOtp.provider) {
+    settings.emailOtp.provider = 'resend';
   }
 
-  if (next.clearSecret === true) {
+  const apiKey = cleanString(next.apiKey || next.secret);
+  if (apiKey) {
+    settings.emailOtp.encryptedApiKey = JSON.stringify(encryptSecret(apiKey));
+    settings.emailOtp.secretCiphertext = '';
+    settings.emailOtp.secretIv = '';
+    settings.emailOtp.secretAuthTag = '';
+    settings.emailOtp.secretHint = 'configured';
+  }
+
+  if (next.clearApiKey === true || next.clearSecret === true) {
+    settings.emailOtp.encryptedApiKey = '';
     settings.emailOtp.secretCiphertext = '';
     settings.emailOtp.secretIv = '';
     settings.emailOtp.secretAuthTag = '';
@@ -876,7 +929,7 @@ export async function updateEmailOtpSettings(payload, actor) {
   }
 
   if (settings.emailOtp.enabled && !isEmailProviderConfigured(settings.emailOtp)) {
-    throw new ApiError(400, 'Email OTP cannot be enabled until provider, sender, and secret settings are configured');
+    throw new ApiError(400, 'Email OTP cannot be enabled until Resend and an API key are configured');
   }
 
   settings.emailOtp.updatedAt = new Date();
@@ -889,12 +942,39 @@ export async function updateEmailOtpSettings(payload, actor) {
 export async function getEmailOtpStatus() {
   const SystemSetting = getSystemSettingModel();
   const settings =
-    (await SystemSetting.findOne({ code: 'main' }).select('+emailOtp.secretCiphertext')) ||
+    (await SystemSetting.findOne({ code: 'main' }).select('+emailOtp.encryptedApiKey +emailOtp.secretCiphertext')) ||
     (await ensureMainSettings());
   const emailOtp = settings.emailOtp || {};
   return {
     ...serializeEmailOtpSettings(emailOtp),
     configured: isEmailProviderConfigured(emailOtp),
+  };
+}
+
+export async function getEmailOtpDeliveryConfig() {
+  const SystemSetting = getSystemSettingModel();
+  const settings =
+    (await SystemSetting.findOne({ code: 'main' }).select(
+      '+emailOtp.encryptedApiKey +emailOtp.secretCiphertext +emailOtp.secretIv +emailOtp.secretAuthTag'
+    )) || (await ensureMainSettings());
+  const emailOtp = settings.emailOtp || {};
+  const status = {
+    ...serializeEmailOtpSettings(emailOtp),
+    configured: isEmailProviderConfigured(emailOtp),
+  };
+
+  if (!status.enabled || !status.configured) {
+    return status;
+  }
+
+  const encrypted = getEncryptedApiKeyPayload(emailOtp);
+  if (!encrypted) {
+    return { ...status, configured: false };
+  }
+
+  return {
+    ...status,
+    apiKey: decryptSecret(encrypted),
   };
 }
 

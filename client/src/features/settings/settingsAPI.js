@@ -135,6 +135,36 @@ export async function deleteIssuerKey(keyId) {
   return response.data.data;
 }
 
+export async function listBlockchainAccounts() {
+  const response = await api.get('/settings/blockchain/accounts');
+  return response.data.data;
+}
+
+export async function createBlockchainAccount(payload) {
+  const response = await api.post('/settings/blockchain/accounts', payload);
+  return response.data.data;
+}
+
+export async function updateBlockchainAccount(accountId, payload) {
+  const response = await api.put(`/settings/blockchain/accounts/${accountId}`, payload);
+  return response.data.data;
+}
+
+export async function activateBlockchainAccount(accountId) {
+  const response = await api.put(`/settings/blockchain/accounts/${accountId}/activate`);
+  return response.data.data;
+}
+
+export async function deleteBlockchainAccount(accountId) {
+  const response = await api.delete(`/settings/blockchain/accounts/${accountId}`);
+  return response.data.data;
+}
+
+export async function listBlockchainAccountCredentials(accountId) {
+  const response = await api.get(`/settings/blockchain/accounts/${accountId}/credentials`);
+  return response.data.data;
+}
+
 export async function updateActiveContract(payload) {
   const response = await api.put('/settings/blockchain/active-contract', payload);
   return response.data.data;

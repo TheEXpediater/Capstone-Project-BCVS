@@ -16,4 +16,4 @@ server/src/config/.env
 uploads/*
 !uploads/.gitkeep
 
-server/src/script/students/output/
+server/src/script/legacy/students/output/

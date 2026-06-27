@@ -93,6 +93,23 @@ const anchorSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    blockchainAccountId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    blockchainAccountName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    blockchainAccountAddress: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: ['pending', 'anchored', 'failed'],

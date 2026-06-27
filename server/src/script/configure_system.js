@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomInt } from 'node:crypto';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -9,6 +10,7 @@ import { env } from '../config/env.js';
 import { ensureRoles } from '../modules/auth/service.js';
 import { getUserModel } from '../modules/auth/user.model.js';
 import { getCurriculumModel } from '../modules/curriculum/model.js';
+import { getSystemSettingModel } from '../modules/settings/setting.model.js';
 import { getStudentGradeModel, getStudentModel } from '../modules/students/model.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -119,6 +121,10 @@ function firstFourDigitYear(value, fallback = '2021') {
   return match ? match[0] : fallback;
 }
 
+function defaultCurriculumYear() {
+  return firstFourDigitYear(process.env.DEFAULT_CURRICULUM_YEAR || new Date().getFullYear(), '2026');
+}
+
 function normalizeProgramCode(value) {
   const normalized = cleanString(value).toUpperCase().replace(/\s+/g, '');
   return normalized === 'BSCPE' ? 'BSCPE' : normalized;
@@ -143,8 +149,8 @@ function makeDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function buildStudentNo(curriculumYear, serial) {
-  return `C${firstFourDigitYear(curriculumYear)}${String(serial).padStart(5, '0')}`;
+function buildStudentNo(curriculumYear, suffix) {
+  return `C${firstFourDigitYear(curriculumYear)}${String(suffix).padStart(5, '0')}`;
 }
 
 function buildStudentName(index) {
@@ -262,8 +268,6 @@ function flattenSubjects(curriculum) {
 }
 
 async function seedWebUsers(defaultPassword) {
-  await ensureRoles();
-
   const User = getUserModel();
   const passwordHash = await bcrypt.hash(defaultPassword, Number(env.bcryptSaltRounds || 10));
   let created = 0;
@@ -294,23 +298,62 @@ async function seedWebUsers(defaultPassword) {
   return { created, skipped, total: WEB_USERS.length };
 }
 
+async function ensureSystemConfiguration() {
+  const SystemSetting = getSystemSettingModel();
+  const settings = await SystemSetting.findOneAndUpdate(
+    { code: 'main' },
+    {
+      $setOnInsert: {
+        code: 'main',
+        emailOtp: {
+          enabled: false,
+          provider: 'resend',
+          encryptedApiKey: '',
+          updatedAt: null,
+        },
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      runValidators: true,
+    }
+  );
+
+  return { code: settings.code };
+}
+
+async function discoverCurriculumFiles(inputDir) {
+  const entries = await fs.readdir(inputDir, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const entryPath = path.join(inputDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await discoverCurriculumFiles(entryPath)));
+    } else if (entry.isFile() && /\.json$/i.test(entry.name)) {
+      files.push(entryPath);
+    }
+  }
+
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
 async function seedCurricula(inputDir, curriculumYear) {
   await fs.mkdir(inputDir, { recursive: true });
 
   const Curriculum = getCurriculumModel();
-  const entries = (await fs.readdir(inputDir))
-    .filter((file) => /_?Curriculum\.json$/i.test(file))
-    .sort();
+  const entries = await discoverCurriculumFiles(inputDir);
 
   if (!entries.length) {
-    throw new Error(`No *_Curriculum.json files found in ${inputDir}. Place the default curriculum JSON files there and rerun the seed.`);
+    throw new Error(`No curriculum JSON files found in ${inputDir}. Place the default curriculum JSON files there and rerun the seed.`);
   }
 
   const curricula = [];
   const skipped = [];
 
-  for (const file of entries) {
-    const filePath = path.join(inputDir, file);
+  for (const filePath of entries) {
+    const file = path.relative(inputDir, filePath);
     const raw = JSON.parse(await fs.readFile(filePath, 'utf8'));
     const program = inferProgramFromFile(file);
     const programName = PROGRAM_NAMES[program] || program;
@@ -366,28 +409,34 @@ async function resetSeededStudents(Student, StudentGrade, curriculumYear) {
   };
 }
 
-function isSameSeed(existing, curriculumYear) {
-  return (
-    existing?.seedMeta?.source === SEED_SOURCE &&
-    existing?.seedMeta?.curriculumYear === firstFourDigitYear(curriculumYear)
-  );
+async function findSeededStudentForSlot(Student, curriculum, curriculumYear, localIndex) {
+  const existing = await Student.find({
+    'seedMeta.source': SEED_SOURCE,
+    'seedMeta.curriculumYear': firstFourDigitYear(curriculumYear),
+    programCode: curriculum.program,
+  })
+    .sort({ studentNo: 1 })
+    .skip(localIndex - 1)
+    .limit(1);
+
+  return existing[0] || null;
 }
 
-async function findWritableStudentSlot(Student, curriculumYear, startingSerial) {
-  let serial = startingSerial;
+async function buildUniqueRandomStudentNo(Student, curriculumYear, usedStudentNos) {
+  const year = firstFourDigitYear(curriculumYear);
 
-  while (serial < 100000) {
-    const studentNo = buildStudentNo(curriculumYear, serial);
-    const existing = await Student.findOne({ studentNo });
+  for (let attempt = 0; attempt < 100000; attempt += 1) {
+    const studentNo = buildStudentNo(year, randomInt(0, 100000));
+    if (usedStudentNos.has(studentNo)) continue;
 
-    if (!existing || isSameSeed(existing, curriculumYear)) {
-      return { studentNo, serial, existing };
+    const existing = await Student.exists({ studentNo });
+    if (!existing) {
+      usedStudentNos.add(studentNo);
+      return studentNo;
     }
-
-    serial += 1;
   }
 
-  throw new Error(`No available C${firstFourDigitYear(curriculumYear)}##### student numbers remain.`);
+  throw new Error(`No available random C${year}##### student numbers remain.`);
 }
 
 async function maybeCreateMobileUser(User, student, passwordHash) {
@@ -447,12 +496,12 @@ async function seedStudentsAndGrades(curricula, options) {
   }
 
   const defaultPasswordHash = await bcrypt.hash(options.defaultPassword, Number(env.bcryptSaltRounds || 10));
-  let serial = options.startSerial;
   let studentsSeeded = 0;
   let gradeRowsSeeded = 0;
   let mobileUsersTouched = 0;
   let firstStudentNo = '';
   let lastStudentNo = '';
+  const usedStudentNos = new Set();
 
   for (const curriculum of curricula) {
     const subjects = flattenSubjects(curriculum);
@@ -463,9 +512,17 @@ async function seedStudentsAndGrades(curricula, options) {
     }
 
     for (let localIndex = 1; localIndex <= options.studentsPerProgram; localIndex += 1) {
-      const slot = await findWritableStudentSlot(Student, options.curriculumYear, serial);
-      const globalIndex = slot.serial;
-      const studentNo = slot.studentNo;
+      const existingSeededStudent = await findSeededStudentForSlot(
+        Student,
+        curriculum,
+        options.curriculumYear,
+        localIndex
+      );
+      const studentNo =
+        cleanString(existingSeededStudent?.studentNo) ||
+        (await buildUniqueRandomStudentNo(Student, options.curriculumYear, usedStudentNos));
+      const suffixMatch = studentNo.match(/(\d{5})$/);
+      const globalIndex = Number(suffixMatch?.[1] || localIndex);
       const failThisStudent = options.failEvery > 0 && globalIndex % options.failEvery === 0;
       const gradePlans = subjects.map((subject, subjectIndex) => ({
         ...subject,
@@ -563,7 +620,6 @@ async function seedStudentsAndGrades(curricula, options) {
       gradeRowsSeeded += gradePlans.length;
       firstStudentNo ||= studentNo;
       lastStudentNo = studentNo;
-      serial = slot.serial + 1;
     }
   }
 
@@ -578,12 +634,11 @@ async function seedStudentsAndGrades(curricula, options) {
 }
 
 async function main() {
-  const curriculumYear = cleanString(getArg('--curriculumYear', '2021'));
+  const curriculumYear = cleanString(getArg('--curriculumYear', defaultCurriculumYear()));
   const studentsPerProgram = parsePositiveInteger(
     getArg('--studentsPerProgram', getArg('--studentsPerCurriculum', '100')),
     100
   );
-  const startSerial = parsePositiveInteger(getArg('--startSerial', '1'), 1);
   const schoolYear = cleanString(getArg('--schoolYear', '2025-2026'));
   const defaultPassword = cleanString(getArg('--password', process.env.SEED_DEFAULT_PASSWORD || 'ChangeMe123!'));
   const reset = toBooleanArg(getArg('--reset', 'false'), false);
@@ -601,12 +656,13 @@ async function main() {
 
   await connectDatabases();
 
+  await ensureRoles();
   const users = await seedWebUsers(defaultPassword);
+  const systemConfiguration = await ensureSystemConfiguration();
   const curricula = await seedCurricula(inputDir, curriculumYear);
   const studentSummary = await seedStudentsAndGrades(curricula.curricula, {
     curriculumYear,
     studentsPerProgram,
-    startSerial,
     schoolYear,
     defaultPassword,
     reset,
@@ -618,7 +674,9 @@ async function main() {
   });
 
   console.log('\nBCVS registrar seed completed.');
+  console.log('Roles seeded/upserted.');
   console.log(`Web users created/skipped: ${users.created}/${users.skipped}`);
+  console.log(`System configuration ensured: ${systemConfiguration.code}`);
   console.log(`Curricula imported/upserted: ${curricula.curricula.length}`);
   if (curricula.skipped.length) {
     console.log(`Curricula skipped: ${curricula.skipped.length}`);
