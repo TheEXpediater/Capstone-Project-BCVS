@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
-import { FaCog, FaEdit, FaPlus, FaTrash } from 'react-icons/fa';
+import { FaCog, FaEdit, FaEye, FaEyeSlash, FaTrash } from 'react-icons/fa';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import {
   activateBlockchainAccount,
@@ -313,6 +313,95 @@ function TextModal({ action, busy, onCancel, onConfirm }) {
   );
 }
 
+function BlockchainAccountEmptyState({ onAddAccount, disabled = false }) {
+  return (
+    <div className="border rounded-3 bg-light p-4 text-center">
+      <h3 className="h5 mb-2">No Blockchain Accounts</h3>
+      <p className="text-muted mb-3">
+        No blockchain account has been configured yet.
+        <br />
+        Add your first blockchain wallet to start anchoring credentials.
+      </p>
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={onAddAccount}
+        disabled={disabled}
+      >
+        + Add Account
+      </button>
+    </div>
+  );
+}
+
+function AddBlockchainAccountModal({
+  open,
+  busy,
+  form,
+  onFormChange,
+  onSave,
+  onCancel,
+}) {
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+
+  if (!open) return null;
+
+  const canSave = form.name.trim() && form.privateKey.trim();
+
+  return (
+    <ModalShell
+      title="Add Blockchain Account"
+      body="Wallet addresses are generated from the private key. Private keys are encrypted on save."
+      onClose={busy ? () => {} : onCancel}
+      footer={
+        <>
+          <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={onSave} disabled={busy || !canSave}>
+            {busy ? 'Saving...' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <div className="d-flex flex-column gap-3">
+        <div>
+          <label className="form-label fw-semibold">Account Name</label>
+          <input
+            className="form-control"
+            value={form.name}
+            onChange={(event) => onFormChange({ ...form, name: event.target.value })}
+            disabled={busy}
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="form-label fw-semibold">Private Key</label>
+          <div className="input-group">
+            <input
+              type={showPrivateKey ? 'text' : 'password'}
+              className="form-control"
+              value={form.privateKey}
+              onChange={(event) => onFormChange({ ...form, privateKey: event.target.value })}
+              placeholder="Enter the private key of your blockchain wallet."
+              disabled={busy}
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={() => setShowPrivateKey((value) => !value)}
+              disabled={busy}
+              aria-label={showPrivateKey ? 'Hide private key' : 'Show private key'}
+            >
+              {showPrivateKey ? <FaEyeSlash /> : <FaEye />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
 
 function ReadinessModal({ check, onClose }) {
   if (!check) return null;
@@ -447,9 +536,7 @@ function BlockchainAccountsModal({
   onSelectAccount,
   activeTab,
   onTabChange,
-  addForm,
-  onAddFormChange,
-  onAddAccount,
+  onOpenAddAccount,
   openMenuId,
   onMenuToggle,
   onMenuClose,
@@ -468,6 +555,7 @@ function BlockchainAccountsModal({
     accounts.find((account) => account.isActive) ||
     accounts[0] ||
     null;
+  const hasAccounts = accounts.length > 0;
 
   const tabs = ['Accounts', 'Anchored Credentials'];
 
@@ -492,48 +580,26 @@ function BlockchainAccountsModal({
               type="button"
               className={`btn btn-sm ${activeTab === tab ? 'btn-primary' : 'btn-outline-primary'}`}
               onClick={() => onTabChange(tab)}
+              disabled={tab === 'Anchored Credentials' && !hasAccounts}
             >
               {tab}
             </button>
           ))}
         </div>
 
-        {activeTab === 'Accounts' ? (
+        {!hasAccounts ? (
+          <BlockchainAccountEmptyState onAddAccount={onOpenAddAccount} disabled={busy} />
+        ) : activeTab === 'Accounts' ? (
           <>
-            <div className="border rounded-3 p-3 bg-light">
-              <div className="row g-2 align-items-end">
-                <div className="col-md-4">
-                  <label className="form-label small fw-semibold">Account Name</label>
-                  <input
-                    className="form-control form-control-sm"
-                    value={addForm.name}
-                    onChange={(event) => onAddFormChange({ ...addForm, name: event.target.value })}
-                    disabled={busy}
-                  />
-                </div>
-                <div className="col-md-6">
-                  <label className="form-label small fw-semibold">Private Key</label>
-                  <input
-                    type="password"
-                    className="form-control form-control-sm"
-                    value={addForm.privateKey}
-                    onChange={(event) => onAddFormChange({ ...addForm, privateKey: event.target.value })}
-                    disabled={busy}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="col-md-2 d-grid">
-                  <button
-                    type="button"
-                    className="btn btn-success btn-sm"
-                    onClick={onAddAccount}
-                    disabled={busy || !addForm.name.trim() || !addForm.privateKey.trim()}
-                  >
-                    <FaPlus className="me-2" />
-                    Add
-                  </button>
-                </div>
-              </div>
+            <div className="d-flex justify-content-end">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={onOpenAddAccount}
+                disabled={busy}
+              >
+                + Add Account
+              </button>
             </div>
 
             <div className="table-responsive">
@@ -547,47 +613,39 @@ function BlockchainAccountsModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {accounts.length ? (
-                    accounts.map((account) => {
-                      const id = account.id || account._id;
-                      const isSelected = selectedAccount?.id === id || selectedAccount?._id === id;
+                  {accounts.map((account) => {
+                    const id = account.id || account._id;
+                    const isSelected = selectedAccount?.id === id || selectedAccount?._id === id;
 
-                      return (
-                        <tr
-                          key={id || account.address}
-                          className={isSelected ? 'table-active' : ''}
-                          onClick={() => onSelectAccount(id)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <td className="fw-semibold">{account.name || 'Unnamed Account'}</td>
-                          <td className="text-break small">{account.address}</td>
-                          <td>
-                            <span className={`badge ${account.isActive ? 'text-bg-success' : 'text-bg-secondary'}`}>
-                              {account.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td onClick={(event) => event.stopPropagation()}>
-                            <AccountActionMenu
-                              account={account}
-                              isOpen={openMenuId === id}
-                              onToggle={() => onMenuToggle(id)}
-                              onClose={onMenuClose}
-                              onEdit={onEditAccount}
-                              onActivate={onActivateAccount}
-                              onDelete={onDeleteAccount}
-                              busy={busy}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="4" className="text-center text-muted py-4">
-                        No blockchain accounts saved yet.
-                      </td>
-                    </tr>
-                  )}
+                    return (
+                      <tr
+                        key={id || account.address}
+                        className={isSelected ? 'table-active' : ''}
+                        onClick={() => onSelectAccount(id)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td className="fw-semibold">{account.name || 'Unnamed Account'}</td>
+                        <td className="text-break small">{account.address}</td>
+                        <td>
+                          <span className={`badge ${account.isActive ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                            {account.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td onClick={(event) => event.stopPropagation()}>
+                          <AccountActionMenu
+                            account={account}
+                            isOpen={openMenuId === id}
+                            onToggle={() => onMenuToggle(id)}
+                            onClose={onMenuClose}
+                            onEdit={onEditAccount}
+                            onActivate={onActivateAccount}
+                            onDelete={onDeleteAccount}
+                            busy={busy}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -688,6 +746,7 @@ export default function SystemSettingsPage() {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [emailSecret, setEmailSecret] = useState('');
   const [accountsModalOpen, setAccountsModalOpen] = useState(false);
+  const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [accountsModalTab, setAccountsModalTab] = useState('Accounts');
   const [selectedBlockchainAccountId, setSelectedBlockchainAccountId] = useState('');
   const [accountMenuId, setAccountMenuId] = useState('');
@@ -942,6 +1001,21 @@ export default function SystemSettingsPage() {
     return error?.response?.data?.message || error?.message || fallback;
   }
 
+  function openAddBlockchainAccountModal() {
+    setAccountForm({ name: '', privateKey: '' });
+    setAddAccountModalOpen(true);
+  }
+
+  function closeAddBlockchainAccountModal() {
+    setAddAccountModalOpen(false);
+    setAccountForm({ name: '', privateKey: '' });
+  }
+
+  function openBlockchainAccountsModal() {
+    setAccountsModalTab('Accounts');
+    setAccountsModalOpen(true);
+  }
+
   async function runConfirmedAction() {
     if (!confirmAction?.run) return;
 
@@ -1157,6 +1231,7 @@ export default function SystemSettingsPage() {
       setBusy(true);
       const created = await createBlockchainAccount(accountForm);
       setAccountForm({ name: '', privateKey: '' });
+      setAddAccountModalOpen(false);
       setSelectedBlockchainAccountId(created.id || created._id || '');
       setFeedback({ type: 'success', text: 'Blockchain account added.' });
       await loadDashboard();
@@ -2138,6 +2213,7 @@ export default function SystemSettingsPage() {
 
   function renderBlockchain() {
     const hasActiveAccount = Boolean(activeBlockchainAccount?.address);
+    const hasBlockchainAccounts = blockchainAccounts.length > 0;
     const statusLabel = hasActiveAccount ? (wallet?.ok ? 'Active' : 'Needs attention') : 'Not configured';
     const statusClass = hasActiveAccount ? (wallet?.ok ? 'text-bg-success' : 'text-bg-warning') : 'text-bg-secondary';
 
@@ -2156,9 +2232,18 @@ export default function SystemSettingsPage() {
               <button className="btn btn-outline-secondary btn-sm" onClick={loadDashboard} disabled={loading}>
                 {loading ? 'Refreshing...' : 'Refresh'}
               </button>
+              {!hasBlockchainAccounts ? (
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={openAddBlockchainAccountModal}
+                  disabled={!access.canManageBlockchainAccounts || busy}
+                >
+                  + Add Account
+                </button>
+              ) : null}
               <button
-                className="btn btn-primary btn-sm"
-                onClick={() => setAccountsModalOpen(true)}
+                className={`btn btn-sm ${hasBlockchainAccounts ? 'btn-primary' : 'btn-outline-primary'}`}
+                onClick={openBlockchainAccountsModal}
                 disabled={!access.canManageBlockchainAccounts}
               >
                 Manage Accounts
@@ -2166,42 +2251,56 @@ export default function SystemSettingsPage() {
             </div>
           </div>
 
-          <div className="row g-3 mb-4">
-            <div className="col-md-6 col-xl-4">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Active Account</div>
-                <div className="fw-semibold">{activeBlockchainAccount?.name || 'Not configured'}</div>
-              </div>
-            </div>
-            <div className="col-md-6 col-xl-5">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Account Address</div>
-                <div className="fw-semibold small text-break">
-                  {activeBlockchainAccount?.address || 'Not configured'}
-                </div>
-              </div>
-            </div>
-            <div className="col-md-6 col-xl-3">
-              <div className="border rounded-3 p-3 h-100 bg-light">
-                <div className="small text-muted">Status</div>
-                <span className={`badge ${statusClass}`}>{statusLabel}</span>
-              </div>
-            </div>
-          </div>
-
-          {true ? (
+          {!hasBlockchainAccounts ? (
             <>
-              {!wallet?.ok && wallet?.error ? (
-                <div className="alert alert-warning mb-0">{wallet.error}</div>
-              ) : null}
-
+              <BlockchainAccountEmptyState
+                onAddAccount={openAddBlockchainAccountModal}
+                disabled={!access.canManageBlockchainAccounts || busy}
+              />
               {!access.canManageBlockchainAccounts ? (
-                <div className="alert alert-light border mb-0">
+                <div className="alert alert-light border mt-3 mb-0">
                   Blockchain accounts are read only for your role.
                 </div>
               ) : null}
             </>
           ) : (
+            <>
+              <div className="row g-3 mb-4">
+                <div className="col-md-6 col-xl-4">
+                  <div className="border rounded-3 p-3 h-100 bg-light">
+                    <div className="small text-muted">Active Account</div>
+                    <div className="fw-semibold">{activeBlockchainAccount?.name || 'Not configured'}</div>
+                  </div>
+                </div>
+                <div className="col-md-6 col-xl-5">
+                  <div className="border rounded-3 p-3 h-100 bg-light">
+                    <div className="small text-muted">Account Address</div>
+                    <div className="fw-semibold small text-break">
+                      {activeBlockchainAccount?.address || 'Not configured'}
+                    </div>
+                  </div>
+                </div>
+                <div className="col-md-6 col-xl-3">
+                  <div className="border rounded-3 p-3 h-100 bg-light">
+                    <div className="small text-muted">Status</div>
+                    <span className={`badge ${statusClass}`}>{statusLabel}</span>
+                  </div>
+                </div>
+              </div>
+
+              {true ? (
+                <>
+                  {!wallet?.ok && wallet?.error ? (
+                    <div className="alert alert-warning mb-0">{wallet.error}</div>
+                  ) : null}
+
+                  {!access.canManageBlockchainAccounts ? (
+                    <div className="alert alert-light border mb-0">
+                      Blockchain accounts are read only for your role.
+                    </div>
+                  ) : null}
+                </>
+              ) : (
             <div className="table-responsive">
               <table className="table align-middle mb-0">
                 <thead>
@@ -2278,6 +2377,8 @@ export default function SystemSettingsPage() {
                 </tbody>
               </table>
             </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -2381,6 +2482,34 @@ export default function SystemSettingsPage() {
         busy={busy}
         onCancel={closeActionModals}
         onConfirm={runTextAction}
+      />
+      <BlockchainAccountsModal
+        open={accountsModalOpen}
+        busy={busy}
+        accounts={blockchainAccounts}
+        selectedAccountId={selectedBlockchainAccountId}
+        onSelectAccount={setSelectedBlockchainAccountId}
+        activeTab={accountsModalTab}
+        onTabChange={setAccountsModalTab}
+        onOpenAddAccount={openAddBlockchainAccountModal}
+        openMenuId={accountMenuId}
+        onMenuToggle={(id) => setAccountMenuId((current) => (current === id ? '' : id))}
+        onMenuClose={() => setAccountMenuId('')}
+        onEditAccount={editBlockchainAccount}
+        onActivateAccount={confirmActivateBlockchainAccount}
+        onDeleteAccount={confirmDeleteBlockchainAccount}
+        credentials={anchoredCredentials}
+        credentialsLoading={anchoredCredentialsLoading}
+        credentialsError={anchoredCredentialsError}
+        onClose={() => setAccountsModalOpen(false)}
+      />
+      <AddBlockchainAccountModal
+        open={addAccountModalOpen}
+        busy={busy}
+        form={accountForm}
+        onFormChange={setAccountForm}
+        onSave={handleAddBlockchainAccount}
+        onCancel={closeAddBlockchainAccountModal}
       />
     </>
   );
