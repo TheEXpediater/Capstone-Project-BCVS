@@ -1823,21 +1823,37 @@ function RowActionCell({
   detailsLabel = 'More Details',
   onDetails,
   actions,
+  detailsInMenu = false,
   isMenuOpen,
   onToggleMenu,
   onCloseMenu,
 }) {
+  const menuActions = detailsInMenu
+    ? [
+        {
+          key: 'view-details',
+          label: 'View Details',
+          icon: <FaEye />,
+          onClick: () => onDetails(item._id),
+          disabled: busyId === item._id,
+        },
+        ...(actions || []),
+      ]
+    : actions;
+
   return (
     <div className="d-inline-flex flex-wrap justify-content-end gap-2">
-      <button
-        className="btn btn-outline-primary btn-sm text-nowrap"
-        onClick={() => onDetails(item._id)}
-        disabled={busyId === item._id}
-      >
-        {detailsLabel}
-      </button>
+      {!detailsInMenu ? (
+        <button
+          className="btn btn-outline-primary btn-sm text-nowrap"
+          onClick={() => onDetails(item._id)}
+          disabled={busyId === item._id}
+        >
+          {detailsLabel}
+        </button>
+      ) : null}
       <DraftActionMenu
-        actions={actions}
+        actions={menuActions}
         isOpen={isMenuOpen}
         onToggle={onToggleMenu}
         onClose={onCloseMenu}
@@ -2230,6 +2246,7 @@ function AnchorProgressTable({
                   detailsLabel="More Details"
                   onDetails={onDetails}
                   actions={getActions(item)}
+                  detailsInMenu
                   isMenuOpen={actionMenuOpenId === item._id}
                   onToggleMenu={() => onToggleActionMenu(item._id)}
                   onCloseMenu={onCloseActionMenu}
@@ -2318,6 +2335,7 @@ function ClaimedCredentialsTable({
                     detailsLabel="More Details"
                     onDetails={onDetails}
                     actions={getActions(item)}
+                    detailsInMenu
                     isMenuOpen={actionMenuOpenId === item._id}
                     onToggleMenu={() => onToggleActionMenu(item._id)}
                     onCloseMenu={onCloseActionMenu}
@@ -2435,19 +2453,6 @@ export default function CredentialDraftsPage() {
 
     loadDrafts();
     loadAnchorSummary();
-  }, [activeTab, loadDrafts, loadPayments, loadAnchorSummary]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (activeTab === 'payments') {
-        loadPayments().catch(() => {});
-      } else {
-        loadDrafts().catch(() => {});
-        loadAnchorSummary().catch(() => {});
-      }
-    }, 15000);
-
-    return () => window.clearInterval(timer);
   }, [activeTab, loadDrafts, loadPayments, loadAnchorSummary]);
 
   useEffect(() => {
@@ -3043,7 +3048,7 @@ export default function CredentialDraftsPage() {
     if (canShowClaimQr(draft) && canUseRegistrarActions && hasActiveClaimToken(draft)) {
       actions.push({
         key: 'view-qr',
-        label: 'View QR',
+        label: 'View QR Code',
         icon: <FaEye />,
         onClick: () => runRowAction(() => viewExistingClaimQr(draft)),
         disabled: busyId === draft._id,
@@ -3084,7 +3089,7 @@ export default function CredentialDraftsPage() {
       if (hasActiveClaimToken(draft)) {
         actions.push({
           key: 'view-override-qr',
-          label: 'View QR',
+          label: 'View QR Code',
           icon: <FaEye />,
           onClick: () => runRowAction(() => viewExistingClaimQr(draft, true)),
           disabled: busyId === draft._id,

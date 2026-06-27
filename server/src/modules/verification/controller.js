@@ -35,7 +35,8 @@ async function logVerificationAction(req, action, data, description, metadata = 
 
 function firstFileUrl(files, key) {
   const file = Array.isArray(files?.[key]) ? files[key][0] : null;
-  return file ? `/uploads/verification/${file.filename}` : '';
+  const relativePath = file?.relativePath || file?.filename || '';
+  return relativePath ? `/uploads/verification/${relativePath.replace(/\\/g, '/')}` : '';
 }
 
 function buildSubmissionPayload(req) {

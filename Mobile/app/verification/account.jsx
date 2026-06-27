@@ -36,13 +36,13 @@ const YEAR_OPTIONS = [
 ];
 
 const VALID_ID_TYPES = [
-  { label: 'National ID', value: 'national_id' },
-  { label: 'Driver License', value: 'drivers_license' },
-  { label: 'Passport', value: 'passport' },
-  { label: 'PRC ID', value: 'prc_id' },
-  { label: 'UMID', value: 'umid' },
-  { label: 'Voter ID', value: 'voter_id' },
-  { label: 'School ID', value: 'school_id' }
+  'National ID',
+  'Passport',
+  "Driver's License",
+  'UMID',
+  'Postal ID',
+  'Student ID',
+  'Other'
 ];
 
 function statusOf(user, account) {
@@ -171,7 +171,7 @@ export default function AccountVerificationScreen() {
     yearManual: '',
     graduationStatus: 'not_graduated_yet',
     contactNo: '',
-    validIdType: VALID_ID_TYPES[0].value,
+    validIdType: VALID_ID_TYPES[0],
     confirmed: false
   });
 
@@ -533,16 +533,12 @@ export default function AccountVerificationScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Valid ID</Text>
           <Text style={styles.muted}>Choose an ID type, then upload or capture the front and back.</Text>
-          <View style={styles.chipRow}>
-            {VALID_ID_TYPES.map((item) => (
-              <SelectChip
-                key={item.value}
-                label={item.label}
-                selected={answers.validIdType === item.value}
-                onPress={() => updateAnswer('validIdType', item.value)}
-              />
-            ))}
-          </View>
+          <SelectField
+            label="Valid ID type"
+            value={answers.validIdType}
+            options={VALID_ID_TYPES}
+            onChange={(value) => updateAnswer('validIdType', value)}
+          />
           <PhotoPicker
             title="Front"
             asset={idFront}

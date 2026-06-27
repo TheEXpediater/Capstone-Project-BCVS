@@ -32,11 +32,11 @@ function proofUrl(value) {
   return `${API_ORIGIN}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
-function ProofImage({ label, src }) {
+function ProofImage({ label, src, className = 'col-md-6' }) {
   const url = proofUrl(src);
 
   return (
-    <div className="col-md-3">
+    <div className={className}>
       <div className="small text-muted mb-2">{label}</div>
       {url ? (
         <a href={url} target="_blank" rel="noreferrer">
@@ -50,31 +50,6 @@ function ProofImage({ label, src }) {
       ) : (
         <div className="border rounded p-3 text-muted small">No image submitted.</div>
       )}
-    </div>
-  );
-}
-
-function LivenessCheck({ submission }) {
-  const passed = Boolean(submission?.livenessPassed || submission?.answers?.livenessPassed);
-  const method = submission?.livenessMethod || submission?.answers?.livenessMethod || 'FaceVerifier local liveness';
-  const passedAt = submission?.livenessPassedAt || submission?.answers?.livenessPassedAt;
-
-  return (
-    <div className="col-md-3">
-      <div className="small text-muted mb-2">Liveness Check</div>
-      <div className="border rounded p-3 h-100">
-        <div>
-          <span className={`badge ${passed ? 'text-bg-success' : 'text-bg-warning'}`}>
-            {passed ? 'Passed' : 'Not recorded'}
-          </span>
-        </div>
-        <div className="small mt-3">
-          <strong>Method:</strong> {method}
-        </div>
-        <div className="small mt-2">
-          <strong>Passed At:</strong> {passedAt ? formatDate(passedAt) : 'Not recorded'}
-        </div>
-      </div>
     </div>
   );
 }
@@ -95,6 +70,175 @@ function AnswersList({ answers }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div>
+      <div className="small text-muted">{label}</div>
+      <div className="fw-semibold">{value || 'â€”'}</div>
+    </div>
+  );
+}
+
+function SubmittedDetails({ submission, answers }) {
+  return (
+    <div className="d-flex flex-column gap-4">
+      <section>
+        <h3 className="h6 mb-3">Submitted Details</h3>
+        <div className="row g-3">
+          <div className="col-md-6">
+            <DetailRow label="Name" value={submission.fullName || answers.fullName} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Email" value={submission.email} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Submitted Student No" value={submission.submittedStudentNo || answers.studentNo} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Submitted Date" value={formatDate(submission.createdAt)} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Program" value={submission.program || answers.program} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Year Graduated" value={submission.yearGraduated || answers.yearGraduated} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Graduation Status" value={submission.graduationStatus || answers.graduationStatus} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Contact No" value={submission.contactNo || answers.contactNo} />
+          </div>
+          <div className="col-12">
+            <DetailRow label="Address" value={submission.address || answers.address} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Valid ID Type" value={submission.validIdType || answers.validIdType} />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="h6 mb-3">Uploaded ID</h3>
+        <div className="row g-3">
+          <ProofImage label="Valid ID front" src={submission.idFrontUrl || submission.validIdFrontUrl} />
+          <ProofImage label="Valid ID back" src={submission.idBackUrl || submission.validIdBackUrl} />
+        </div>
+      </section>
+
+      <section>
+        <h3 className="h6 mb-3">Submitted Verification Information</h3>
+        <AnswersList answers={answers} />
+      </section>
+    </div>
+  );
+}
+
+function StudentSearchPanel({
+  selectedStudent,
+  studentResults,
+  studentSearch,
+  searching,
+  onSearchChange,
+  onSearch,
+  onSelectStudent,
+}) {
+  return (
+    <section>
+      <h3 className="h6 mb-3">Student Search</h3>
+      <div className="input-group mb-3">
+        <input
+          className="form-control"
+          value={studentSearch}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="Search by student number or name"
+        />
+        <button className="btn btn-outline-primary" onClick={onSearch} disabled={searching}>
+          {searching ? 'Searching...' : 'Search'}
+        </button>
+      </div>
+
+      <div className="table-responsive border rounded">
+        <table className="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Student No</th>
+              <th>Name</th>
+              <th>Program</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {studentResults.length ? (
+              studentResults.map((student) => (
+                <tr key={student._id}>
+                  <td className="fw-semibold">{student.studentNo}</td>
+                  <td>{student.studentName}</td>
+                  <td>{student.programCode || student.programName || 'â€”'}</td>
+                  <td className="text-end">
+                    <button
+                      className={`btn btn-sm ${
+                        selectedStudent?._id === student._id ? 'btn-primary' : 'btn-outline-primary'
+                      }`}
+                      onClick={() => onSelectStudent(student)}
+                    >
+                      {selectedStudent?._id === student._id ? 'Selected' : 'Select'}
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="4" className="text-center text-muted py-3">
+                  Search for a student record to link.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function OfficialStudentRecord({ student }) {
+  if (!student) return null;
+
+  return (
+    <section>
+      <h3 className="h6 mb-3">Official Student Record</h3>
+      <div className="border rounded p-3">
+        <div className="row g-3">
+          <div className="col-md-6">
+            <DetailRow label="Name" value={student.studentName} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Student No" value={student.studentNo} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Program" value={student.programCode || student.programName} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Curriculum Year" value={student.curriculumYear} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Degree" value={student.degreeTitle} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Major" value={student.major} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Graduated" value={student.graduated ? 'Yes' : 'No'} />
+          </div>
+          <div className="col-md-6">
+            <DetailRow label="Date Graduated" value={formatDate(student.dateGraduated || student.dateGraduation)} />
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -130,6 +274,8 @@ function ReviewModal({
             </div>
 
             <div className="modal-body">
+              {false ? (
+                <>
               <section className="mb-4">
                 <h3 className="h6">Submitted account</h3>
                 <div className="row g-3">
@@ -253,6 +399,38 @@ function ReviewModal({
                   </div>
                 </div>
               </section>
+                </>
+              ) : !selectedStudent ? (
+                <StudentSearchPanel
+                  selectedStudent={selectedStudent}
+                  studentResults={studentResults}
+                  studentSearch={studentSearch}
+                  searching={searching}
+                  onSearchChange={onSearchChange}
+                  onSearch={onSearch}
+                  onSelectStudent={onSelectStudent}
+                />
+              ) : (
+                <div className="row g-4 align-items-start">
+                  <div className="col-lg-6">
+                    <SubmittedDetails submission={submission} answers={answers} />
+                  </div>
+                  <div className="col-lg-6">
+                    <div className="d-flex flex-column gap-4">
+                      <StudentSearchPanel
+                        selectedStudent={selectedStudent}
+                        studentResults={studentResults}
+                        studentSearch={studentSearch}
+                        searching={searching}
+                        onSearchChange={onSearchChange}
+                        onSearch={onSearch}
+                        onSelectStudent={onSelectStudent}
+                      />
+                      <OfficialStudentRecord student={selectedStudent} />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">

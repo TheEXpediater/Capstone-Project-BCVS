@@ -478,6 +478,8 @@ function StudentFormFields({
 
 function StudentDataModal({
   open,
+  importTab,
+  setImportTab,
   activeTab,
   setActiveTab,
   form,
@@ -485,12 +487,17 @@ function StudentDataModal({
   curricula,
   creating,
   studentImport,
+  gradeImport,
   onClose,
   onCreate,
   onFileChange,
   onImport,
+  onGradeFileChange,
+  onImportGrades,
 }) {
   if (!open) return null;
+
+  const busy = creating || studentImport.loading || gradeImport.loading;
 
   return (
     <>
@@ -499,81 +506,142 @@ function StudentDataModal({
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
               <div>
-                <h2 className="h5 mb-1">Student Data</h2>
+                <h2 className="h5 mb-1">Import</h2>
                 <p className="text-muted mb-0 small">
-                  Create one student by default, or upload a CSV or Excel file when doing bulk entry.
+                  Upload student data or grades without changing the existing import flow.
                 </p>
               </div>
-              <button type="button" className="btn-close" onClick={onClose} aria-label="Close" />
+              <button type="button" className="btn-close" onClick={onClose} disabled={busy} aria-label="Close" />
             </div>
 
             <div className="modal-body">
-              <div className="d-flex flex-wrap gap-2 mb-3">
-                <button
-                  type="button"
-                  className={`btn ${activeTab === 'manual' ? 'btn-primary' : 'btn-outline-primary'}`}
-                  onClick={() => setActiveTab('manual')}
-                >
-                  <FaPlus className="me-2" />
-                  Manual Entry
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${activeTab === 'csv' ? 'btn-primary' : 'btn-outline-primary'}`}
-                  onClick={() => setActiveTab('csv')}
-                >
-                  <FaUpload className="me-2" />
-                  Upload CSV / Excel
-                </button>
-              </div>
+              <ul className="nav nav-tabs mb-3">
+                <li className="nav-item">
+                  <button
+                    type="button"
+                    className={`nav-link ${importTab === 'studentData' ? 'active' : ''}`}
+                    onClick={() => setImportTab('studentData')}
+                    disabled={busy}
+                  >
+                    Student Data
+                  </button>
+                </li>
+                <li className="nav-item">
+                  <button
+                    type="button"
+                    className={`nav-link ${importTab === 'grades' ? 'active' : ''}`}
+                    onClick={() => setImportTab('grades')}
+                    disabled={busy}
+                  >
+                    Grades
+                  </button>
+                </li>
+              </ul>
 
-              {activeTab === 'manual' ? (
+              {importTab === 'studentData' ? (
                 <>
-                  <div className="alert alert-light border small">
-                    Program is selected from the existing curriculum list. The Graduated value is not manually edited here because it is computed from grade remarks.
+                  <div className="d-flex flex-wrap gap-2 mb-3">
+                    <button
+                      type="button"
+                      className={`btn ${activeTab === 'manual' ? 'btn-primary' : 'btn-outline-primary'}`}
+                      onClick={() => setActiveTab('manual')}
+                    >
+                      <FaPlus className="me-2" />
+                      Manual Entry
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${activeTab === 'csv' ? 'btn-primary' : 'btn-outline-primary'}`}
+                      onClick={() => setActiveTab('csv')}
+                    >
+                      <FaUpload className="me-2" />
+                      Upload CSV / Excel
+                    </button>
                   </div>
-                  <StudentFormFields
-                    form={form}
-                    onChange={setForm}
-                    curricula={curricula}
-                    includeStudentNo
-                  />
+
+                  {activeTab === 'manual' ? (
+                    <>
+                      <div className="alert alert-light border small">
+                        Program is selected from the existing curriculum list. The Graduated value is not manually edited here because it is computed from grade remarks.
+                      </div>
+                      <StudentFormFields
+                        form={form}
+                        onChange={setForm}
+                        curricula={curricula}
+                        includeStudentNo
+                      />
+                    </>
+                  ) : null}
+
+                  {activeTab === 'csv' ? (
+                    <div className="d-flex flex-column gap-3">
+                      <div>
+                        <label className="form-label fw-semibold">Student CSV / Excel file</label>
+                        <input
+                          type="file"
+                          className="form-control"
+                          accept=".csv,.xlsx,.xls"
+                          onChange={onFileChange}
+                        />
+                        <div className="form-text">
+                          Required columns: StudentNo, StudentName, ProgramCode, and CurriculumYear. The ProgramCode + CurriculumYear pair must already exist in Curriculum Manager.
+                        </div>
+                      </div>
+
+                      {studentImport.fileName ? (
+                        <div className="alert alert-light border mb-0">
+                          <div><strong>File:</strong> {studentImport.fileName}</div>
+                          <div><strong>Sheet:</strong> {studentImport.sheetName || 'First sheet'}</div>
+                          <div><strong>Rows:</strong> {studentImport.rows.length}</div>
+                        </div>
+                      ) : null}
+
+                      <DataPreview rows={studentImport.rows} />
+                    </div>
+                  ) : null}
                 </>
               ) : null}
 
-              {activeTab === 'csv' ? (
+              {importTab === 'grades' ? (
                 <div className="d-flex flex-column gap-3">
+                  <div className="alert alert-warning mb-0">
+                    Grade import will skip any row where the student does not exist yet or the student has no linked curriculum.
+                  </div>
                   <div>
-                    <label className="form-label fw-semibold">Student CSV / Excel file</label>
+                    <label className="form-label fw-semibold">Grade CSV / Excel file</label>
                     <input
                       type="file"
                       className="form-control"
                       accept=".csv,.xlsx,.xls"
-                      onChange={onFileChange}
+                      onChange={onGradeFileChange}
                     />
                     <div className="form-text">
-                      Required columns: StudentNo, StudentName, ProgramCode, and CurriculumYear. The ProgramCode + CurriculumYear pair must already exist in Curriculum Manager.
+                      Recognized grade columns include <strong>StudentNo, YearLevel, Semester, SubjectCode, SubjectTitle, Units, FinalGrade, Remarks, SchoolYear, TermName</strong>.
                     </div>
                   </div>
 
-                  {studentImport.fileName ? (
+                  {gradeImport.fileName ? (
                     <div className="alert alert-light border mb-0">
-                      <div><strong>File:</strong> {studentImport.fileName}</div>
-                      <div><strong>Sheet:</strong> {studentImport.sheetName || 'First sheet'}</div>
-                      <div><strong>Rows:</strong> {studentImport.rows.length}</div>
+                      <div><strong>File:</strong> {gradeImport.fileName}</div>
+                      <div><strong>Sheet:</strong> {gradeImport.sheetName || 'First sheet'}</div>
+                      <div><strong>Rows:</strong> {gradeImport.rows.length}</div>
                     </div>
                   ) : null}
 
-                  <DataPreview rows={studentImport.rows} />
+                  <DataPreview rows={gradeImport.rows} />
                 </div>
               ) : null}
             </div>
 
             <div className="modal-footer">
-              <button className="btn btn-outline-secondary" onClick={onClose} disabled={creating || studentImport.loading}>
+              <button className="btn btn-outline-secondary" onClick={onClose} disabled={busy}>
                 Cancel
               </button>
-              {activeTab === 'manual' ? (
+              {importTab === 'grades' ? (
+                <button className="btn btn-primary" onClick={onImportGrades} disabled={gradeImport.loading || !gradeImport.rows.length}>
+                  {gradeImport.loading ? 'Importing...' : 'Import Grades'}
+                </button>
+              ) : activeTab === 'manual' ? (
                 <button className="btn btn-primary" onClick={onCreate} disabled={creating}>
                   {creating ? 'Saving...' : 'Save Student Record'}
                 </button>
@@ -586,79 +654,6 @@ function StudentDataModal({
                   {studentImport.loading ? 'Importing...' : 'Import Student Data'}
                 </button>
               )}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="modal-backdrop show" />
-    </>
-  );
-}
-
-function ImportModal({
-  open,
-  title,
-  description,
-  warning,
-  fileName,
-  sheetName,
-  rows,
-  loading,
-  buttonText,
-  helperText,
-  onClose,
-  onFileChange,
-  onImport,
-}) {
-  if (!open) return null;
-
-  return (
-    <>
-      <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-        <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-          <div className="modal-content border-0 shadow">
-            <div className="modal-header">
-              <div>
-                <h2 className="h5 mb-1">{title}</h2>
-                <p className="text-muted mb-0 small">{description}</p>
-              </div>
-              <button type="button" className="btn-close" onClick={onClose} disabled={loading} aria-label="Close" />
-            </div>
-
-            <div className="modal-body">
-              <div className="d-flex flex-column gap-3">
-                {warning ? <div className="alert alert-warning mb-0">{warning}</div> : null}
-
-                <div>
-                  <label className="form-label fw-semibold">CSV / Excel file</label>
-                  <input
-                    type="file"
-                    className="form-control"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={onFileChange}
-                  />
-                  {helperText ? <div className="form-text">{helperText}</div> : null}
-                </div>
-
-                {fileName ? (
-                  <div className="alert alert-light border mb-0">
-                    <div><strong>File:</strong> {fileName}</div>
-                    <div><strong>Sheet:</strong> {sheetName || 'First sheet'}</div>
-                    <div><strong>Rows:</strong> {rows.length}</div>
-                  </div>
-                ) : null}
-
-                <DataPreview rows={rows} />
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn btn-outline-secondary" onClick={onClose} disabled={loading}>
-                Cancel
-              </button>
-              <button className="btn btn-primary" onClick={onImport} disabled={loading || !rows.length}>
-                {loading ? 'Importing...' : buttonText}
-              </button>
             </div>
           </div>
         </div>
@@ -1237,13 +1232,13 @@ export default function StudentImportManagerPage() {
   });
 
   const [studentDataModalOpen, setStudentDataModalOpen] = useState(false);
+  const [importTab, setImportTab] = useState('studentData');
   const [studentDataTab, setStudentDataTab] = useState('manual');
   const [studentForm, setStudentForm] = useState(createStudentForm());
   const [creatingStudent, setCreatingStudent] = useState(false);
 
   const [studentImport, setStudentImport] = useState(EMPTY_IMPORT_STATE);
   const [gradeImport, setGradeImport] = useState(EMPTY_IMPORT_STATE);
-  const [gradeImportModalOpen, setGradeImportModalOpen] = useState(false);
 
   const [profileLoading, setProfileLoading] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -1338,6 +1333,8 @@ export default function StudentImportManagerPage() {
   function openStudentDataModal() {
     setStudentForm(createStudentForm());
     setStudentImport(EMPTY_IMPORT_STATE);
+    setGradeImport(EMPTY_IMPORT_STATE);
+    setImportTab('studentData');
     setStudentDataTab('manual');
     setStudentDataModalOpen(true);
   }
@@ -1496,7 +1493,7 @@ export default function StudentImportManagerPage() {
       setGradeImport((prev) => ({ ...prev, loading: true }));
       const result = await bulkImportStudentGrades(gradeImport.rows);
 
-      setGradeImportModalOpen(false);
+      setStudentDataModalOpen(false);
       setGradeImport(EMPTY_IMPORT_STATE);
       await loadStudents({ page: pagination.page, showBusy: true });
 
@@ -1682,12 +1679,8 @@ export default function StudentImportManagerPage() {
       <div className="d-flex flex-column gap-4">
         <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
           <button className="btn btn-primary" onClick={openStudentDataModal} disabled={loadingCurricula}>
-            <FaPlus className="me-2" />
-            Import Student Data
-          </button>
-          <button className="btn btn-outline-primary" onClick={() => setGradeImportModalOpen(true)}>
             <FaUpload className="me-2" />
-            Import Grades
+            Import
           </button>
           <button className="btn btn-outline-secondary" onClick={() => loadStudents({ page: pagination.page, showBusy: true })} disabled={refreshingStudents}>
             {refreshingStudents ? 'Refreshing...' : 'Refresh'}
@@ -1810,6 +1803,8 @@ export default function StudentImportManagerPage() {
 
       <StudentDataModal
         open={studentDataModalOpen}
+        importTab={importTab}
+        setImportTab={setImportTab}
         activeTab={studentDataTab}
         setActiveTab={setStudentDataTab}
         form={studentForm}
@@ -1817,30 +1812,13 @@ export default function StudentImportManagerPage() {
         curricula={curricula}
         creating={creatingStudent}
         studentImport={studentImport}
+        gradeImport={gradeImport}
         onClose={() => setStudentDataModalOpen(false)}
         onCreate={handleCreateStudent}
         onFileChange={handleStudentFileChange}
         onImport={handleImportStudents}
-      />
-
-      <ImportModal
-        open={gradeImportModalOpen}
-        title="Import Grades"
-        description="Grades can only be imported after the student already exists."
-        warning="Grade import will skip any row where the student does not exist yet or the student has no linked curriculum."
-        fileName={gradeImport.fileName}
-        sheetName={gradeImport.sheetName}
-        rows={gradeImport.rows}
-        loading={gradeImport.loading}
-        buttonText="Import Grades"
-        onClose={() => setGradeImportModalOpen(false)}
-        onFileChange={handleGradeFileChange}
-        onImport={handleImportGrades}
-        helperText={
-          <>
-            Recognized grade columns include <strong>StudentNo, YearLevel, Semester, SubjectCode, SubjectTitle, Units, FinalGrade, Remarks, SchoolYear, TermName</strong>.
-          </>
-        }
+        onGradeFileChange={handleGradeFileChange}
+        onImportGrades={handleImportGrades}
       />
 
       <FilterModal
