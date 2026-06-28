@@ -1,12 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  LayoutAnimation,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,23 +25,27 @@ import { useAppStore } from '@/store/useAppStore';
 
 const CREDENTIAL_TYPES = [
   {
-    label: 'Transcript of Records (TOR)',
+    label: 'Transcript of Records',
     value: 'tor',
     payloadValue: 'TOR',
     icon: 'school-outline',
-    body: 'Official academic transcript.'
+    body: 'Official academic transcript'
   },
   {
     label: 'Diploma',
     value: 'diploma',
     payloadValue: 'DIPLOMA',
     icon: 'ribbon-outline',
-    body: 'Official diploma certificate.'
+    body: 'Official diploma certificate'
   },
 ];
 
 const BASE_CREDENTIAL_AMOUNT = 150;
 const ANCHOR_NOW_FEE = 20;
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 function hasVerifiedStatus(user) {
   if (user?.verified === true) return true;
@@ -54,7 +61,7 @@ function isVerifiedAndLinked(user) {
 
 function formatPeso(value) {
   const amount = Number(value || 0);
-  return `PHP ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `\u20B1 ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function getRequestTotal(form) {
@@ -67,20 +74,25 @@ function selectedCredentialOption(form) {
 
 function StepIndicator({ step }) {
   return (
-    <View style={styles.stepWrap}>
-      {[1, 2].map((item) => {
-        const active = step >= item;
+    <View style={styles.progressWrap}>
+      <Text style={styles.progressLabel}>Step {step} of 2</Text>
+      <View style={styles.progressLine}>
+        {[1, 2].map((item) => {
+          const complete = item < step;
+          const active = item === step;
 
-        return (
-          <View key={item} style={styles.stepItem}>
-            <View style={[styles.stepDot, active && styles.stepDotActive]}>
-              <Text style={[styles.stepDotText, active && styles.stepDotTextActive]}>{item}</Text>
+          return (
+            <View key={item} style={styles.progressSegment}>
+              <View style={[styles.progressDot, (active || complete) && styles.progressDotOn]}>
+                {complete ? <Ionicons name="checkmark" size={10} color="#FFFFFF" /> : null}
+              </View>
+              {item === 1 ? (
+                <View style={[styles.progressConnector, complete && styles.progressConnectorOn]} />
+              ) : null}
             </View>
-            {item === 1 ? <View style={[styles.stepLine, step === 2 && styles.stepLineActive]} /> : null}
-          </View>
-        );
-      })}
-      <Text style={styles.stepText}>Step {step} of 2</Text>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -89,8 +101,14 @@ function CredentialOptionCard({ option, selected, onPress }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${option.label}. ${option.body}`}
       onPress={onPress}
-      style={[styles.optionCard, selected && styles.optionCardSelected]}
+      style={({ pressed }) => [
+        styles.optionCard,
+        selected && styles.optionCardSelected,
+        pressed && styles.optionCardPressed
+      ]}
     >
       <View style={[styles.optionIcon, selected && styles.optionIconSelected]}>
         <Ionicons name={option.icon} size={22} color={selected ? '#FFFFFF' : colors.primary} />
@@ -99,11 +117,9 @@ function CredentialOptionCard({ option, selected, onPress }) {
         <Text style={styles.optionTitle}>{option.label}</Text>
         <Text style={styles.optionBody}>{option.body}</Text>
       </View>
-      <Ionicons
-        name={selected ? 'radio-button-on' : 'radio-button-off'}
-        size={20}
-        color={selected ? colors.primary : colors.muted}
-      />
+      <View style={styles.optionCheck}>
+        {selected ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : null}
+      </View>
     </Pressable>
   );
 }
@@ -136,19 +152,29 @@ function RequestModal({
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard}>
-          <ScrollView contentContainerStyle={styles.modalContent}>
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>
-                  {step === 1 ? 'Request Credential' : 'Request Summary'}
+                  {step === 1 ? 'Request Credential' : 'Review Request'}
                 </Text>
                 <Text style={styles.modalSubtitle}>
                   {step === 1
-                    ? 'Select the credential you would like to request.'
-                    : 'Review your request before identity verification.'}
+                    ? 'Choose the credential you would like to request.'
+                    : 'Review your request before submitting.'}
                 </Text>
               </View>
-              <Pressable onPress={onClose} hitSlop={10}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close request credential"
+                onPress={onClose}
+                hitSlop={10}
+                style={styles.closeButton}
+              >
                 <Ionicons name="close" size={24} color={colors.text} />
               </Pressable>
             </View>
@@ -166,6 +192,7 @@ function RequestModal({
                         option={item}
                         selected={form.credentialType === item.value}
                         onPress={() => {
+                          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                           onChange('credentialType', item.value);
                           if (item.value === 'diploma') {
                             onChange('remarks', '');
@@ -182,7 +209,7 @@ function RequestModal({
                     <TextInput
                       value={form.remarks}
                       onChangeText={(value) => onChange('remarks', value)}
-                      placeholder={'Example:\nFor board examination\nEmployment requirements\nTransfer to another university'}
+                      placeholder={'Example:\nFor employment purposes'}
                       placeholderTextColor={colors.muted}
                       multiline
                       textAlignVertical="top"
@@ -199,14 +226,18 @@ function RequestModal({
             ) : (
               <>
                 <View style={styles.summaryCard}>
-                  <SummaryRow label="Credential" value={selectedOption.label.replace(' (TOR)', '')} />
-                  <SummaryRow label="Remarks" value={remarks || 'None'} />
-                  <SummaryRow label="Processing Fee" value={formatPeso(BASE_CREDENTIAL_AMOUNT)} />
-                  <SummaryRow label="Blockchain Anchoring" value={form.anchorNow ? 'Enabled' : 'Disabled'} />
+                  <SummaryRow label="Credential" value={selectedOption.label} />
+                  {isTor ? <SummaryRow label="Remarks" value={remarks || 'None'} /> : null}
+                </View>
+
+                <View style={styles.priceBox}>
+                  <Text style={styles.priceLabel}>Processing Fee</Text>
+                  <Text style={styles.priceValue}>{formatPeso(total)}</Text>
                 </View>
 
                 <Pressable
                   accessibilityRole="switch"
+                  accessibilityLabel="Anchor credential to blockchain"
                   accessibilityState={{ checked: form.anchorNow }}
                   onPress={() => onChange('anchorNow', !form.anchorNow)}
                   style={[styles.anchorToggle, form.anchorNow && styles.anchorToggleOn]}
@@ -215,42 +246,12 @@ function RequestModal({
                     <View style={[styles.switchThumb, form.anchorNow && styles.switchThumbOn]} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.anchorToggleTitle}>Anchor Credential to Blockchain</Text>
+                    <Text style={styles.anchorToggleTitle}>Anchor credential to blockchain</Text>
                     <Text style={styles.anchorToggleText}>
-                      Anchoring permanently records your credential on the blockchain for public verification.
-                    </Text>
-                    <Text style={styles.anchorToggleText}>
-                      Additional fees may apply if enabled.
+                      Recommended for long-term verification and tamper-proof authenticity.
                     </Text>
                   </View>
-                  <Text style={styles.switchLabel}>{form.anchorNow ? 'ON' : 'OFF'}</Text>
                 </Pressable>
-
-                <View style={styles.priceBox}>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Processing Fee</Text>
-                    <Text style={styles.priceValue}>{formatPeso(BASE_CREDENTIAL_AMOUNT)}</Text>
-                  </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Anchor Now</Text>
-                    <Text style={styles.priceValue}>
-                      {form.anchorNow ? formatPeso(ANCHOR_NOW_FEE) : formatPeso(0)}
-                    </Text>
-                  </View>
-                  <View style={[styles.priceRow, styles.totalRow]}>
-                    <Text style={styles.totalLabel}>Estimated Total</Text>
-                    <Text style={styles.totalValue}>{formatPeso(total)}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.noteBox}>
-                  <Text style={styles.noteText}>
-                    Processing may take up to 3 working days after payment.
-                  </Text>
-                  <Text style={styles.noteText}>
-                    Present the payment code to the cashier after submission.
-                  </Text>
-                </View>
 
                 <View style={styles.modalActionsRow}>
                   <Button title="Back" variant="outline" onPress={onBack} style={styles.flex} />
@@ -354,6 +355,7 @@ export default function HomeScreen() {
       return;
     }
 
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setRequestStep(2);
   }
 
@@ -368,6 +370,8 @@ export default function HomeScreen() {
   }
 
   async function submitRequest() {
+    if (submitting) return;
+
     const option = selectedCredentialOption(form);
     const remarks = form.credentialType === 'tor' ? String(form.remarks || '').trim() : '';
 
@@ -392,9 +396,17 @@ export default function HomeScreen() {
 
       const paymentCode =
         result?.paymentCode || result?.request?.paymentCode || 'your payment code';
+      const successMessage = [
+        'Credential request submitted successfully.',
+        ...(form.anchorNow ? ['Your credential will also be anchored after approval.'] : []),
+        '',
+        `Payment code: ${paymentCode}`,
+        'Present this code to the cashier.'
+      ];
+
       Alert.alert(
         'Request submitted',
-        `Your request was submitted. Processing may take up to 3 working days after payment.\n\nPayment code: ${paymentCode}\nPresent this code to the cashier.`
+        successMessage.join('\n')
       );
     } catch (error) {
       Alert.alert('Request failed', error.message || 'Failed to submit credential request');
@@ -512,7 +524,10 @@ export default function HomeScreen() {
         onClose={closeRequestModal}
         onChange={updateField}
         onNext={goToSummary}
-        onBack={() => setRequestStep(1)}
+        onBack={() => {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setRequestStep(1);
+        }}
         onSubmit={beginLivenessCheck}
       />
       </ScrollView>
@@ -662,13 +677,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   modalCard: {
-    backgroundColor: '#FFFFFF',
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
+    backgroundColor: colors.surface,
     borderRadius: radius.lg,
     maxHeight: '88%',
     overflow: 'hidden',
+    ...shadows.card,
   },
   modalContent: {
-    padding: spacing.lg,
+    padding: spacing.xl,
     gap: spacing.lg,
   },
   modalHeader: {
@@ -686,6 +705,52 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 20,
   },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+  },
+  progressWrap: {
+    gap: spacing.sm,
+  },
+  progressLabel: {
+    color: colors.text,
+    fontWeight: '900',
+  },
+  progressLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  progressSegment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  progressDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  progressDotOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  progressConnector: {
+    flex: 1,
+    height: 2,
+    backgroundColor: colors.line,
+  },
+  progressConnectorOn: {
+    backgroundColor: colors.primary,
+  },
   section: {
     gap: spacing.sm,
   },
@@ -693,46 +758,124 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '800',
   },
-  anchorTitleRow: {
+  optionStack: {
+    gap: spacing.md,
+  },
+  optionCard: {
+    minHeight: 84,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
   },
-  helpButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  optionCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    ...shadows.card,
+  },
+  optionCardPressed: {
+    transform: [{ scale: 0.99 }],
+  },
+  optionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primarySoft,
   },
+  optionIconSelected: {
+    backgroundColor: colors.primary,
+  },
+  optionCopy: {
+    flex: 1,
+  },
+  optionTitle: {
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  optionBody: {
+    color: colors.muted,
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  optionCheck: {
+    width: 24,
+    alignItems: 'flex-end',
+  },
+  remarksInput: {
+    minHeight: 104,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    padding: spacing.md,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  summaryCard: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    padding: spacing.lg,
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    ...shadows.card,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  summaryLabel: {
+    color: colors.muted,
+    fontWeight: '800',
+  },
+  summaryValue: {
+    color: colors.text,
+    flex: 1,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
   anchorToggle: {
     borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: radius.md,
-    padding: spacing.md,
+    borderRadius: 16,
+    padding: spacing.lg,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     gap: spacing.md,
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   anchorToggleOn: {
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
   },
-  checkbox: {
+  switchTrack: {
+    width: 46,
+    height: 28,
+    borderRadius: 14,
+    padding: 3,
+    backgroundColor: colors.line,
+  },
+  switchTrackOn: {
+    backgroundColor: colors.primary,
+  },
+  switchThumb: {
     width: 22,
     height: 22,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius: 11,
     backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  checkboxOn: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
+  switchThumbOn: {
+    transform: [{ translateX: 18 }],
   },
   anchorToggleTitle: {
     color: colors.text,
@@ -746,71 +889,33 @@ const styles = StyleSheet.create({
   priceBox: {
     borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-    backgroundColor: colors.bg,
-  },
-  priceRow: {
+    borderRadius: 16,
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+    ...shadows.card,
   },
   priceLabel: {
     color: colors.muted,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   priceValue: {
     color: colors.text,
-    fontWeight: '800',
-  },
-  totalRow: {
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingTop: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  totalLabel: {
-    color: colors.text,
     fontWeight: '900',
-  },
-  totalValue: {
-    color: colors.primary,
-    fontWeight: '900',
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  chipSelected: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
-  },
-  chipText: {
-    color: colors.text,
-    fontWeight: '700',
-  },
-  chipTextSelected: {
-    color: colors.primary,
-  },
-  noteBox: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    gap: spacing.xs,
+    fontSize: 20,
+    textAlign: 'right',
   },
   modalActions: {
     gap: spacing.sm,
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  flex: {
+    flex: 1,
   },
 });
