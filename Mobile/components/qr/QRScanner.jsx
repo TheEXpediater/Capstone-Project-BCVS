@@ -45,8 +45,8 @@ export default function QRScanner({ onScan, onCancel }) {
       <View style={styles.center}>
         <EmptyState
           illustration={illustrations.cameraPermission}
-          title="Camera permission needed"
-          body="Allow camera access to scan QR codes."
+          title="Camera Permission Required"
+          body="Allow camera access to scan credential QR codes."
         />
         <Button title="Allow Camera" onPress={requestPermission} />
         {!!onCancel && <Button title="Cancel" variant="outline" onPress={onCancel} />}

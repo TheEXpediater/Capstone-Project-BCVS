@@ -76,7 +76,7 @@ export default function ResetPasswordScreen() {
         />
         <Text style={styles.title}>Forgot Password?</Text>
         <Text style={styles.subtitle}>
-          Enter your registered email and we'll send password reset instructions.
+          Enter your registered email and we will send password reset instructions.
         </Text>
         <View style={styles.form}>
         {step === 'email' && (

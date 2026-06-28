@@ -1,7 +1,9 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 
 const GUIDE = [
@@ -25,7 +27,7 @@ const FAQ = [
   ],
   [
     'What is Anchor Now?',
-    'Anchor Now adds ₱20 and places your credential in the priority anchoring queue.'
+    'Anchor Now adds PHP 20 and places your credential in the priority anchoring queue.'
   ],
   [
     'What does verified mean?',
@@ -46,6 +48,12 @@ const FAQ = [
 ];
 
 export default function HelpScreen() {
+  const supportCards = [
+    ['FAQ', 'Find quick answers to common CredPocket questions.', 'help-circle-outline'],
+    ['Contact Support', 'Reach your registrar or MIS support channel for account help.', 'mail-outline'],
+    ['Report Issue', 'Note the screen, action, and error message before reporting a problem.', 'bug-outline']
+  ];
+
   return (
     <Screen padded={false}>
       <View style={styles.header}>
@@ -59,6 +67,27 @@ export default function HelpScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+        <Illustration
+          source={illustrations.support}
+          heightRatio={0.24}
+          minHeight={130}
+          maxHeight={200}
+          accessibilityLabel="Help and support"
+        />
+        <View style={styles.supportGrid}>
+          {supportCards.map(([title, body, icon]) => (
+            <View key={title} style={styles.supportCard}>
+              <View style={styles.supportIcon}>
+                <Ionicons name={icon} size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>{title}</Text>
+                <Text style={styles.cardBody}>{body}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
         <Text style={styles.sectionTitle}>App Guide</Text>
         {GUIDE.map(([title, body]) => (
           <View key={title} style={styles.card}>
@@ -120,6 +149,27 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     marginTop: spacing.sm
+  },
+  supportGrid: {
+    gap: spacing.md
+  },
+  supportCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md
+  },
+  supportIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   card: {
     backgroundColor: colors.surface,

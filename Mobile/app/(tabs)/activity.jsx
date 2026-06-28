@@ -363,8 +363,8 @@ export default function ActivityScreen() {
         ListEmptyComponent={
           <EmptyState
             illustration={illustrations.emptyActivity}
-            title="No activity yet"
-            body="Updates about requests, payments, verification, and credentials will appear here."
+            title="No Activity Yet"
+            body="Credential activity will appear here."
           />
         }
       />

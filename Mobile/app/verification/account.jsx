@@ -448,7 +448,7 @@ export default function AccountVerificationScreen() {
           />
           <Text style={styles.introTitle}>{"Let's Verify Your Account"}</Text>
           <Text style={styles.introText}>
-            We'll guide you through a few simple steps to verify your identity and secure your account.
+            We will guide you through a few simple steps to verify your identity and secure your account.
           </Text>
           <Button title="Continue" onPress={startVerification} style={styles.buttonGap} />
         </View>

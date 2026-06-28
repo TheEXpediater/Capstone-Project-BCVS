@@ -162,8 +162,8 @@ export default function CredentialsScreen() {
           ) : (
             <EmptyState
               illustration={illustrations.emptyCredentials}
-              title="No credentials yet"
-              body="Claim an issued credential using the Scan tab once it is ready."
+              title="No Credentials Yet"
+              body="Verified credentials will appear here once issued."
             />
           )
         }

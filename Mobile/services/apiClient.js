@@ -78,6 +78,19 @@ export function clearApiAuthState() {
 }
 
 export function apiErrorMessage(error, fallback = 'Request failed') {
+  const responseMessage =
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.response?.data?.reason ||
+    '';
+
+  if (
+    error?.response?.status === 503 ||
+    String(responseMessage).toLowerCase().includes('maintenance')
+  ) {
+    return responseMessage || 'CredPocket is currently under maintenance.';
+  }
+
   if (isNetworkError(error)) {
     if (__DEV__) {
       return `Cannot reach the BCVS server. Active API URL: ${activeApiBaseUrl}. Check that the server is running and this device is on the same network.`;
@@ -87,9 +100,7 @@ export function apiErrorMessage(error, fallback = 'Request failed') {
   }
 
   return (
-    error?.response?.data?.message ||
-    error?.response?.data?.error ||
-    error?.response?.data?.reason ||
+    responseMessage ||
     error?.message ||
     fallback
   );

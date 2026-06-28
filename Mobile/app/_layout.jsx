@@ -3,14 +3,22 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import Button from '@/components/ui/Button';
 import Illustration from '@/components/ui/Illustration';
 import { illustrations } from '@/constants/illustrations';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useAppStore } from '@/store/useAppStore';
 import { colors, spacing } from '@/constants/theme';
 
+function isMaintenanceMessage(message) {
+  const text = String(message || '').toLowerCase();
+  return text.includes('maintenance') || text.includes('service unavailable');
+}
+
 export default function RootLayout() {
-  const ready = useBootstrap();
+  const { ready, retry } = useBootstrap();
+  const startupError = useAppStore((state) => state.error);
   const [splashElapsed, setSplashElapsed] = useState(false);
   useNotifications();
 
@@ -18,6 +26,34 @@ export default function RootLayout() {
     const timer = setTimeout(() => setSplashElapsed(true), 3000);
     return () => clearTimeout(timer);
   }, []);
+
+  if (!ready && startupError && splashElapsed) {
+    const maintenance = isMaintenanceMessage(startupError);
+
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="dark" />
+        <View style={styles.splash}>
+          <Illustration
+            source={maintenance ? illustrations.maintenance : illustrations.networkError}
+            heightRatio={0.32}
+            minHeight={170}
+            maxHeight={250}
+            accessibilityLabel={maintenance ? 'Maintenance' : 'Network error'}
+          />
+          <Text style={styles.splashTitle}>
+            {maintenance ? "We'll Be Back Soon" : 'No Internet Connection'}
+          </Text>
+          <Text style={styles.splashSubtitle}>
+            {maintenance
+              ? 'CredPocket is currently under maintenance.'
+              : 'Please check your connection and try again.'}
+          </Text>
+          {!maintenance ? <Button title="Retry" onPress={retry} style={styles.retryButton} /> : null}
+        </View>
+      </SafeAreaProvider>
+    );
+  }
 
   if (!ready || !splashElapsed) {
     return (
@@ -100,6 +136,10 @@ const styles = StyleSheet.create({
   },
   progress: {
     marginTop: spacing.lg
+  },
+  retryButton: {
+    marginTop: spacing.lg,
+    minWidth: 180
   },
   loadingText: {
     color: colors.muted,

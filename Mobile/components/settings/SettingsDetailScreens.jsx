@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Notifications from 'expo-notifications';
@@ -676,23 +676,32 @@ export function NotificationsSettingsScreen() {
   const loadNotifications = useAppStore((state) => state.loadNotifications);
   const markNotificationsSeen = useAppStore((state) => state.markNotificationsSeen);
   const loading = useAppStore((state) => state.loading.notifications);
-  const [permissionGranted, setPermissionGranted] = useState(true);
+  const [permission, setPermission] = useState({ granted: true });
 
   useEffect(() => {
     let active = true;
 
     Notifications.getPermissionsAsync()
       .then((result) => {
-        if (active) setPermissionGranted(Boolean(result.granted));
+        if (active) setPermission(result);
       })
       .catch(() => {
-        if (active) setPermissionGranted(true);
+        if (active) setPermission({ granted: true });
       });
 
     return () => {
       active = false;
     };
   }, []);
+
+  async function openNotificationSettings() {
+    const result = await Notifications.requestPermissionsAsync();
+    setPermission(result);
+
+    if (!result.granted) {
+      await Linking.openSettings();
+    }
+  }
 
   async function refresh() {
     try {
@@ -703,32 +712,24 @@ export function NotificationsSettingsScreen() {
     }
   }
 
+  const permissionGranted = Boolean(permission.granted);
+
   return (
     <DetailShell title="Notifications" subtitle="Credential, payment, and verification updates.">
       <SectionCard>
-        <Illustration
-          source={permissionGranted ? illustrations.emptyNotifications : illustrations.notificationPermission}
-          heightRatio={0.2}
-          minHeight={120}
-          maxHeight={170}
-          accessibilityLabel="Notification settings"
-        />
-        <SectionTitle
-          icon="notifications-outline"
-          title="Activity Notifications"
-          body="CredPocket keeps your recent credential and verification activity in the Activity tab."
-        />
         {!permissionGranted ? (
-          <EmptyState
-            illustration={illustrations.notificationPermission}
-            title="Notifications are disabled"
-            body="Enable notifications in your device settings to receive credential updates."
-          />
+          <>
+            <EmptyState
+              illustration={illustrations.notificationPermission}
+              title="Enable Notifications"
+              body="Enable notifications so you never miss credential updates."
+            />
+            <Button title="Open Settings" onPress={openNotificationSettings} />
+          </>
         ) : notifications.length ? null : (
           <EmptyState
             illustration={illustrations.emptyNotifications}
-            title="No notifications yet"
-            body="Credential, payment, and verification updates will appear here."
+            title="No Notifications Yet"
           />
         )}
         <InfoRow label="Saved notifications" value={String(notifications.length)} />
@@ -741,17 +742,33 @@ export function NotificationsSettingsScreen() {
 
 export function AboutSettingsScreen() {
   const version = Constants.expoConfig?.version || Constants.manifest?.version || '1.0.0';
+  const buildNumber =
+    Constants.expoConfig?.ios?.buildNumber ||
+    Constants.expoConfig?.android?.versionCode ||
+    Constants.manifest?.ios?.buildNumber ||
+    Constants.manifest?.android?.versionCode ||
+    '1';
 
   return (
     <DetailShell title="About" subtitle="CredPocket app information and help.">
       <SectionCard>
+        <Illustration
+          source={illustrations.about}
+          heightRatio={0.22}
+          minHeight={120}
+          maxHeight={180}
+          accessibilityLabel="About CredPocket"
+        />
         <SectionTitle
           icon="information-circle-outline"
           title="CredPocket"
           body="Your digital credential wallet for academic records."
         />
-        <InfoRow label="Version" value={version} />
-        <InfoRow label="Wallet" value="Digital academic credentials" />
+        <InfoRow label="App Version" value={String(version)} />
+        <InfoRow label="Build Number" value={String(buildNumber)} />
+        <InfoRow label="Privacy Policy" value="CredPocket keeps credentials on this device until you approve sharing." />
+        <InfoRow label="Terms" value="Use CredPocket to store and present verified academic credentials." />
+        <InfoRow label="Open Source Licenses" value="Expo, React Native, Zustand, Axios, and supporting libraries." />
         <Pressable style={styles.navRow} onPress={() => router.push('/help')}>
           <View style={styles.navIcon}>
             <Ionicons name="reader-outline" size={18} color={colors.primary} />
@@ -762,6 +779,82 @@ export function AboutSettingsScreen() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
+      </SectionCard>
+    </DetailShell>
+  );
+}
+
+export function PrivacySettingsScreen() {
+  return (
+    <DetailShell title="Privacy" subtitle="Credential sharing and local data controls.">
+      <SectionCard>
+        <Illustration
+          source={illustrations.privacy}
+          heightRatio={0.22}
+          minHeight={120}
+          maxHeight={180}
+          accessibilityLabel="Privacy settings"
+        />
+        <SectionTitle
+          icon="lock-closed-outline"
+          title="Privacy Settings"
+          body="CredPocket only shares credential data after you approve a verifier request."
+        />
+        <InfoRow label="Credential storage" value="Verified credentials are stored locally on this device." />
+        <InfoRow label="Sharing consent" value="Verifier requests require holder approval before results are shown." />
+        <InfoRow label="Account data" value="Registrar verification details stay linked to your signed-in account." />
+      </SectionCard>
+    </DetailShell>
+  );
+}
+
+export function SupportSettingsScreen() {
+  const cards = [
+    {
+      title: 'FAQ',
+      body: 'Review common credential, verification, payment, and biometrics questions.',
+      icon: 'help-circle-outline',
+      onPress: () => router.push('/help')
+    },
+    {
+      title: 'Contact Support',
+      body: 'Reach your registrar or MIS support channel for account assistance.',
+      icon: 'mail-outline'
+    },
+    {
+      title: 'Report Issue',
+      body: 'Prepare the screen, action, and error message before reporting a problem.',
+      icon: 'bug-outline'
+    }
+  ];
+
+  return (
+    <DetailShell title="Help & Support" subtitle="Guidance for CredPocket workflows.">
+      <SectionCard>
+        <Illustration
+          source={illustrations.support}
+          heightRatio={0.22}
+          minHeight={120}
+          maxHeight={180}
+          accessibilityLabel="Help and support"
+        />
+        {cards.map((card) => (
+          <Pressable
+            key={card.title}
+            disabled={!card.onPress}
+            onPress={card.onPress}
+            style={styles.navRow}
+          >
+            <View style={styles.navIcon}>
+              <Ionicons name={card.icon} size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.navTitle}>{card.title}</Text>
+              <Text style={styles.navText}>{card.body}</Text>
+            </View>
+            {card.onPress ? <Ionicons name="chevron-forward" size={18} color={colors.muted} /> : null}
+          </Pressable>
+        ))}
       </SectionCard>
     </DetailShell>
   );

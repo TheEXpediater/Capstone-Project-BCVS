@@ -3,7 +3,9 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { router, useLocalSearchParams } from 'expo-router';
 import Button from '@/components/ui/Button';
 import CredentialCard from '@/components/vc/CredentialCard';
+import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
+import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 import { getCredentialRecordId } from '@/utils/credentialUtils';
 import { useAppStore } from '@/store/useAppStore';
@@ -105,6 +107,7 @@ export default function ConsentScreen() {
 
   const [selectedId, setSelectedId] = useState('');
   const [allowPdfDownload, setAllowPdfDownload] = useState(false);
+  const [feedback, setFeedback] = useState(null);
 
   const requestCredentialId = String(
     request?.credentialId ||
@@ -222,13 +225,13 @@ export default function ConsentScreen() {
         allowPdfDownload,
       });
 
-      Alert.alert(
-        'Credential Shared',
-        'Your credential was shared for verification. The verifier can now view the validation result.',
-        [{ text: 'Back to Activity', onPress: goBackToActivity }]
-      );
+      setFeedback({ type: 'success' });
+      setTimeout(goBackToActivity, 1500);
     } catch (error) {
-      Alert.alert('Share failed', error.message);
+      setFeedback({
+        type: 'error',
+        message: error.message || 'Your credential could not be shared for verification.'
+      });
     }
   }
 
@@ -243,6 +246,31 @@ export default function ConsentScreen() {
     } catch (error) {
       Alert.alert('Deny failed', error.message);
     }
+  }
+
+  if (feedback) {
+    const success = feedback.type === 'success';
+
+    return (
+      <Screen>
+        <View style={styles.feedbackWrap}>
+          <Illustration
+            source={success ? illustrations.success : illustrations.error}
+            heightRatio={0.28}
+            minHeight={150}
+            maxHeight={230}
+            accessibilityLabel={success ? 'Verification successful' : 'Verification failed'}
+          />
+          <Text style={styles.feedbackTitle}>
+            {success ? 'Verification Successful' : 'Verification Failed'}
+          </Text>
+          {!success ? <Text style={styles.feedbackMessage}>{feedback.message}</Text> : null}
+          {!success ? (
+            <Button title="Try Again" onPress={() => setFeedback(null)} style={styles.feedbackButton} />
+          ) : null}
+        </View>
+      </Screen>
+    );
   }
 
   return (
@@ -535,5 +563,26 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
     paddingVertical: spacing.md,
+  },
+  feedbackWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+  },
+  feedbackTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  feedbackMessage: {
+    color: colors.muted,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  feedbackButton: {
+    alignSelf: 'stretch',
+    marginTop: spacing.sm,
   },
 });

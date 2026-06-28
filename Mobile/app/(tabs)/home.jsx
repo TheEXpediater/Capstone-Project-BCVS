@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,32 +16,26 @@ import EmptyState from '@/components/ui/EmptyState';
 import FaceVerifier from '@/components/verification/FaceVerifier';
 import Illustration from '@/components/ui/Illustration';
 import Screen from '@/components/ui/Screen';
-import TextField from '@/components/ui/TextField';
 import { illustrations } from '@/constants/illustrations';
-import { colors, radius, spacing } from '@/constants/theme';
+import { colors, radius, shadows, spacing } from '@/constants/theme';
 import { useAppStore } from '@/store/useAppStore';
 
 const CREDENTIAL_TYPES = [
-  { label: 'Transcript of Records', value: 'tor' },
-  { label: 'Diploma', value: 'diploma' },
+  {
+    label: 'Transcript of Records (TOR)',
+    value: 'tor',
+    payloadValue: 'TOR',
+    icon: 'school-outline',
+    body: 'Official academic transcript.'
+  },
+  {
+    label: 'Diploma',
+    value: 'diploma',
+    payloadValue: 'DIPLOMA',
+    icon: 'ribbon-outline',
+    body: 'Official diploma certificate.'
+  },
 ];
-
-const REMARK_PRESETS = [
-  { label: 'For employment', value: 'employment' },
-  { label: 'For scholarship', value: 'scholarship' },
-  { label: 'For board exam', value: 'board_exam' },
-  { label: 'For transfer', value: 'transfer' },
-  { label: 'For personal records', value: 'personal_records' },
-  { label: 'Others', value: 'other' },
-];
-
-const REMARK_LABELS = {
-  employment: 'For employment',
-  scholarship: 'For scholarship',
-  board_exam: 'For board exam',
-  transfer: 'For transfer',
-  personal_records: 'For personal records',
-};
 
 const BASE_CREDENTIAL_AMOUNT = 150;
 const ANCHOR_NOW_FEE = 20;
@@ -57,41 +52,85 @@ function isVerifiedAndLinked(user) {
   return hasVerifiedStatus(user) && Boolean(String(user?.studentId || '').trim());
 }
 
-function getRemarkText(form) {
-  if (form.presetRemark === 'other') {
-    return String(form.customRemark || '').trim();
-  }
-
-  return REMARK_LABELS[form.presetRemark] || '';
+function formatPeso(value) {
+  const amount = Number(value || 0);
+  return `PHP ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function getRequestTotal(form) {
   return BASE_CREDENTIAL_AMOUNT + (form.anchorNow ? ANCHOR_NOW_FEE : 0);
 }
 
-function SelectChip({ label, selected, onPress }) {
+function selectedCredentialOption(form) {
+  return CREDENTIAL_TYPES.find((item) => item.value === form.credentialType) || CREDENTIAL_TYPES[0];
+}
+
+function StepIndicator({ step }) {
+  return (
+    <View style={styles.stepWrap}>
+      {[1, 2].map((item) => {
+        const active = step >= item;
+
+        return (
+          <View key={item} style={styles.stepItem}>
+            <View style={[styles.stepDot, active && styles.stepDotActive]}>
+              <Text style={[styles.stepDotText, active && styles.stepDotTextActive]}>{item}</Text>
+            </View>
+            {item === 1 ? <View style={[styles.stepLine, step === 2 && styles.stepLineActive]} /> : null}
+          </View>
+        );
+      })}
+      <Text style={styles.stepText}>Step {step} of 2</Text>
+    </View>
+  );
+}
+
+function CredentialOptionCard({ option, selected, onPress }) {
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
-      style={[styles.chip, selected ? styles.chipSelected : null]}
+      style={[styles.optionCard, selected && styles.optionCardSelected]}
     >
-      <Text style={[styles.chipText, selected ? styles.chipTextSelected : null]}>
-        {label}
-      </Text>
+      <View style={[styles.optionIcon, selected && styles.optionIconSelected]}>
+        <Ionicons name={option.icon} size={22} color={selected ? '#FFFFFF' : colors.primary} />
+      </View>
+      <View style={styles.optionCopy}>
+        <Text style={styles.optionTitle}>{option.label}</Text>
+        <Text style={styles.optionBody}>{option.body}</Text>
+      </View>
+      <Ionicons
+        name={selected ? 'radio-button-on' : 'radio-button-off'}
+        size={20}
+        color={selected ? colors.primary : colors.muted}
+      />
     </Pressable>
+  );
+}
+
+function SummaryRow({ label, value }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{value}</Text>
+    </View>
   );
 }
 
 function RequestModal({
   visible,
   form,
-  submitting,
+  step,
   onClose,
   onChange,
-  onHelp,
+  onNext,
+  onBack,
   onSubmit,
 }) {
+  const selectedOption = selectedCredentialOption(form);
+  const remarks = String(form.remarks || '').trim();
   const total = getRequestTotal(form);
+  const isTor = form.credentialType === 'tor';
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -100,9 +139,13 @@ function RequestModal({
           <ScrollView contentContainerStyle={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>Request Credential</Text>
+                <Text style={styles.modalTitle}>
+                  {step === 1 ? 'Request Credential' : 'Request Summary'}
+                </Text>
                 <Text style={styles.modalSubtitle}>
-                  Run the FaceVerifier liveness gate before the request is submitted.
+                  {step === 1
+                    ? 'Select the credential you would like to request.'
+                    : 'Review your request before identity verification.'}
                 </Text>
               </View>
               <Pressable onPress={onClose} hitSlop={10}>
@@ -110,99 +153,111 @@ function RequestModal({
               </Pressable>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Credential Type</Text>
-              <View style={styles.chipRow}>
-                {CREDENTIAL_TYPES.map((item) => (
-                  <SelectChip
-                    key={item.value}
-                    label={item.label}
-                    selected={form.credentialType === item.value}
-                    onPress={() => onChange('credentialType', item.value)}
-                  />
-                ))}
-              </View>
-            </View>
+            <StepIndicator step={step} />
 
-            <View style={styles.section}>
-              <View style={styles.anchorTitleRow}>
-                <Text style={styles.sectionLabel}>Anchor Option</Text>
-                <Pressable onPress={onHelp} hitSlop={10} style={styles.helpButton}>
-                  <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
+            {step === 1 ? (
+              <>
+                <View style={styles.section}>
+                  <Text style={styles.sectionLabel}>Credential Type</Text>
+                  <View style={styles.optionStack}>
+                    {CREDENTIAL_TYPES.map((item) => (
+                      <CredentialOptionCard
+                        key={item.value}
+                        option={item}
+                        selected={form.credentialType === item.value}
+                        onPress={() => {
+                          onChange('credentialType', item.value);
+                          if (item.value === 'diploma') {
+                            onChange('remarks', '');
+                          }
+                        }}
+                      />
+                    ))}
+                  </View>
+                </View>
+
+                {isTor ? (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionLabel}>Remarks (Optional)</Text>
+                    <TextInput
+                      value={form.remarks}
+                      onChangeText={(value) => onChange('remarks', value)}
+                      placeholder={'Example:\nFor board examination\nEmployment requirements\nTransfer to another university'}
+                      placeholderTextColor={colors.muted}
+                      multiline
+                      textAlignVertical="top"
+                      style={styles.remarksInput}
+                    />
+                  </View>
+                ) : null}
+
+                <View style={styles.modalActions}>
+                  <Button title="Cancel" variant="outline" onPress={onClose} />
+                  <Button title="Next" onPress={onNext} />
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.summaryCard}>
+                  <SummaryRow label="Credential" value={selectedOption.label.replace(' (TOR)', '')} />
+                  <SummaryRow label="Remarks" value={remarks || 'None'} />
+                  <SummaryRow label="Processing Fee" value={formatPeso(BASE_CREDENTIAL_AMOUNT)} />
+                  <SummaryRow label="Blockchain Anchoring" value={form.anchorNow ? 'Enabled' : 'Disabled'} />
+                </View>
+
+                <Pressable
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: form.anchorNow }}
+                  onPress={() => onChange('anchorNow', !form.anchorNow)}
+                  style={[styles.anchorToggle, form.anchorNow && styles.anchorToggleOn]}
+                >
+                  <View style={[styles.switchTrack, form.anchorNow && styles.switchTrackOn]}>
+                    <View style={[styles.switchThumb, form.anchorNow && styles.switchThumbOn]} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.anchorToggleTitle}>Anchor Credential to Blockchain</Text>
+                    <Text style={styles.anchorToggleText}>
+                      Anchoring permanently records your credential on the blockchain for public verification.
+                    </Text>
+                    <Text style={styles.anchorToggleText}>
+                      Additional fees may apply if enabled.
+                    </Text>
+                  </View>
+                  <Text style={styles.switchLabel}>{form.anchorNow ? 'ON' : 'OFF'}</Text>
                 </Pressable>
-              </View>
-              <Pressable
-                onPress={() => onChange('anchorNow', !form.anchorNow)}
-                style={[styles.anchorToggle, form.anchorNow ? styles.anchorToggleOn : null]}
-              >
-                <View style={[styles.checkbox, form.anchorNow ? styles.checkboxOn : null]}>
-                  {form.anchorNow ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+
+                <View style={styles.priceBox}>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Processing Fee</Text>
+                    <Text style={styles.priceValue}>{formatPeso(BASE_CREDENTIAL_AMOUNT)}</Text>
+                  </View>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceLabel}>Anchor Now</Text>
+                    <Text style={styles.priceValue}>
+                      {form.anchorNow ? formatPeso(ANCHOR_NOW_FEE) : formatPeso(0)}
+                    </Text>
+                  </View>
+                  <View style={[styles.priceRow, styles.totalRow]}>
+                    <Text style={styles.totalLabel}>Estimated Total</Text>
+                    <Text style={styles.totalValue}>{formatPeso(total)}</Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.anchorToggleTitle}>Anchor Now</Text>
-                  <Text style={styles.anchorToggleText}>
-                    Anchor Now adds ₱20 and places your credential in the priority anchoring queue.
+
+                <View style={styles.noteBox}>
+                  <Text style={styles.noteText}>
+                    Processing may take up to 3 working days after payment.
+                  </Text>
+                  <Text style={styles.noteText}>
+                    Present the payment code to the cashier after submission.
                   </Text>
                 </View>
-              </Pressable>
-              <View style={styles.priceBox}>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Credential request</Text>
-                  <Text style={styles.priceValue}>₱{BASE_CREDENTIAL_AMOUNT}</Text>
+
+                <View style={styles.modalActionsRow}>
+                  <Button title="Back" variant="outline" onPress={onBack} style={styles.flex} />
+                  <Button title="Continue" onPress={onSubmit} style={styles.flex} />
                 </View>
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Anchor Now</Text>
-                  <Text style={styles.priceValue}>
-                    {form.anchorNow ? `₱${ANCHOR_NOW_FEE}` : '₱0'}
-                  </Text>
-                </View>
-                <View style={[styles.priceRow, styles.totalRow]}>
-                  <Text style={styles.totalLabel}>Total</Text>
-                  <Text style={styles.totalValue}>₱{total}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Remarks</Text>
-              <View style={styles.chipRow}>
-                {REMARK_PRESETS.map((item) => (
-                  <SelectChip
-                    key={item.value}
-                    label={item.label}
-                    selected={form.presetRemark === item.value}
-                    onPress={() => onChange('presetRemark', item.value)}
-                  />
-                ))}
-              </View>
-
-              {form.presetRemark === 'other' ? (
-                <TextField
-                  label="Custom remark"
-                  value={form.customRemark}
-                  onChangeText={(value) => onChange('customRemark', value)}
-                  placeholder="Enter your reason"
-                />
-              ) : null}
-            </View>
-
-            <View style={styles.noteBox}>
-              <Text style={styles.noteText}>
-                Processing may take up to 3 working days after payment.
-              </Text>
-              <Text style={styles.noteText}>
-                Present the payment code to the cashier after submission.
-              </Text>
-            </View>
-
-            <View style={styles.modalActions}>
-              <Button title="Cancel" variant="outline" onPress={onClose} />
-              <Button
-                title="Verify and Submit"
-                loading={submitting}
-                onPress={onSubmit}
-              />
-            </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -249,14 +304,14 @@ export default function HomeScreen() {
   const refreshAccount = useAppStore((state) => state.refreshAccount);
 
   const [requestVisible, setRequestVisible] = useState(false);
+  const [requestStep, setRequestStep] = useState(1);
   const [verifierVisible, setVerifierVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [lastRequest, setLastRequest] = useState(null);
   const [form, setForm] = useState({
     credentialType: 'tor',
     anchorNow: false,
-    presetRemark: 'employment',
-    customRemark: '',
+    remarks: '',
   });
 
   const verifiedAndLinked = useMemo(() => isVerifiedAndLinked(user), [user]);
@@ -285,13 +340,26 @@ export default function HomeScreen() {
     }
 
     setRequestVisible(true);
+    setRequestStep(1);
+  }
+
+  function closeRequestModal() {
+    setRequestVisible(false);
+    setRequestStep(1);
+  }
+
+  function goToSummary() {
+    if (!form.credentialType) {
+      Alert.alert('Credential type required', 'Select a credential type before continuing.');
+      return;
+    }
+
+    setRequestStep(2);
   }
 
   function beginLivenessCheck() {
-    const remarks = getRemarkText(form);
-
-    if (!remarks) {
-      Alert.alert('Missing remark', 'Choose a preset remark or enter a custom one.');
+    if (!form.credentialType) {
+      Alert.alert('Credential type required', 'Select a credential type before continuing.');
       return;
     }
 
@@ -300,23 +368,19 @@ export default function HomeScreen() {
   }
 
   async function submitRequest() {
-    const remarks = getRemarkText(form);
-
-    if (!remarks) {
-      Alert.alert('Missing remark', 'Choose a preset remark or enter a custom one.');
-      return;
-    }
+    const option = selectedCredentialOption(form);
+    const remarks = form.credentialType === 'tor' ? String(form.remarks || '').trim() : '';
 
     try {
       setSubmitting(true);
       const result = await requestCredential({
-        credentialType: form.credentialType,
+        credentialType: option.payloadValue,
         anchorPreference: form.anchorNow ? 'anchor_now' : 'after_signing',
         anchorMode: form.anchorNow ? 'anchor_now' : 'default',
         anchorNow: form.anchorNow,
         amount: getRequestTotal(form),
         totalAmount: getRequestTotal(form),
-        presetRemark: form.presetRemark,
+        presetRemark: '',
         remarks,
         livenessPassed: true,
         livenessMethod: 'faceVerifierLocal',
@@ -335,6 +399,7 @@ export default function HomeScreen() {
     } catch (error) {
       Alert.alert('Request failed', error.message || 'Failed to submit credential request');
       setRequestVisible(true);
+      setRequestStep(2);
       setVerifierVisible(false);
     } finally {
       setSubmitting(false);
@@ -347,6 +412,7 @@ export default function HomeScreen() {
         onClose={() => {
           setVerifierVisible(false);
           setRequestVisible(true);
+          setRequestStep(2);
         }}
         onPassed={submitRequest}
       />
@@ -389,8 +455,8 @@ export default function HomeScreen() {
           <View style={styles.heroCard}>
             <EmptyState
               illustration={illustrations.emptyCredentials}
-              title="No credentials yet"
-              body="Claim an issued credential using the Scan tab once it is ready."
+              title="No Credentials Yet"
+              body="Verified credentials will appear here once issued."
             />
           </View>
         )}
@@ -442,13 +508,11 @@ export default function HomeScreen() {
       <RequestModal
         visible={requestVisible}
         form={form}
-        submitting={submitting}
-        onClose={() => setRequestVisible(false)}
+        step={requestStep}
+        onClose={closeRequestModal}
         onChange={updateField}
-        onHelp={() => {
-          setRequestVisible(false);
-          router.push('/help');
-        }}
+        onNext={goToSummary}
+        onBack={() => setRequestStep(1)}
         onSubmit={beginLivenessCheck}
       />
       </ScrollView>
