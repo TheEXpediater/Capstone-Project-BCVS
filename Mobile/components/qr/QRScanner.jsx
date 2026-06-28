@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Ionicons } from '@expo/vector-icons';
 import Button from '@/components/ui/Button';
 import EmptyState from '@/components/ui/EmptyState';
-import Illustration from '@/components/ui/Illustration';
 import { illustrations } from '@/constants/illustrations';
 import { colors, radius, spacing } from '@/constants/theme';
 
@@ -27,13 +27,6 @@ export default function QRScanner({ onScan, onCancel }) {
   if (!permission) {
     return (
       <View style={styles.center}>
-        <Illustration
-          source={illustrations.scanQr}
-          heightRatio={0.22}
-          minHeight={120}
-          maxHeight={180}
-          accessibilityLabel="QR scanner"
-        />
         <ActivityIndicator color={colors.primary} />
         <Text style={styles.muted}>Preparing camera...</Text>
       </View>
@@ -61,24 +54,19 @@ export default function QRScanner({ onScan, onCancel }) {
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         onBarcodeScanned={locked ? undefined : handleScan}
       />
-      <View pointerEvents="none" style={styles.scanHeader}>
-        <Illustration
-          source={illustrations.scanQr}
-          heightRatio={0.13}
-          minHeight={82}
-          maxHeight={118}
-          accessibilityLabel="Scan QR"
-          style={styles.scanIllustration}
-        />
-        <Text style={styles.scanTitle}>Scan QR Code</Text>
-      </View>
       <View pointerEvents="none" style={styles.frame}>
         <View style={styles.scanBox} />
       </View>
       {!!onCancel && (
-        <View style={styles.footer}>
-          <Button title="Cancel" variant="outline" onPress={onCancel} />
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close scanner"
+          onPress={onCancel}
+          hitSlop={10}
+          style={styles.closeButton}
+        >
+          <Ionicons name="close" size={24} color="#FFFFFF" />
+        </Pressable>
       )}
     </View>
   );
@@ -101,25 +89,6 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textAlign: 'center'
   },
-  scanHeader: {
-    position: 'absolute',
-    top: spacing.xl,
-    left: spacing.lg,
-    right: spacing.lg,
-    alignItems: 'center'
-  },
-  scanIllustration: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: radius.md,
-    marginBottom: spacing.xs
-  },
-  scanTitle: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    textShadowColor: 'rgba(0,0,0,0.45)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4
-  },
   frame: {
     flex: 1,
     alignItems: 'center',
@@ -133,11 +102,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     backgroundColor: 'transparent'
   },
-  footer: {
+  closeButton: {
     position: 'absolute',
-    left: spacing.lg,
+    top: spacing.xl,
     right: spacing.lg,
-    bottom: spacing.xl
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(15, 23, 42, 0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    alignItems: 'center',
+    justifyContent: 'center'
   }
 });
 

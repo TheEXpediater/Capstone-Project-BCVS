@@ -187,6 +187,10 @@ function groupByYear(items) {
     }));
 }
 
+function activityId(item, fallback = '') {
+  return String(item?.id || item?._id || fallback);
+}
+
 function ActivityDetailsModal({ item, visible, onClose }) {
   if (!item) return null;
 
@@ -237,7 +241,12 @@ export default function ActivityScreen() {
   );
 
   const sections = useMemo(() => groupByYear(notifications), [notifications]);
+  const visibleIds = useMemo(
+    () => sections.flatMap((section) => section.data.map((item, index) => activityId(item, index))),
+    [sections]
+  );
   const selectedCount = selectedIds.length;
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
 
   function toggleSelection(id) {
     const value = String(id);
@@ -258,9 +267,13 @@ export default function ActivityScreen() {
     setSelectedIds([]);
   }
 
-  function handleItemPress(item) {
+  function toggleSelectAll() {
+    setSelectedIds(allVisibleSelected ? [] : visibleIds);
+  }
+
+  function handleItemPress(item, fallback) {
     if (selectionMode) {
-      toggleSelection(item.id);
+      toggleSelection(activityId(item, fallback));
       return;
     }
 
@@ -314,6 +327,7 @@ export default function ActivityScreen() {
             <Pressable onPress={cancelSelection} style={styles.textAction}>
               <Text style={styles.textActionLabel}>Cancel</Text>
             </Pressable>
+            <Text style={styles.selectedCount}>{selectedCount} Selected</Text>
             <Pressable
               onPress={confirmDelete}
               disabled={!selectedCount}
@@ -335,9 +349,27 @@ export default function ActivityScreen() {
         )}
       </View>
 
+      {selectionMode ? (
+        <View style={styles.selectionToolbar}>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityLabel="Select all visible activity"
+            accessibilityState={{ checked: allVisibleSelected }}
+            onPress={toggleSelectAll}
+            disabled={!visibleIds.length}
+            style={[styles.selectAllAction, !visibleIds.length && styles.actionDisabled]}
+          >
+            <View style={[styles.toolbarCheckbox, allVisibleSelected && styles.toolbarCheckboxOn]}>
+              {allVisibleSelected ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
+            </View>
+            <Text style={styles.selectAllText}>Select All</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <SectionList
         sections={sections}
-        keyExtractor={(item, index) => String(item.id || index)}
+        keyExtractor={(item, index) => activityId(item, index)}
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
@@ -354,10 +386,10 @@ export default function ActivityScreen() {
         renderItem={({ item, index, section }) => (
           <ActivityItem
             item={item}
-            selected={selectedIds.includes(String(item.id))}
+            selected={selectedIds.includes(activityId(item, index))}
             selectionMode={selectionMode}
             isLast={index === section.data.length - 1}
-            onPress={() => handleItemPress(item)}
+            onPress={() => handleItemPress(item, index)}
           />
         )}
         ListEmptyComponent={
@@ -404,6 +436,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm
+  },
+  selectedCount: {
+    color: colors.text,
+    fontWeight: '900'
+  },
+  selectionToolbar: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    alignItems: 'flex-start'
+  },
+  selectAllAction: {
+    minHeight: 40,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.line
+  },
+  toolbarCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface
+  },
+  toolbarCheckboxOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  selectAllText: {
+    color: colors.text,
+    fontWeight: '900'
   },
   iconButton: {
     width: 40,

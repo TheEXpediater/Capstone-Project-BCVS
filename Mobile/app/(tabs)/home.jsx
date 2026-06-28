@@ -468,8 +468,9 @@ export default function HomeScreen() {
             <EmptyState
               illustration={illustrations.emptyCredentials}
               title="No Credentials Yet"
-              body="Verified credentials will appear here once issued."
+              body={"You don't have any issued credentials yet.\n\nOnce your university approves your credential requests, they will appear here."}
             />
+            <Button title="Request Credential" onPress={openRequestModal} style={styles.emptyAction} />
           </View>
         )}
 
@@ -485,17 +486,19 @@ export default function HomeScreen() {
         </Pressable>
       ) : null}
 
-      <Pressable style={styles.requestCard} onPress={openRequestModal}>
-        <View style={styles.requestIcon}>
-          <Ionicons name="document-text-outline" size={24} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.requestTitle}>Request Credential</Text>
-          <Text style={styles.noteText}>
-            Open the request form, pass FaceVerifier, and present the payment code to the cashier.
-          </Text>
-        </View>
-      </Pressable>
+      {credentials.length ? (
+        <Pressable style={styles.requestCard} onPress={openRequestModal}>
+          <View style={styles.requestIcon}>
+            <Ionicons name="document-text-outline" size={24} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.requestTitle}>Request Credential</Text>
+            <Text style={styles.noteText}>
+              Open the request form, pass FaceVerifier, and present the payment code to the cashier.
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
 
       {lastRequest ? <RequestSuccessCard request={lastRequest} /> : null}
 
@@ -569,6 +572,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  emptyAction: {
+    alignSelf: 'stretch',
+    marginTop: spacing.sm,
   },
   verifyCard: {
     marginTop: spacing.lg,
