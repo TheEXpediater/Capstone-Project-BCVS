@@ -1195,3 +1195,47 @@ export async function deleteStudentById(id) {
     deletedGrades: gradeResult.deletedCount || 0,
   };
 }
+
+export async function bulkDeleteStudents(ids = [], actor) {
+  const Student = getStudentModel();
+  const StudentGrade = getStudentGradeModel();
+
+  const normalizedIds = Array.isArray(ids) ? ids.filter(Boolean) : [];
+  if (normalizedIds.length === 0) {
+    throw new ApiError(400, 'At least one student id is required.');
+  }
+
+  const validIds = normalizedIds.filter((id) => Types.ObjectId.isValid(id));
+  if (validIds.length !== normalizedIds.length) {
+    throw new ApiError(400, 'One or more student ids are invalid.');
+  }
+
+  const students = await Student.find({ _id: { $in: validIds } }).lean();
+  if (students.length !== validIds.length) {
+    throw new ApiError(404, 'One or more student records were not found.');
+  }
+
+  const session = await Student.startSession();
+  try {
+    let deletedCount = 0;
+    let deletedGrades = 0;
+
+    await session.withTransaction(async () => {
+      const gradeResult = await StudentGrade.deleteMany({ student: { $in: validIds } }, { session });
+      deletedGrades = gradeResult.deletedCount || 0;
+
+      const studentResult = await Student.deleteMany({ _id: { $in: validIds } }, { session });
+      deletedCount = studentResult.deletedCount || 0;
+    });
+
+    return {
+      deletedCount,
+      deletedGrades,
+      actor: actor?._id || null,
+    };
+  } catch (error) {
+    throw new ApiError(500, error?.message || 'Bulk student deletion failed.');
+  } finally {
+    await session.endSession();
+  }
+}

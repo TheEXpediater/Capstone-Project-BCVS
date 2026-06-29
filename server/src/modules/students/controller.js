@@ -82,3 +82,13 @@ export const importStudentGrades = asyncHandler(async (req, res) => {
     message: 'Student grades imported successfully.',
   });
 });
+
+export const bulkDeleteStudents = asyncHandler(async (req, res) => {
+  const data = await studentService.bulkDeleteStudents(req.body?.ids || [], req.user);
+
+  res.status(200).json({
+    success: true,
+    data,
+    message: 'Selected students deleted successfully.',
+  });
+});

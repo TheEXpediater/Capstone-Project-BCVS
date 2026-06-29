@@ -14,9 +14,11 @@ import {
   FaUpload,
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
+import BulkActionsMenu from '../../../components/BulkActionsMenu';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
+  bulkDeleteStudents,
   bulkImportStudentGrades,
   bulkImportStudents,
   createStudentProfile,
@@ -1250,6 +1252,15 @@ export default function StudentImportManagerPage() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [busyAction, setBusyAction] = useState(false);
   const [creatingVcDraftId, setCreatingVcDraftId] = useState('');
+  const [bulkActionMenuOpen, setBulkActionMenuOpen] = useState(false);
+  const [bulkCreateVcModalOpen, setBulkCreateVcModalOpen] = useState(false);
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [bulkCreateVcDraft, setBulkCreateVcDraft] = useState({
+    credentialType: '',
+    anchorSchedule: 'default',
+  });
+  const [bulkCreateVcSubmitting, setBulkCreateVcSubmitting] = useState(false);
+  const [bulkDeleteSubmitting, setBulkDeleteSubmitting] = useState(false);
 
   const activeFilterCount = useMemo(
     () => Object.values(filters).filter((value) => String(value || '').trim() !== '').length,
@@ -1269,6 +1280,11 @@ export default function StudentImportManagerPage() {
     () => students.length > 0 && students.every((student) => selectedStudentIds.has(student._id)),
     [students, selectedStudentIds]
   );
+  const selectedStudents = useMemo(
+    () => students.filter((student) => selectedStudentIds.has(student._id)),
+    [students, selectedStudentIds]
+  );
+  const selectedStudentCount = selectedStudentIds.size;
 
   async function loadCurricula() {
     try {
@@ -1695,9 +1711,136 @@ export default function StudentImportManagerPage() {
     setSelectedStudentIds(checked ? new Set(students.map((student) => student._id)) : new Set());
   }
 
-  function openStudentRow(student) {
-    toggleStudentSelection(student._id, true);
-    handleOpenProfile(student._id, 'view');
+  function toggleStudentRow(student) {
+    toggleStudentSelection(student._id, !selectedStudentIds.has(student._id));
+  }
+
+  function openBulkCreateVcModal() {
+    if (!selectedStudentCount) {
+      setFeedback({
+        type: 'warning',
+        text: 'Select at least one student before creating VC drafts.',
+        issues: [],
+      });
+      return;
+    }
+
+    setBulkCreateVcDraft({ credentialType: '', anchorSchedule: 'default' });
+    setBulkCreateVcModalOpen(true);
+  }
+
+  function openBulkDeleteModal() {
+    if (!selectedStudentCount) {
+      setFeedback({
+        type: 'warning',
+        text: 'Select at least one student before deleting records.',
+        issues: [],
+      });
+      return;
+    }
+
+    setBulkDeleteModalOpen(true);
+  }
+
+  async function confirmBulkCreateVcDrafts() {
+    if (!selectedStudentCount) {
+      setFeedback({
+        type: 'warning',
+        text: 'Select at least one student before creating VC drafts.',
+        issues: [],
+      });
+      return;
+    }
+
+    if (!bulkCreateVcDraft.credentialType) {
+      setFeedback({
+        type: 'warning',
+        text: 'Choose Diploma or TOR before creating VC drafts.',
+        issues: [],
+      });
+      return;
+    }
+
+    try {
+      setBulkCreateVcSubmitting(true);
+      const studentIds = Array.from(selectedStudentIds);
+      let createdCount = 0;
+      const failures = [];
+
+      for (const studentId of studentIds) {
+        try {
+          await createCredentialDraftFromStudent(studentId, {
+            credentialType: bulkCreateVcDraft.credentialType,
+            notes: '',
+            anchorMode: bulkCreateVcDraft.anchorSchedule === 'anchorNow' ? 'same_day' : 'scheduled',
+            anchorNow: bulkCreateVcDraft.anchorSchedule === 'anchorNow',
+          });
+          createdCount += 1;
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+
+      setBulkCreateVcModalOpen(false);
+      setBulkCreateVcDraft({ credentialType: '', anchorSchedule: 'default' });
+      setSelectedStudentIds(new Set());
+      await loadStudents({ page: pagination.page, showBusy: true });
+
+      if (createdCount > 0) {
+        setFeedback({
+          type: 'success',
+          text: `Created ${createdCount} VC draft${createdCount === 1 ? '' : 's'} for ${createdCount === studentIds.length ? 'all' : 'selected'} student${studentIds.length === 1 ? '' : 's'}.`,
+          issues: [],
+        });
+      } else {
+        setFeedback({
+          type: 'danger',
+          text: failures[0] ? getErrorMessage(failures[0], 'Unable to create VC drafts for the selected students.') : 'Unable to create VC drafts for the selected students.',
+          issues: [],
+        });
+      }
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to create VC drafts.'),
+        issues: [],
+      });
+    } finally {
+      setBulkCreateVcSubmitting(false);
+    }
+  }
+
+  async function confirmBulkDeleteStudents() {
+    if (!selectedStudentCount) {
+      setFeedback({
+        type: 'warning',
+        text: 'Select at least one student before deleting records.',
+        issues: [],
+      });
+      return;
+    }
+
+    try {
+      setBulkDeleteSubmitting(true);
+      const deleted = await bulkDeleteStudents(Array.from(selectedStudentIds));
+
+      setBulkDeleteModalOpen(false);
+      setSelectedStudentIds(new Set());
+      await loadStudents({ page: pagination.page, showBusy: true });
+      setFeedback({
+        type: 'success',
+        text: `Deleted ${deleted?.deletedCount || selectedStudentCount} student record${selectedStudentCount === 1 ? '' : 's'}.`,
+        issues: [],
+      });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to delete selected students.'),
+        issues: [],
+      });
+    } finally {
+      setBulkDeleteSubmitting(false);
+    }
   }
 
   return (
@@ -1751,6 +1894,33 @@ export default function StudentImportManagerPage() {
                   <FaFilter className="me-2" />
                   Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
                 </button>
+                <BulkActionsMenu
+                  actions={[
+                    ...(canCreateVcDraft
+                      ? [
+                          {
+                            key: 'create-vc',
+                            label: 'Create VC',
+                            icon: <FaFileSignature />, 
+                            onClick: openBulkCreateVcModal,
+                          },
+                        ]
+                      : []),
+                    {
+                      key: 'delete-selected',
+                      label: 'Delete Selected Students',
+                      icon: <FaTrash />, 
+                      variant: 'danger',
+                      onClick: openBulkDeleteModal,
+                    },
+                  ]}
+                  selectedCount={selectedStudentCount}
+                  label="Actions"
+                  isOpen={bulkActionMenuOpen}
+                  onToggle={() => setBulkActionMenuOpen((value) => !value)}
+                  onClose={() => setBulkActionMenuOpen(false)}
+                  loading={loadingStudents || refreshingStudents}
+                />
               </div>
             </form>
 
@@ -1790,7 +1960,7 @@ export default function StudentImportManagerPage() {
                           <tr
                             key={student._id}
                             className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
-                            onClick={() => openStudentRow(student)}
+                            onClick={() => toggleStudentRow(student)}
                           >
                             <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
                               <input
@@ -1903,6 +2073,119 @@ export default function StudentImportManagerPage() {
           setConfirmAction((prev) => (prev ? { ...prev, credentialType } : prev))
         }
       />
+
+      {bulkCreateVcModalOpen ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <div>
+                    <h2 className="h5 mb-1">Create VC Drafts</h2>
+                    <p className="text-muted mb-0 small">Create credential drafts for the selected students.</p>
+                  </div>
+                  <button type="button" className="btn-close" onClick={() => setBulkCreateVcModalOpen(false)} disabled={bulkCreateVcSubmitting} aria-label="Close" />
+                </div>
+                <div className="modal-body">
+                  <div className="alert alert-info border mb-3">
+                    This will create VC drafts for {selectedStudentCount} selected student{selectedStudentCount === 1 ? '' : 's'}. Review the list below before continuing.
+                  </div>
+                  <div className="table-responsive mb-3">
+                    <table className="table table-sm align-middle mb-0">
+                      <thead>
+                        <tr>
+                          <th>Student No.</th>
+                          <th>Student Name</th>
+                          <th>Program</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedStudents.map((student) => (
+                          <tr key={student._id}>
+                            <td>{student.studentNo || '—'}</td>
+                            <td>{student.studentName || '—'}</td>
+                            <td>{student.programCode || student.programName || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="row g-3">
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">Credential Type</label>
+                      <select
+                        className="form-select"
+                        value={bulkCreateVcDraft.credentialType}
+                        onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, credentialType: event.target.value }))}
+                        disabled={bulkCreateVcSubmitting}
+                      >
+                        <option value="">Choose credential type</option>
+                        <option value="tor">TOR</option>
+                        <option value="diploma">Diploma</option>
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">Anchor Schedule</label>
+                      <select
+                        className="form-select"
+                        value={bulkCreateVcDraft.anchorSchedule}
+                        onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, anchorSchedule: event.target.value }))}
+                        disabled={bulkCreateVcSubmitting}
+                      >
+                        <option value="default">Default (7 Days)</option>
+                        <option value="anchorNow">Anchor Now</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-outline-secondary" onClick={() => setBulkCreateVcModalOpen(false)} disabled={bulkCreateVcSubmitting}>Cancel</button>
+                  <button className="btn btn-primary" onClick={confirmBulkCreateVcDrafts} disabled={bulkCreateVcSubmitting || !bulkCreateVcDraft.credentialType}>
+                    {bulkCreateVcSubmitting ? 'Creating VC drafts...' : 'Create VC Drafts'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
+
+      {bulkDeleteModalOpen ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <div>
+                    <h2 className="h5 mb-1">Delete Selected Students</h2>
+                    <p className="text-muted mb-0 small">This action cannot be undone.</p>
+                  </div>
+                  <button type="button" className="btn-close" onClick={() => setBulkDeleteModalOpen(false)} disabled={bulkDeleteSubmitting} aria-label="Close" />
+                </div>
+                <div className="modal-body">
+                  <p className="mb-3">Deleting these student records will also remove:</p>
+                  <ul className="mb-3">
+                    <li>Student Profile</li>
+                    <li>Grade Records</li>
+                    <li>Related Academic Records</li>
+                  </ul>
+                  <div className="alert alert-light border small mb-0">
+                    {selectedStudentCount} selected student{selectedStudentCount === 1 ? '' : 's'} will be removed from the system.
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-outline-secondary" onClick={() => setBulkDeleteModalOpen(false)} disabled={bulkDeleteSubmitting}>Cancel</button>
+                  <button className="btn btn-danger" onClick={confirmBulkDeleteStudents} disabled={bulkDeleteSubmitting}>
+                    {bulkDeleteSubmitting ? 'Deleting...' : 'Delete Selected Students'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
     </>
   );
 }

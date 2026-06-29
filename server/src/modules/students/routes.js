@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import {
+  bulkDeleteStudents,
   createStudent,
   deleteStudentById,
   getStudentById,
@@ -26,6 +27,13 @@ router.post(
   protect({ kind: 'web' }),
   allowRoles('super_admin', 'developer'),
   importStudentGrades
+);
+
+router.post(
+  '/bulk-delete',
+  protect({ kind: 'web' }),
+  allowRoles('admin', 'super_admin', 'developer'),
+  bulkDeleteStudents
 );
 
 router.get(

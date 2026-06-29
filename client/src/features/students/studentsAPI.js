@@ -44,3 +44,8 @@ export async function bulkImportStudentGrades(rows) {
   const response = await api.post('/students/import-grades', { rows });
   return response.data.data;
 }
+
+export async function bulkDeleteStudents(ids = []) {
+  const response = await api.post('/students/bulk-delete', { ids });
+  return response.data.data;
+}
