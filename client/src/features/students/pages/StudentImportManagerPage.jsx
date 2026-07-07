@@ -16,6 +16,7 @@ import {
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import BulkActionsMenu from '../../../components/BulkActionsMenu';
+import CreateVcDraftModal from '../../../components/CreateVcDraftModal';
 import DataTable from '../../../components/DataTable';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import { hasValidStoredAuth } from '../../auth/authStorage';
@@ -1256,6 +1257,9 @@ export default function StudentImportManagerPage() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [busyAction, setBusyAction] = useState(false);
   const [creatingVcDraftId, setCreatingVcDraftId] = useState('');
+  const [createVcModalOpen, setCreateVcModalOpen] = useState(false);
+  const [createVcStudent, setCreateVcStudent] = useState(null);
+  const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
   const [bulkActionMenuOpen, setBulkActionMenuOpen] = useState(false);
   const [bulkCreateVcModalOpen, setBulkCreateVcModalOpen] = useState(false);
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
@@ -1615,7 +1619,32 @@ export default function StudentImportManagerPage() {
       return;
     }
 
-    setConfirmAction({ type: 'createVcDraft', student, credentialType: '' });
+    setCreateVcStudent(student || null);
+    setCreateVcModalOpen(true);
+  }
+
+  async function submitCreateVcDraft(payload) {
+    if (!createVcStudent?._id) {
+      setFeedback({ type: 'warning', text: 'Choose a student before creating a VC draft.', issues: [] });
+      return;
+    }
+
+    try {
+      setCreateVcSubmitting(true);
+      await createCredentialDraftFromStudent(createVcStudent._id, payload);
+      setCreateVcModalOpen(false);
+      setCreateVcStudent(null);
+      setFeedback({ type: 'success', text: 'VC draft created successfully.', issues: [] });
+      await loadStudents({ page: pagination.page, showBusy: true });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to create VC draft.'),
+        issues: [],
+      });
+    } finally {
+      setCreateVcSubmitting(false);
+    }
   }
 
   function requestDeleteStudent(student) {
@@ -1910,6 +1939,12 @@ export default function StudentImportManagerPage() {
             <FaUpload className="me-2" />
             Import
           </button>
+          {canCreateVcDraft ? (
+            <button className="btn btn-outline-primary" onClick={() => { setCreateVcStudent(null); setCreateVcModalOpen(true); }} disabled={loadingStudents || refreshingStudents}>
+              <FaFileSignature className="me-2" />
+              Create VC
+            </button>
+          ) : null}
           <button className="btn btn-outline-secondary" onClick={() => loadStudents({ page: pagination.page, showBusy: true })} disabled={refreshingStudents}>
             {refreshingStudents ? 'Refreshing...' : 'Refresh'}
           </button>
@@ -2103,6 +2138,21 @@ export default function StudentImportManagerPage() {
       />
 
       <StudentGradesModal data={selectedGradesData} onClose={() => setSelectedGradesData(null)} />
+
+      <CreateVcDraftModal
+        open={createVcModalOpen}
+        title="Create VC Draft"
+        subtitle="Create a VC draft for one student from the registrar workspace."
+        student={createVcStudent}
+        students={students}
+        loading={loadingStudents || refreshingStudents}
+        submitting={createVcSubmitting}
+        onClose={() => {
+          setCreateVcModalOpen(false);
+          setCreateVcStudent(null);
+        }}
+        onConfirm={submitCreateVcDraft}
+      />
 
       <ConfirmActionModal
         action={confirmAction}

@@ -13,7 +13,9 @@ import {
   FaTrash,
 } from 'react-icons/fa';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
+import CreateVcDraftModal from '../../../components/CreateVcDraftModal';
 import { hasValidStoredAuth } from '../../auth/authStorage';
+import { listStudents } from '../../students/studentsAPI';
 import {
   bulkCreateCredentialClaimTokens,
   bulkDeleteCredentialDrafts,
@@ -22,6 +24,7 @@ import {
   bulkSubmitCredentialDrafts,
   createCredentialClaimOverrideToken,
   createCredentialClaimToken,
+  createCredentialDraftFromStudent,
   deleteCredentialDraft,
   getCredentialDraftById,
   getTodaysAnchorQueueSummary,
@@ -2395,6 +2398,11 @@ export default function CredentialDraftsPage() {
   const [queueProcessing, setQueueProcessing] = useState(false);
   const [queueProcessResult, setQueueProcessResult] = useState(null);
   const [queueError, setQueueError] = useState('');
+  const [createVcModalOpen, setCreateVcModalOpen] = useState(false);
+  const [createVcStudent, setCreateVcStudent] = useState(null);
+  const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
+  const [createVcStudents, setCreateVcStudents] = useState([]);
+  const [createVcStudentsLoading, setCreateVcStudentsLoading] = useState(false);
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -2542,6 +2550,51 @@ export default function CredentialDraftsPage() {
       setFeedback({ type: 'danger', text: actionError(error, 'Failed to load details.') });
     } finally {
       setBusyId('');
+    }
+  }
+
+  async function loadCreateVcStudents() {
+    if (createVcStudents.length || createVcStudentsLoading) return;
+
+    try {
+      setCreateVcStudentsLoading(true);
+      const data = await listStudents({ page: 1, limit: 100 });
+      const rows = Array.isArray(data) ? data : data?.rows || [];
+      setCreateVcStudents(rows);
+    } catch {
+      setCreateVcStudents([]);
+    } finally {
+      setCreateVcStudentsLoading(false);
+    }
+  }
+
+  function openCreateVcModal(student = null, students = []) {
+    setCreateVcStudent(student);
+    setCreateVcStudents(students);
+    setCreateVcModalOpen(true);
+    if (!students.length) {
+      loadCreateVcStudents();
+    }
+  }
+
+  async function submitCreateVcDraft(payload) {
+    const targetStudent = createVcStudent || createVcStudents[0] || null;
+    if (!targetStudent?._id) {
+      setFeedback({ type: 'warning', text: 'Choose a student before creating a VC draft.' });
+      return;
+    }
+
+    try {
+      setCreateVcSubmitting(true);
+      await createCredentialDraftFromStudent(targetStudent._id, payload);
+      setCreateVcModalOpen(false);
+      setCreateVcStudent(null);
+      setCreateVcStudents([]);
+      await refreshAfterAction('VC draft created successfully.');
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Failed to create VC draft.') });
+    } finally {
+      setCreateVcSubmitting(false);
     }
   }
 
@@ -3340,14 +3393,23 @@ export default function CredentialDraftsPage() {
       <div className="d-flex flex-column gap-4">
         <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
           {canUseRegistrarActions ? (
-            <button
-              className="btn btn-warning"
-              onClick={confirmProcessQueue}
-              disabled={modalBusy}
-            >
-              Process Today's Anchor Queue
-              {queueSummary?.pendingCount ? ` (${queueSummary.pendingCount})` : ''}
-            </button>
+            <>
+              <button
+                className="btn btn-primary"
+                onClick={() => openCreateVcModal(null, [])}
+                disabled={modalBusy}
+              >
+                Create VC Draft
+              </button>
+              <button
+                className="btn btn-warning"
+                onClick={confirmProcessQueue}
+                disabled={modalBusy}
+              >
+                Process Today's Anchor Queue
+                {queueSummary?.pendingCount ? ` (${queueSummary.pendingCount})` : ''}
+              </button>
+            </>
           ) : null}
         </div>
 
@@ -3525,6 +3587,21 @@ export default function CredentialDraftsPage() {
         onClose={() => setQueueModalOpen(false)}
         onProcess={processQueueFromModal}
         onView={viewQueueCredential}
+      />
+      <CreateVcDraftModal
+        open={createVcModalOpen}
+        title="Create VC Draft"
+        subtitle="Create a VC draft for a student from the registrar workspace."
+        student={createVcStudent}
+        students={createVcStudents}
+        loading={loading || createVcStudentsLoading}
+        submitting={createVcSubmitting}
+        onClose={() => {
+          setCreateVcModalOpen(false);
+          setCreateVcStudent(null);
+          setCreateVcStudents([]);
+        }}
+        onConfirm={submitCreateVcDraft}
       />
     </>
   );
