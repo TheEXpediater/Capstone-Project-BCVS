@@ -8,6 +8,7 @@ import {
   FaEdit,
   FaEye,
   FaPaperPlane,
+  FaPlus,
   FaQrcode,
   FaSignature,
   FaTrash,
@@ -2403,6 +2404,7 @@ export default function CredentialDraftsPage() {
   const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
   const [createVcStudents, setCreateVcStudents] = useState([]);
   const [createVcStudentsLoading, setCreateVcStudentsLoading] = useState(false);
+  const [createVcPickerOpen, setCreateVcPickerOpen] = useState(false);
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -2566,6 +2568,19 @@ export default function CredentialDraftsPage() {
     } finally {
       setCreateVcStudentsLoading(false);
     }
+  }
+
+  function openCreateVcPicker() {
+    setCreateVcStudent(null);
+    setCreateVcStudents([]);
+    setCreateVcPickerOpen(true);
+    loadCreateVcStudents();
+  }
+
+  function selectCreateVcStudent(student) {
+    setCreateVcStudent(student);
+    setCreateVcPickerOpen(false);
+    setCreateVcModalOpen(true);
   }
 
   function openCreateVcModal(student = null, students = []) {
@@ -3396,10 +3411,11 @@ export default function CredentialDraftsPage() {
             <>
               <button
                 className="btn btn-primary"
-                onClick={() => openCreateVcModal(null, [])}
+                onClick={openCreateVcPicker}
                 disabled={modalBusy}
               >
-                Create VC Draft
+                <FaPlus className="me-2" />
+                Create VC
               </button>
               <button
                 className="btn btn-warning"
@@ -3588,6 +3604,52 @@ export default function CredentialDraftsPage() {
         onProcess={processQueueFromModal}
         onView={viewQueueCredential}
       />
+      {createVcPickerOpen ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <div>
+                    <h2 className="h5 mb-1">Select Student</h2>
+                    <p className="text-muted mb-0 small">Choose a student before creating a VC draft.</p>
+                  </div>
+                  <button type="button" className="btn-close" onClick={() => setCreateVcPickerOpen(false)} aria-label="Close" />
+                </div>
+                <div className="modal-body">
+                  {createVcStudentsLoading ? (
+                    <div className="text-muted">Loading students...</div>
+                  ) : createVcStudents.length ? (
+                    <div className="list-group">
+                      {createVcStudents.map((student) => (
+                        <button
+                          key={student._id}
+                          type="button"
+                          className="list-group-item list-group-item-action"
+                          onClick={() => selectCreateVcStudent(student)}
+                        >
+                          <div className="fw-semibold">{student.studentName || 'Unnamed student'}</div>
+                          <div className="small text-muted">
+                            {student.studentNo || 'No student number'} · {student.programCode || student.programName || 'No program'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="alert alert-light border mb-0">No students found.</div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-outline-secondary" onClick={() => setCreateVcPickerOpen(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
       <CreateVcDraftModal
         open={createVcModalOpen}
         title="Create VC Draft"

@@ -966,7 +966,7 @@ function StudentActionMenu({
             disabled={creatingVcDraftId === student._id}
           >
             <FaFileSignature className="me-2" />
-            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
+            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create Verifiable Credential (VC)'}
           </button>
         ) : null}
         <button
@@ -1218,7 +1218,7 @@ function PaginationControls({ pagination, onPageChange, disabled }) {
 export default function StudentImportManagerPage() {
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentRole = auth?.user?.role || '';
-  const canCreateVcDraft = currentRole === 'admin';
+  const canCreateVcDraft = ['admin', 'super_admin'].includes(currentRole);
 
   const [students, setStudents] = useState([]);
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
