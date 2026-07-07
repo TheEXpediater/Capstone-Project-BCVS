@@ -154,6 +154,34 @@ export const createCredentialDraftFromStudent = asyncHandler(async (req, res) =>
   });
 });
 
+export const bulkCreateCredentialDraftsFromStudents = asyncHandler(async (req, res) => {
+  const data = await credentialService.bulkCreateCredentialDraftsFromStudents(
+    req.body || {},
+    req.user
+  );
+
+  await logCredentialAction(
+    req,
+    'BULK_CREATE_DRAFTS',
+    data,
+    'Created credential drafts from selected students',
+    {
+      processedCount: data?.processedCount || 0,
+      successCount: data?.successCount || 0,
+      failedCount: data?.failedCount || 0,
+      credentialType: req.body?.credentialType || '',
+      anchorMode: req.body?.anchorMode || '',
+      anchorNow: Boolean(req.body?.anchorNow),
+    }
+  );
+
+  res.status(201).json({
+    success: true,
+    data,
+    message: 'Bulk credential draft creation completed.',
+  });
+});
+
 export const requestMobileCredential = asyncHandler(async (req, res) => {
   const data = await credentialService.requestMobileCredential(
     req.body || {},

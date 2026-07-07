@@ -2,6 +2,7 @@ import express from 'express';
 import { protect, allowRoles } from '../../shared/middleware/auth.middleware.js';
 import {
   bulkCreateCredentialClaimTokens,
+  bulkCreateCredentialDraftsFromStudents,
   bulkDeleteCredentialDrafts,
   bulkScheduleCredentialAnchors,
   bulkSignCredentialDrafts,
@@ -37,6 +38,13 @@ router.post(
   protect({ kind: 'web' }),
   allowRoles('admin'),
   createCredentialDraftFromStudent
+);
+
+router.post(
+  '/bulk/from-students',
+  protect({ kind: 'web' }),
+  allowRoles('admin'),
+  bulkCreateCredentialDraftsFromStudents
 );
 
 router.get(

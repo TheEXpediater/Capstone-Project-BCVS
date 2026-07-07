@@ -4,7 +4,6 @@ import {
   FaCog,
   FaEdit,
   FaEllipsisV,
-  FaEye,
   FaFileImport,
   FaPlus,
   FaSave,
@@ -17,6 +16,7 @@ import {
   listCurricula,
   saveCurriculum,
 } from '../curriculumAPI';
+import DataTable from '../../../components/DataTable';
 
 function createEmptySubject() {
   return {
@@ -526,6 +526,7 @@ function CurriculumLibrary({
   openMenuId,
   onRefresh,
   onAdd,
+  onSelect,
   onView,
   onRequestEdit,
   onRequestDelete,
@@ -561,94 +562,82 @@ function CurriculumLibrary({
             No curricula saved yet. Use Add Curriculum to create one manually or import JSON.
           </div>
         ) : (
-          <div className="table-responsive">
-            <table className="table align-middle mb-0 mis-table">
-              <thead>
-                <tr>
-                  <th className="mis-table-checkbox"></th>
-                  <th style={{ minWidth: 130 }}>Program</th>
-                  <th style={{ minWidth: 260 }}>Program Name</th>
-                  <th style={{ minWidth: 140 }}>Year</th>
-                  <th style={{ minWidth: 110 }}>Subjects</th>
-                  <th style={{ minWidth: 100 }}>Units</th>
-                  <th className="text-end mis-table-actions">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {curricula.map((item) => {
-                  const isSelected = selectedCurriculumId === item._id;
-                  const isBusy = loadingId === item._id || deletingId === item._id;
-
-                  return (
-                    <tr
-                      key={item._id}
-                      className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
-                      onClick={() => onView(item._id)}
+          <DataTable
+            rows={curricula}
+            selectedRows={selectedCurriculumId ? [selectedCurriculumId] : []}
+            onToggleRow={(id, checked) => onSelect(checked ? id : '')}
+            onToggleAll={(ids, checked) => onSelect(checked ? ids[0] || '' : '')}
+            onViewDetails={(item) => onView(item._id)}
+            getRowDisabled={(item) => loadingId === item._id || deletingId === item._id}
+            columns={[
+              {
+                key: 'program',
+                header: 'Program',
+                className: 'fw-semibold',
+                headerStyle: { minWidth: 130 },
+                render: (item) => item.program || '-',
+              },
+              {
+                key: 'programName',
+                header: 'Program Name',
+                headerStyle: { minWidth: 260 },
+                render: (item) => item.programName || '-',
+              },
+              {
+                key: 'curriculumYear',
+                header: 'Year',
+                headerStyle: { minWidth: 140 },
+                render: (item) => item.curriculumYear || '-',
+              },
+              {
+                key: 'subjectCount',
+                header: 'Subjects',
+                headerStyle: { minWidth: 110 },
+                render: (item) => item.subjectCount || 0,
+              },
+              {
+                key: 'totalUnits',
+                header: 'Units',
+                headerStyle: { minWidth: 100 },
+                render: (item) => item.totalUnits || 0,
+              },
+            ]}
+            renderActions={(item) => {
+              const isBusy = loadingId === item._id || deletingId === item._id;
+              return (
+                <FloatingActionMenu
+                  isOpen={openMenuId === item._id}
+                  onToggle={() => onMenuToggle(item._id)}
+                  onClose={onMenuClose}
+                  buttonClassName="btn btn-outline-secondary btn-sm"
+                  buttonContent={<FaCog />}
+                  ariaLabel={`Open actions for ${item.program || 'curriculum'}`}
+                  menuWidth={190}
+                >
+                  <div className="list-group list-group-flush">
+                    <button
+                      type="button"
+                      className="list-group-item list-group-item-action"
+                      onClick={() => onRequestEdit(item)}
+                      disabled={isBusy}
                     >
-                      <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => onView(item._id)}
-                          disabled={isBusy}
-                          aria-label={`Select ${item.program || 'curriculum'}`}
-                        />
-                      </td>
-                      <td className="fw-semibold">{item.program || '-'}</td>
-                      <td>{item.programName || '-'}</td>
-                      <td>{item.curriculumYear || '-'}</td>
-                      <td>{item.subjectCount || 0}</td>
-                      <td>{item.totalUnits || 0}</td>
-                      <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
-                        <div className="d-inline-flex align-items-center gap-2">
-                          <button
-                            className="btn btn-outline-primary btn-sm"
-                            onClick={() => onView(item._id)}
-                            disabled={isBusy}
-                          >
-                            <FaEye className="me-1" />
-                            {loadingId === item._id ? 'Opening...' : 'View'}
-                          </button>
-
-                          <FloatingActionMenu
-                            isOpen={openMenuId === item._id}
-                            onToggle={() => onMenuToggle(item._id)}
-                            onClose={onMenuClose}
-                            buttonClassName="btn btn-outline-secondary btn-sm"
-                            buttonContent={<FaCog />}
-                            ariaLabel={`Open actions for ${item.program || 'curriculum'}`}
-                            menuWidth={190}
-                          >
-                            <div className="list-group list-group-flush">
-                              <button
-                                type="button"
-                                className="list-group-item list-group-item-action"
-                                onClick={() => onRequestEdit(item)}
-                                disabled={isBusy}
-                              >
-                                <FaEdit className="me-2" />
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="list-group-item list-group-item-action text-danger"
-                                onClick={() => onRequestDelete(item)}
-                                disabled={isBusy}
-                              >
-                                <FaTrash className="me-2" />
-                                Delete
-                              </button>
-                            </div>
-                          </FloatingActionMenu>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      <FaEdit className="me-2" />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="list-group-item list-group-item-action text-danger"
+                      onClick={() => onRequestDelete(item)}
+                      disabled={isBusy}
+                    >
+                      <FaTrash className="me-2" />
+                      Delete
+                    </button>
+                  </div>
+                </FloatingActionMenu>
+              );
+            }}
+          />
         )}
       </div>
     </div>
@@ -1525,6 +1514,7 @@ export default function CurriculumManagerPage() {
             openMenuId={openLibraryMenuId}
             onRefresh={loadCurricula}
             onAdd={handleAddCurriculum}
+            onSelect={setSelectedCurriculumId}
             onView={openCurriculumReadOnly}
             onRequestEdit={requestEdit}
             onRequestDelete={requestDelete}

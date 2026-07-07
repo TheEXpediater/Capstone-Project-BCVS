@@ -7,7 +7,14 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({
   path: path.resolve(__dirname, '../../.env'),
+  quiet: true,
 });
+
+const nodeEnv = process.env.NODE_ENV || 'development';
+
+if (nodeEnv !== 'production' && !process.env.BLOCKCHAIN_KEY_SECRET && process.env.KEY_ENCRYPTION_SECRET) {
+  process.env.BLOCKCHAIN_KEY_SECRET = process.env.KEY_ENCRYPTION_SECRET;
+}
 
 function toBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === '') return fallback;
@@ -35,7 +42,7 @@ for (const key of required) {
 }
 
 export const env = {
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv,
   port: Number(process.env.PORT || 5000),
   webPort: Number(process.env.WEB_PORT || 5173),
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')

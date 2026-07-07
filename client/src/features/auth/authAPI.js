@@ -41,6 +41,47 @@ export async function getWebMe() {
   };
 }
 
+export async function updateWebProfile(payload) {
+  const { data } = await api.patch('/auth/web/me', payload);
+  const stored = readStoredAuth();
+
+  if (stored) {
+    writeStoredAuth({
+      ...stored,
+      user: data.user,
+    });
+  }
+
+  return data.user;
+}
+
+export async function uploadWebProfileImage(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+
+  const { data } = await api.post('/auth/web/me/profile-image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  const stored = readStoredAuth();
+
+  if (stored) {
+    writeStoredAuth({
+      ...stored,
+      user: data.user,
+    });
+  }
+
+  return data.user;
+}
+
+export async function updateWebPassword(payload) {
+  const { data } = await api.post('/auth/web/me/password', payload);
+  return data;
+}
+
 export async function logout() {
   try {
     await api.post('/auth/logout');

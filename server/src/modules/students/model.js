@@ -77,6 +77,20 @@ const studentSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    studentStatus: {
+      type: String,
+      enum: ['admitted', 'enrolled', 'graduated', 'inactive'],
+      default: 'admitted',
+      trim: true,
+      index: true,
+    },
+    academicStatus: {
+      type: String,
+      enum: ['in_progress', 'completed', 'incomplete'],
+      default: 'in_progress',
+      trim: true,
+      index: true,
+    },
 
     // denormalized program fields for quick table display
     programCode: {
@@ -125,6 +139,7 @@ const studentSchema = new mongoose.Schema(
 );
 
 studentSchema.index({ programCode: 1, graduated: 1 });
+studentSchema.index({ studentStatus: 1, academicStatus: 1 });
 studentSchema.index({ 'seedMeta.source': 1, 'seedMeta.curriculumYear': 1 });
 
 const studentGradeSchema = new mongoose.Schema(

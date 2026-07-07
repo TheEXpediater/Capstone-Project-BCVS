@@ -83,6 +83,8 @@ function sanitizeUser(user) {
     email: user.email,
     role: user.role,
     kind: user.kind,
+    contactNo: user.contactNo || '',
+    address: user.address || '',
     profilePicture: user.profilePicture || '',
     isActive: user.isActive,
     createdAt: user.createdAt,
@@ -649,6 +651,112 @@ export async function getMe(userId) {
   return {
     success: true,
     user: sanitizeUser(user),
+  };
+}
+
+export async function updateWebProfile(userId, payload = {}, actor) {
+  const User = getUserModel();
+
+  if (!Types.ObjectId.isValid(userId)) {
+    throw new ApiError(401, 'Invalid authenticated user');
+  }
+
+  const user = await User.findById(userId);
+  if (!user || user.kind !== 'web') {
+    throw new ApiError(404, 'Web user not found');
+  }
+
+  const nextEmail = cleanString(payload.email).toLowerCase();
+  if (nextEmail && nextEmail !== user.email) {
+    const existingEmail = await User.exists({ _id: { $ne: user._id }, email: nextEmail });
+    if (existingEmail) {
+      throw new ApiError(409, 'Email already exists');
+    }
+
+    user.email = nextEmail;
+  }
+
+  user.fullName = cleanString(payload.fullName, user.fullName);
+  user.contactNo = cleanString(payload.contactNo);
+  user.address = cleanString(payload.address);
+
+  if (payload.role && payload.role !== user.role) {
+    if (!['developer', 'super_admin'].includes(actor?.role)) {
+      throw new ApiError(403, 'Only MIS or administrator users can update roles.');
+    }
+
+    if (!['developer', 'super_admin', 'admin', 'cashier'].includes(payload.role)) {
+      throw new ApiError(400, 'Selected role is not available for web administrator accounts.');
+    }
+
+    user.role = payload.role;
+  }
+
+  await user.save();
+
+  return {
+    success: true,
+    user: sanitizeUser(user),
+  };
+}
+
+export async function updateWebProfilePicture(userId, profilePicture) {
+  const User = getUserModel();
+
+  if (!Types.ObjectId.isValid(userId)) {
+    throw new ApiError(401, 'Invalid authenticated user');
+  }
+
+  const user = await User.findById(userId);
+  if (!user || user.kind !== 'web') {
+    throw new ApiError(404, 'Web user not found');
+  }
+
+  user.profilePicture = cleanString(profilePicture);
+  await user.save();
+
+  return {
+    success: true,
+    user: sanitizeUser(user),
+  };
+}
+
+export async function updateWebPassword(userId, sessionId, payload = {}) {
+  const User = getUserModel();
+  const Session = getSessionModel();
+
+  if (!Types.ObjectId.isValid(userId) || !Types.ObjectId.isValid(sessionId)) {
+    throw new ApiError(401, 'Invalid authenticated user');
+  }
+
+  const user = await User.findById(userId).select('+password');
+  if (!user || user.kind !== 'web') {
+    throw new ApiError(404, 'Web user not found');
+  }
+
+  const oldPasswordOk = await bcrypt.compare(payload.oldPassword, user.password);
+  if (!oldPasswordOk) {
+    throw new ApiError(400, 'Old password is incorrect.');
+  }
+
+  user.password = await bcrypt.hash(payload.newPassword, Number(env.bcryptSaltRounds || 10));
+  await user.save();
+
+  await Session.updateMany(
+    {
+      userId: user._id,
+      isActive: true,
+      _id: { $ne: sessionId },
+    },
+    {
+      isActive: false,
+      logoutAt: new Date(),
+    }
+  );
+
+  return {
+    success: true,
+    message: 'Password updated successfully.',
   };
 }
 

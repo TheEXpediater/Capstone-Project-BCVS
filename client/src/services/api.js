@@ -10,6 +10,23 @@ const API_BASE_URL = (
   'http://localhost:5000/api'
 ).replace(/\/+$/, '');
 
+export { API_BASE_URL };
+
+export const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/i, '');
+
+export function resolveAssetUrl(value) {
+  if (!value) return '';
+
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) {
+    return raw;
+  }
+
+  return `${API_ORIGIN}${raw.startsWith('/') ? raw : `/${raw}`}`;
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
 });

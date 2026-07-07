@@ -6,6 +6,7 @@ import {
   logout,
   readStoredAuth,
 } from './authAPI';
+import { writeStoredAuth } from './authStorage';
 
 const stored = readStoredAuth();
 
@@ -65,6 +66,17 @@ const authSlice = createSlice({
       state.isError = false;
       state.message = '';
     },
+    setAuthUser: (state, action) => {
+      state.user = action.payload || null;
+
+      if (state.token) {
+        writeStoredAuth({
+          token: state.token,
+          sessionId: state.sessionId,
+          user: state.user,
+        });
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -123,5 +135,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { resetAuthMessage } = authSlice.actions;
+export const { resetAuthMessage, setAuthUser } = authSlice.actions;
 export default authSlice.reducer;

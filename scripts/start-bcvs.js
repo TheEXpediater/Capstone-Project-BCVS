@@ -1,0 +1,154 @@
+import fs from 'node:fs/promises';
+import net from 'node:net';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
+const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const children = new Set();
+let shuttingDown = false;
+
+async function readJson(filePath, fallback = {}) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+async function readEnv(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    return Object.fromEntries(
+      raw
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#') && line.includes('='))
+        .map((line) => {
+          const index = line.indexOf('=');
+          return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
+        })
+    );
+  } catch {
+    return {};
+  }
+}
+
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, '0.0.0.0');
+  });
+}
+
+function prefixLines(prefix, stream) {
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk) => {
+    for (const line of chunk.split(/\r?\n/)) {
+      if (line.trim()) console.log(`[${prefix}] ${line}`);
+    }
+  });
+}
+
+function startProcess(label, cwd, args, url) {
+  const useShell = process.platform === 'win32';
+  const command = useShell ? [npmCmd, ...args].join(' ') : npmCmd;
+  const child = spawn(command, useShell ? [] : args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: process.env,
+    shell: useShell,
+  });
+
+  children.add(child);
+  prefixLines(label, child.stdout);
+  prefixLines(label, child.stderr);
+
+  child.on('exit', (code, signal) => {
+    children.delete(child);
+    if (!shuttingDown) {
+      console.log(`[!] ${label} stopped (${signal || (code ?? 'unknown')}).`);
+    }
+  });
+
+  console.log(`${label}:`);
+  console.log(`Running on ${url}`);
+}
+
+async function main() {
+  const config = await readJson(path.join(rootDir, 'system.json'));
+  const serverEnv = await readEnv(path.join(rootDir, 'server', '.env'));
+  const backendPort = Number(serverEnv.PORT || config.ports?.backend || 5000);
+  const frontendPort = Number(config.ports?.frontend || 5173);
+
+  console.log('Starting BCVS...');
+  console.log('');
+
+  if (config.services?.backend !== false) {
+    if (await isPortFree(backendPort)) {
+      startProcess(
+        'Backend',
+        path.join(rootDir, 'server'),
+        ['run', 'dev'],
+        `http://localhost:${backendPort}`
+      );
+    } else {
+      console.log('[!] Backend port conflict');
+      console.log(`    Port ${backendPort} is already in use. Assuming backend is already running.`);
+      console.log(`Backend: http://localhost:${backendPort}`);
+    }
+  }
+
+  if (config.services?.frontend !== false) {
+    if (await isPortFree(frontendPort)) {
+      startProcess(
+        'Frontend',
+        path.join(rootDir, 'client'),
+        ['run', 'dev', '--', '--host', '0.0.0.0', '--port', String(frontendPort)],
+        `http://localhost:${frontendPort}`
+      );
+    } else {
+      console.log('[!] Frontend port conflict');
+      console.log(`    Port ${frontendPort} is already in use. Assuming frontend is already running.`);
+      console.log(`Frontend: http://localhost:${frontendPort}`);
+    }
+  }
+
+  if (!children.size) {
+    return;
+  }
+
+  process.stdin.resume();
+}
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received. Stopping BCVS...`);
+
+  for (const child of children) {
+    child.kill('SIGINT');
+  }
+
+  setTimeout(() => {
+    for (const child of children) {
+      child.kill('SIGTERM');
+    }
+    process.exit(0);
+  }, 2500).unref();
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+main().catch((error) => {
+  console.error(`[x] ${error.message || error}`);
+  process.exitCode = 1;
+});

@@ -2621,6 +2621,7 @@ export default function SystemSettingsPage() {
                 </div>
               </div>
 
+              {/* eslint-disable-next-line no-constant-condition */}
               {true ? (
                 <>
                   {!wallet?.ok && wallet?.error ? (

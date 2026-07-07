@@ -274,6 +274,7 @@ function ReviewModal({
             </div>
 
             <div className="modal-body">
+              {/* eslint-disable-next-line no-constant-condition */}
               {false ? (
                 <>
               <section className="mb-4">

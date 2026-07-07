@@ -9,6 +9,13 @@ const email = Joi.string()
 
 const password = Joi.string().min(8).max(128).required();
 const optionalString = Joi.string().trim().max(255).allow('', null);
+const strongPassword = Joi.string()
+  .min(8)
+  .max(128)
+  .pattern(/[a-z]/, 'lowercase letter')
+  .pattern(/[A-Z]/, 'uppercase letter')
+  .pattern(/[0-9]/, 'number')
+  .required();
 
 export const bootstrapSuperAdminSchema = Joi.object({
   username: Joi.string().trim().min(2).max(100).required(),
@@ -68,4 +75,24 @@ export const createMobileUserSchema = Joi.object({
 export const mobileLoginSchema = Joi.object({
   email,
   password,
+});
+
+export const updateWebProfileSchema = Joi.object({
+  fullName: Joi.string().trim().min(2).max(200).required(),
+  email: email.optional(),
+  contactNo: optionalString.optional(),
+  address: optionalString.optional(),
+  role: Joi.string()
+    .valid('admin', 'super_admin', 'developer', 'cashier')
+    .optional(),
+});
+
+export const updateWebPasswordSchema = Joi.object({
+  oldPassword: password,
+  newPassword: strongPassword.invalid(Joi.ref('oldPassword')).messages({
+    'any.invalid': 'New password must be different from the old password.',
+  }),
+  confirmPassword: Joi.string().valid(Joi.ref('newPassword')).required().messages({
+    'any.only': 'Confirm password must match the new password.',
+  }),
 });

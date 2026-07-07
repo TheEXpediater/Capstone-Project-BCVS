@@ -51,3 +51,15 @@ export function getPlatformConnection() {
   }
   return platformConnection;
 }
+
+export async function closeDatabases() {
+  await Promise.all(
+    [identityConnection, credentialsConnection, platformConnection]
+      .filter(Boolean)
+      .map((connection) => connection.close().catch(() => null))
+  );
+
+  identityConnection = null;
+  credentialsConnection = null;
+  platformConnection = null;
+}

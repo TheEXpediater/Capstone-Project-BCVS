@@ -6,6 +6,7 @@ import SystemSettingsPage from '../features/settings/pages/SystemSettingsPage';
 import UserManagementPage from '../features/users/pages/UserManagementPage';
 import ContractManagerPage from '../features/contracts/pages/ContractManagerPage';
 import CurriculumManagerPage from '../features/curriculum/pages/CurriculumManagerPage';
+import ProfilePage from '../features/profile/pages/ProfilePage';
 import LinkAccountsPage from '../features/students/pages/LinkAccountsPage';
 import StudentImportManagerPage from '../features/students/pages/StudentImportManagerPage';
 import VerifierPortalPage from '../features/verification/pages/VerifierPortalPage';
@@ -34,6 +35,7 @@ export default function AppRoutes() {
       <Route path="/verification-portal/verify/:sessionId" element={<VerifierPortalPage />} />
 
       <Route path="/" element={<ShellPage><Dashboard /></ShellPage>} />
+      <Route path="/profile" element={<ShellPage><ProfilePage /></ShellPage>} />
 
       <Route
         path="/students"

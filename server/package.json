@@ -8,7 +8,11 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "configure:system": "node src/script/configure_system.js",
-    "seed": "node src/script/configure_system.js"
+    "seed": "node src/script/configure_system.js",
+    "flush:data": "node scripts/flush_all_data.js",
+    "verify:seed": "node scripts/verify_seeded_data.js",
+    "setup:system": "node ../scripts/setup-system.js",
+    "start:bcvs": "node ../scripts/start-bcvs.js"
   },
   "keywords": [],
   "author": "",

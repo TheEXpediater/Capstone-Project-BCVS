@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import 'bootstrap/dist/css/bootstrap.min.css';
+import './index.css';
 import { BrowserRouter } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import AppRoutes from './routes/AppRoutes';

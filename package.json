@@ -1,0 +1,20 @@
+{
+  "name": "bcvs-system",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup-system.js",
+    "setup:system": "node scripts/setup-system.js",
+    "seed": "npm run seed --prefix server",
+    "flush:data": "npm run flush:data --prefix server",
+    "verify:seed": "npm run verify:seed --prefix server",
+    "start": "npm run start:bcvs",
+    "start:server": "node scripts/start-service.js backend",
+    "start:client": "node scripts/start-service.js frontend",
+    "start:bcvs": "node -e \"console.log('Starting BCVS...')\" && concurrently --names Backend,Frontend --prefix-colors blue,green --kill-others-on-fail \"npm run start:server\" \"npm run start:client\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

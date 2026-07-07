@@ -12,6 +12,14 @@ import { getUserModel } from '../modules/auth/user.model.js';
 import { getCurriculumModel } from '../modules/curriculum/model.js';
 import { getSystemSettingModel } from '../modules/settings/setting.model.js';
 import { getStudentGradeModel, getStudentModel } from '../modules/students/model.js';
+import {
+  DEFAULT_ADMISSION_YEAR,
+  DEFAULT_GRADUATION_YEAR,
+  DEFAULT_SCHOOL_YEAR,
+  firstFourDigitYear as seedFirstFourDigitYear,
+  isValidISODate,
+  resolveSeedLifecycle,
+} from './seed/lifecycle.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -116,13 +124,12 @@ function parseNonNegativeInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function firstFourDigitYear(value, fallback = '2021') {
-  const match = cleanString(value).match(/\d{4}/);
-  return match ? match[0] : fallback;
+function firstFourDigitYear(value, fallback = DEFAULT_ADMISSION_YEAR) {
+  return seedFirstFourDigitYear(value, fallback);
 }
 
 function defaultCurriculumYear() {
-  return firstFourDigitYear(process.env.DEFAULT_CURRICULUM_YEAR || new Date().getFullYear(), '2026');
+  return firstFourDigitYear(process.env.DEFAULT_CURRICULUM_YEAR || DEFAULT_ADMISSION_YEAR, DEFAULT_ADMISSION_YEAR);
 }
 
 function normalizeProgramCode(value) {
@@ -145,8 +152,44 @@ function normalizeUnits(value) {
 }
 
 function makeDate(value) {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (!isValidISODate(value)) return null;
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function formatDateOnly(value) {
+  if (!value) return '';
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return cleanString(value);
+}
+
+function printSeedLifecycle(lifecycle) {
+  console.log('\nBCVS Registrar Seed');
+  console.log('\nLifecycle:');
+  console.log(`Admission Date: ${lifecycle.dateAdmission}`);
+  console.log(`Graduation Date: ${lifecycle.dateGraduation}`);
+  console.log(`Graduated Date: ${lifecycle.dateGraduated}`);
+  console.log(`Student Status: ${lifecycle.studentStatus}`);
+  console.log(`Academic Status: ${lifecycle.academicStatus}`);
+}
+
+export function buildSeedStudentLifecycleFields(options = {}, gradePlans = []) {
+  const graduated =
+    options.studentStatus === 'graduated' && options.academicStatus === 'completed'
+      ? true
+      : gradePlans.every((grade) => Number(grade.finalGrade) <= 3);
+
+  return {
+    dateAdmission: options.dateAdmission,
+    dateGraduated: graduated ? options.dateGraduated : null,
+    dateGraduation: graduated ? options.dateGraduation : null,
+    graduated,
+    studentStatus: graduated ? 'graduated' : 'enrolled',
+    academicStatus: graduated ? 'completed' : 'incomplete',
+  };
 }
 
 function buildStudentNo(curriculumYear, suffix) {
@@ -267,7 +310,7 @@ function flattenSubjects(curriculum) {
   ));
 }
 
-async function seedWebUsers(defaultPassword) {
+export async function seedWebUsers(defaultPassword) {
   const User = getUserModel();
   const passwordHash = await bcrypt.hash(defaultPassword, Number(env.bcryptSaltRounds || 10));
   let created = 0;
@@ -298,7 +341,7 @@ async function seedWebUsers(defaultPassword) {
   return { created, skipped, total: WEB_USERS.length };
 }
 
-async function ensureSystemConfiguration() {
+export async function ensureSystemConfiguration() {
   const SystemSetting = getSystemSettingModel();
   const settings = await SystemSetting.findOneAndUpdate(
     { code: 'main' },
@@ -339,7 +382,7 @@ async function discoverCurriculumFiles(inputDir) {
   return files.sort((a, b) => a.localeCompare(b));
 }
 
-async function seedCurricula(inputDir, curriculumYear) {
+export async function seedCurricula(inputDir, curriculumYear) {
   await fs.mkdir(inputDir, { recursive: true });
 
   const Curriculum = getCurriculumModel();
@@ -394,10 +437,9 @@ async function seedCurricula(inputDir, curriculumYear) {
   return { curricula, skipped };
 }
 
-async function resetSeededStudents(Student, StudentGrade, curriculumYear) {
+async function resetSeededStudents(Student, StudentGrade) {
   const filter = {
     'seedMeta.source': SEED_SOURCE,
-    'seedMeta.curriculumYear': firstFourDigitYear(curriculumYear),
   };
 
   const gradeResult = await StudentGrade.deleteMany(filter);
@@ -454,6 +496,9 @@ async function maybeCreateMobileUser(User, student, passwordHash) {
         email,
         password: passwordHash,
         studentId: studentNo,
+        program: student.programName || student.programCode || '',
+        yearGraduated: student.dateGraduated ? String(student.dateGraduated.getFullYear()) : '',
+        graduationStatus: student.graduated ? 'graduated' : 'not_graduated_yet',
         verified: 'verified',
         verifiedAt: new Date(),
         isActive: true,
@@ -466,7 +511,7 @@ async function maybeCreateMobileUser(User, student, passwordHash) {
   );
 }
 
-async function seedStudentsAndGrades(curricula, options) {
+export async function seedStudentsAndGrades(curricula, options) {
   const Student = getStudentModel();
   const StudentGrade = getStudentGradeModel();
   const User = getUserModel();
@@ -478,7 +523,7 @@ async function seedStudentsAndGrades(curricula, options) {
   };
 
   if (options.reset) {
-    const resetSummary = await resetSeededStudents(Student, StudentGrade, options.curriculumYear);
+    const resetSummary = await resetSeededStudents(Student, StudentGrade);
     console.log(`Seed reset deleted ${resetSummary.deletedStudents} seeded students and ${resetSummary.deletedGradeRows} seeded grade rows.`);
   }
 
@@ -530,7 +575,7 @@ async function seedStudentsAndGrades(curricula, options) {
         schoolYear: options.schoolYear,
         termName: subject.semester,
       }));
-      const graduated = gradePlans.every((grade) => Number(grade.finalGrade) <= 3);
+      const lifecycleFields = buildSeedStudentLifecycleFields(options, gradePlans);
       const address = buildAddress(globalIndex);
 
       const student = await Student.findOneAndUpdate(
@@ -547,11 +592,13 @@ async function seedStudentsAndGrades(curricula, options) {
             highSchool: 'Sample National High School',
             degreeTitle: curriculum.programName || '',
             major: '',
-            dateAdmission: makeDate(`${firstFourDigitYear(options.curriculumYear)}-08-01`),
+            dateAdmission: lifecycleFields.dateAdmission,
             placeBirth: 'Pampanga, Philippines',
-            dateGraduated: graduated ? options.dateGraduated : null,
-            dateGraduation: graduated ? options.dateGraduation : null,
-            graduated,
+            dateGraduated: lifecycleFields.dateGraduated,
+            dateGraduation: lifecycleFields.dateGraduation,
+            graduated: lifecycleFields.graduated,
+            studentStatus: lifecycleFields.studentStatus,
+            academicStatus: lifecycleFields.academicStatus,
             programCode: curriculum.program,
             programName: curriculum.programName || '',
             curriculumId: curriculum._id,
@@ -633,25 +680,33 @@ async function seedStudentsAndGrades(curricula, options) {
   };
 }
 
-async function main() {
-  const curriculumYear = cleanString(getArg('--curriculumYear', defaultCurriculumYear()));
+export async function runRegistrarSeed(options = {}) {
+  const curriculumYear = cleanString(getArg('--curriculumYear', options.curriculumYear || defaultCurriculumYear()));
+  const lifecycle = resolveSeedLifecycle({
+    curriculumYear,
+    admissionYear: getArg('--admissionYear', options.admissionYear || DEFAULT_ADMISSION_YEAR),
+    graduationYear: getArg('--graduationYear', options.graduationYear || DEFAULT_GRADUATION_YEAR),
+    schoolYear: getArg('--schoolYear', options.schoolYear || DEFAULT_SCHOOL_YEAR),
+    dateAdmission: getArg('--dateAdmission', options.dateAdmission || ''),
+    dateGraduated: getArg('--dateGraduated', options.dateGraduated || ''),
+    dateGraduation: getArg('--dateGraduation', options.dateGraduation || ''),
+  });
   const studentsPerProgram = parsePositiveInteger(
-    getArg('--studentsPerProgram', getArg('--studentsPerCurriculum', '100')),
+    getArg('--studentsPerProgram', getArg('--studentsPerCurriculum', options.studentsPerProgram || '100')),
     100
   );
-  const schoolYear = cleanString(getArg('--schoolYear', '2025-2026'));
   const defaultPassword = cleanString(getArg('--password', process.env.SEED_DEFAULT_PASSWORD || 'ChangeMe123!'));
-  const reset = toBooleanArg(getArg('--reset', 'false'), false);
-  const force = toBooleanArg(getArg('--force', 'false'), false);
-  const createMobileUsers = toBooleanArg(getArg('--mobileUsers', 'false'), false);
-  const failEvery = parseNonNegativeInteger(getArg('--failEvery', '0'), 0);
-  const inputDir = path.resolve(getArg('--inputDir', path.join(__dirname, 'curricula', 'input')));
-  const graduationYear = String(Number(firstFourDigitYear(curriculumYear)) + 4);
-  const dateGraduated = makeDate(getArg('--dateGraduated', `${graduationYear}-06-30`));
-  const dateGraduation = makeDate(getArg('--dateGraduation', `${graduationYear}-06-15`));
+  const reset = toBooleanArg(getArg('--reset', String(options.reset || false)), false);
+  const force = toBooleanArg(getArg('--force', String(options.force || false)), false);
+  const createMobileUsers = toBooleanArg(getArg('--mobileUsers', String(options.createMobileUsers || false)), false);
+  const failEvery = parseNonNegativeInteger(getArg('--failEvery', String(options.failEvery || 0)), 0);
+  const inputDir = path.resolve(getArg('--inputDir', options.inputDir || path.join(__dirname, 'curricula', 'input')));
+  const dateAdmission = makeDate(lifecycle.dateAdmission);
+  const dateGraduated = makeDate(lifecycle.dateGraduated);
+  const dateGraduation = makeDate(lifecycle.dateGraduation);
 
-  if (!dateGraduated || !dateGraduation) {
-    throw new Error('Invalid graduation dates. Use YYYY-MM-DD.');
+  if (!dateAdmission || !dateGraduated || !dateGraduation) {
+    throw new Error('Invalid lifecycle dates. Use YYYY-MM-DD.');
   }
 
   await connectDatabases();
@@ -663,12 +718,13 @@ async function main() {
   const studentSummary = await seedStudentsAndGrades(curricula.curricula, {
     curriculumYear,
     studentsPerProgram,
-    schoolYear,
+    schoolYear: lifecycle.schoolYear,
     defaultPassword,
     reset,
     force,
     createMobileUsers,
     failEvery,
+    dateAdmission,
     dateGraduated,
     dateGraduation,
   });
@@ -694,11 +750,13 @@ async function main() {
   }
 }
 
-main()
-  .catch((error) => {
-    console.error('Fatal error:', error.message || error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await Promise.all(mongoose.connections.map((connection) => connection.close().catch(() => null)));
-  });
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  runRegistrarSeed()
+    .catch((error) => {
+      console.error('Fatal error:', error.message || error);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await Promise.all(mongoose.connections.map((connection) => connection.close().catch(() => null)));
+    });
+}

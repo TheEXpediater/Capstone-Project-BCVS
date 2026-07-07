@@ -10,6 +10,7 @@ import {
   FaTrash,
 } from 'react-icons/fa';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
+import DataTable from '../../../components/DataTable';
 import {
   bulkDeleteAuditLogs,
   deleteAuditLog,
@@ -349,11 +350,6 @@ export default function AuditLogsPage({ embedded = false }) {
   const [feedback, setFeedback] = useState({ type: '', text: '' });
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
 
-  const allSelected = useMemo(
-    () => rows.length > 0 && rows.every((row) => selectedIds.includes(row._id)),
-    [rows, selectedIds]
-  );
-
   const paginationPages = useMemo(() => {
     const currentPage = pagination.page || 1;
     const pageTotal = pagination.pages || 1;
@@ -432,20 +428,11 @@ export default function AuditLogsPage({ embedded = false }) {
     loadLogs(1, nextFilters);
   }
 
-  function toggleAll() {
-    setSelectedIds(allSelected ? [] : rows.map((row) => row._id));
-  }
-
   function toggleLogSelection(id, checked) {
     setSelectedIds((prev) => {
       if (checked) return prev.includes(id) ? prev : [...prev, id];
       return prev.filter((item) => item !== id);
     });
-  }
-
-  function selectLogRow(log) {
-    setSelectedLog(log);
-    toggleLogSelection(log._id, true);
   }
 
   async function handleDeleteOne(id) {
@@ -554,87 +541,61 @@ export default function AuditLogsPage({ embedded = false }) {
             Showing {rows.length} of {pagination.total} log(s)
           </div>
 
-          <div className="table-responsive">
-            <table className="table align-middle mb-0 mis-table">
-              <thead>
-                <tr>
-                  <th className="mis-table-checkbox">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleAll}
-                      aria-label="Select all logs"
-                    />
-                  </th>
-                  <th>Time</th>
-                  <th>User</th>
-                  <th>Role</th>
-                  <th>Action</th>
-                  <th className="text-end mis-table-actions">Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan="6">
-                      <div className="mis-empty-state">
-                      Loading action logs...
-                      </div>
-                    </td>
-                  </tr>
-                ) : rows.length ? (
-                  rows.map((log) => (
-                    <tr
-                      key={log._id}
-                      className={`mis-row-selectable ${selectedLog?._id === log._id || selectedIds.includes(log._id) ? 'mis-row-selected' : ''}`}
-                      onClick={() => selectLogRow(log)}
-                    >
-                      <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          checked={selectedIds.includes(log._id)}
-                          onChange={(event) => toggleLogSelection(log._id, event.target.checked)}
-                          aria-label={`Select log ${log._id}`}
-                        />
-                      </td>
-                      <td className="small">{formatDate(log.createdAt)}</td>
-                      <td>
-                        <div className="fw-semibold">{actorName(log)}</div>
-                        <div className="small text-muted">{log.actor?.email || titleCase(log.actor?.kind || '')}</div>
-                      </td>
-                      <td>
-                        <span className="badge text-bg-light border">
-                          {titleCase(log.actor?.role || 'system')}
-                        </span>
-                      </td>
-                      <td>{actionLabel(log.action)}</td>
-                      <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
-                        <AuditLogActionMenu
-                          log={log}
-                          isOpen={actionMenuOpenId === log._id}
-                          onToggle={() =>
-                            setActionMenuOpenId((current) => (current === log._id ? '' : log._id))
-                          }
-                          onClose={() => setActionMenuOpenId('')}
-                          onView={setSelectedLog}
-                          onDelete={handleDeleteOne}
-                        />
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="6">
-                      <div className="mis-empty-state">No audit logs found.</div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            rows={rows}
+            loading={loading}
+            loadingText="Loading action logs..."
+            emptyText="No audit logs found."
+            selectedRows={selectedIds}
+            activeRecord={selectedLog}
+            onToggleRow={toggleLogSelection}
+            onToggleAll={(ids, checked) => setSelectedIds(checked ? ids : [])}
+            onViewDetails={setSelectedLog}
+            columns={[
+              {
+                key: 'createdAt',
+                header: 'Time',
+                className: 'small',
+                render: (log) => formatDate(log.createdAt),
+              },
+              {
+                key: 'actor',
+                header: 'User',
+                render: (log) => (
+                  <>
+                    <div className="fw-semibold">{actorName(log)}</div>
+                    <div className="small text-muted">{log.actor?.email || titleCase(log.actor?.kind || '')}</div>
+                  </>
+                ),
+              },
+              {
+                key: 'role',
+                header: 'Role',
+                render: (log) => (
+                  <span className="badge text-bg-light border">
+                    {titleCase(log.actor?.role || 'system')}
+                  </span>
+                ),
+              },
+              {
+                key: 'action',
+                header: 'Action',
+                render: (log) => actionLabel(log.action),
+              },
+            ]}
+            renderActions={(log) => (
+              <AuditLogActionMenu
+                log={log}
+                isOpen={actionMenuOpenId === log._id}
+                onToggle={() =>
+                  setActionMenuOpenId((current) => (current === log._id ? '' : log._id))
+                }
+                onClose={() => setActionMenuOpenId('')}
+                onView={setSelectedLog}
+                onDelete={handleDeleteOne}
+              />
+            )}
+          />
 
           <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
             <div className="small text-muted">

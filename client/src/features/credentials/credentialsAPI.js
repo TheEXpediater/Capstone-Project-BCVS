@@ -15,6 +15,14 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}) 
   return response.data.data;
 }
 
+export async function bulkCreateCredentialDraftsFromStudents(studentIds = [], payload = {}) {
+  const response = await api.post('/credentials/bulk/from-students', {
+    studentIds,
+    ...payload,
+  });
+  return response.data.data;
+}
+
 export async function updateCredentialDraft(id, payload = {}) {
   const response = await api.put(`/credentials/${id}`, payload);
   return response.data.data;

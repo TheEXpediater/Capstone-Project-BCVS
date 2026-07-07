@@ -3,6 +3,7 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaCog,
+  FaDownload,
   FaEdit,
   FaFileSignature,
   FaFilter,
@@ -15,6 +16,7 @@ import {
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import BulkActionsMenu from '../../../components/BulkActionsMenu';
+import DataTable from '../../../components/DataTable';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import { hasValidStoredAuth } from '../../auth/authStorage';
 import {
@@ -32,6 +34,8 @@ import { listCurricula } from '../../curriculum/curriculumAPI';
 import { createCredentialDraftFromStudent } from '../../credentials/credentialsAPI';
 
 const PAGE_SIZE = 10;
+const BASE_CREDENTIAL_AMOUNT = 150;
+const DEFAULT_ANCHOR_NOW_FEE = 20;
 
 const EMPTY_STUDENT_FORM = {
   studentNo: '',
@@ -1257,8 +1261,11 @@ export default function StudentImportManagerPage() {
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
   const [bulkCreateVcDraft, setBulkCreateVcDraft] = useState({
     credentialType: '',
-    anchorSchedule: 'default',
+    anchorNow: false,
+    anchorCost: DEFAULT_ANCHOR_NOW_FEE,
   });
+  const [bulkCreateVcStep, setBulkCreateVcStep] = useState('configure');
+  const [bulkCreateVcResults, setBulkCreateVcResults] = useState([]);
   const [bulkCreateVcSubmitting, setBulkCreateVcSubmitting] = useState(false);
   const [bulkDeleteSubmitting, setBulkDeleteSubmitting] = useState(false);
 
@@ -1276,15 +1283,21 @@ export default function StudentImportManagerPage() {
     return `Showing ${start}-${end} of ${total} students`;
   }, [pagination]);
 
-  const allStudentsSelected = useMemo(
-    () => students.length > 0 && students.every((student) => selectedStudentIds.has(student._id)),
-    [students, selectedStudentIds]
-  );
   const selectedStudents = useMemo(
     () => students.filter((student) => selectedStudentIds.has(student._id)),
     [students, selectedStudentIds]
   );
   const selectedStudentCount = selectedStudentIds.size;
+  const bulkCreateVcSummary = useMemo(() => {
+    const successful = bulkCreateVcResults.filter((item) => item.status === 'success');
+    const failed = bulkCreateVcResults.filter((item) => item.status === 'failed');
+    return {
+      successful,
+      failed,
+      successCount: successful.length,
+      failedCount: failed.length,
+    };
+  }, [bulkCreateVcResults]);
 
   async function loadCurricula() {
     try {
@@ -1707,12 +1720,10 @@ export default function StudentImportManagerPage() {
     });
   }
 
-  function toggleAllStudents(checked) {
-    setSelectedStudentIds(checked ? new Set(students.map((student) => student._id)) : new Set());
-  }
-
-  function toggleStudentRow(student) {
-    toggleStudentSelection(student._id, !selectedStudentIds.has(student._id));
+  function toggleAllStudents(idsOrChecked, checkedValue) {
+    const checked = Array.isArray(idsOrChecked) ? checkedValue : idsOrChecked;
+    const ids = Array.isArray(idsOrChecked) ? idsOrChecked : students.map((student) => student._id);
+    setSelectedStudentIds(checked ? new Set(ids) : new Set());
   }
 
   function openBulkCreateVcModal() {
@@ -1725,8 +1736,41 @@ export default function StudentImportManagerPage() {
       return;
     }
 
-    setBulkCreateVcDraft({ credentialType: '', anchorSchedule: 'default' });
+    setBulkCreateVcDraft({
+      credentialType: '',
+      anchorNow: false,
+      anchorCost: DEFAULT_ANCHOR_NOW_FEE,
+    });
+    setBulkCreateVcStep('configure');
+    setBulkCreateVcResults([]);
     setBulkCreateVcModalOpen(true);
+  }
+
+  function closeBulkCreateVcModal() {
+    if (bulkCreateVcSubmitting) return;
+    setBulkCreateVcModalOpen(false);
+    setBulkCreateVcStep('configure');
+  }
+
+  function downloadBulkCreateReport() {
+    const header = ['Student No', 'Student Name', 'Credential Type', 'Status', 'Message'];
+    const rows = bulkCreateVcResults.map((item) => [
+      item.studentNo,
+      item.studentName,
+      bulkCreateVcDraft.credentialType === 'diploma' ? 'Diploma' : 'Transcript of Records',
+      item.status,
+      item.message || item.error || '',
+    ]);
+    const csv = [header, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `bcvs-bulk-vc-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   function openBulkDeleteModal() {
@@ -1763,48 +1807,63 @@ export default function StudentImportManagerPage() {
 
     try {
       setBulkCreateVcSubmitting(true);
-      const studentIds = Array.from(selectedStudentIds);
-      let createdCount = 0;
-      const failures = [];
+      setBulkCreateVcStep('processing');
+      const targets = selectedStudents.map((student) => ({
+        studentId: student._id,
+        studentNo: student.studentNo || '',
+        studentName: student.studentName || '',
+        program: student.programCode || student.programName || '',
+        status: 'pending',
+        progress: 0,
+        message: 'Pending',
+      }));
+      setBulkCreateVcResults(targets);
+      let resultRows = targets;
+      const applyResult = (studentId, patch) => {
+        resultRows = resultRows.map((item) => (item.studentId === studentId ? { ...item, ...patch } : item));
+        setBulkCreateVcResults(resultRows);
+      };
 
-      for (const studentId of studentIds) {
+      for (const target of targets) {
+        applyResult(target.studentId, {
+          status: 'processing',
+          progress: 35,
+          message: 'Generating VC...',
+        });
+
         try {
-          await createCredentialDraftFromStudent(studentId, {
+          const anchorNow = Boolean(bulkCreateVcDraft.anchorNow);
+          await createCredentialDraftFromStudent(target.studentId, {
             credentialType: bulkCreateVcDraft.credentialType,
             notes: '',
-            anchorMode: bulkCreateVcDraft.anchorSchedule === 'anchorNow' ? 'same_day' : 'scheduled',
-            anchorNow: bulkCreateVcDraft.anchorSchedule === 'anchorNow',
+            anchorMode: anchorNow ? 'same_day' : 'scheduled',
+            anchorNow,
+            anchorNowFee: anchorNow ? Number(bulkCreateVcDraft.anchorCost || DEFAULT_ANCHOR_NOW_FEE) : 0,
           });
-          createdCount += 1;
+          applyResult(target.studentId, {
+            status: 'success',
+            progress: 100,
+            message: `${bulkCreateVcDraft.credentialType === 'diploma' ? 'Diploma' : 'Transcript of Records'} VC created`,
+          });
         } catch (error) {
-          failures.push(error);
+          applyResult(target.studentId, {
+            status: 'failed',
+            progress: 100,
+            message: getErrorMessage(error, 'Unable to create VC draft.'),
+          });
         }
       }
 
-      setBulkCreateVcModalOpen(false);
-      setBulkCreateVcDraft({ credentialType: '', anchorSchedule: 'default' });
+      setBulkCreateVcStep('results');
       setSelectedStudentIds(new Set());
       await loadStudents({ page: pagination.page, showBusy: true });
-
-      if (createdCount > 0) {
-        setFeedback({
-          type: 'success',
-          text: `Created ${createdCount} VC draft${createdCount === 1 ? '' : 's'} for ${createdCount === studentIds.length ? 'all' : 'selected'} student${studentIds.length === 1 ? '' : 's'}.`,
-          issues: [],
-        });
-      } else {
-        setFeedback({
-          type: 'danger',
-          text: failures[0] ? getErrorMessage(failures[0], 'Unable to create VC drafts for the selected students.') : 'Unable to create VC drafts for the selected students.',
-          issues: [],
-        });
-      }
     } catch (error) {
       setFeedback({
         type: 'danger',
         text: getErrorMessage(error, 'Failed to create VC drafts.'),
         issues: [],
       });
+      setBulkCreateVcStep('configure');
     } finally {
       setBulkCreateVcSubmitting(false);
     }
@@ -1930,84 +1989,65 @@ export default function StudentImportManagerPage() {
               <div className="mis-empty-state">No student records found.</div>
             ) : (
               <>
-                <div className="table-responsive">
-                  <table className="table align-middle mb-0 mis-table">
-                    <thead>
-                      <tr>
-                        <th className="mis-table-checkbox">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            checked={allStudentsSelected}
-                            onChange={(event) => toggleAllStudents(event.target.checked)}
-                            aria-label="Select all visible students"
-                          />
-                        </th>
-                        <th>Student No.</th>
-                        <th>Name</th>
-                        <th>Program Code</th>
-                        <th>Year Graduated</th>
-                        <th>Graduated</th>
-                        <th className="text-end mis-table-actions">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {students.map((student) => {
-                        const isSelected =
-                          selectedStudentIds.has(student._id) || selectedStudent?._id === student._id;
-
-                        return (
-                          <tr
-                            key={student._id}
-                            className={`mis-row-selectable ${isSelected ? 'mis-row-selected' : ''}`}
-                            onClick={() => toggleStudentRow(student)}
-                          >
-                            <td className="mis-table-checkbox" onClick={(event) => event.stopPropagation()}>
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                checked={selectedStudentIds.has(student._id)}
-                                onChange={(event) =>
-                                  toggleStudentSelection(student._id, event.target.checked)
-                                }
-                                aria-label={`Select ${student.studentName || 'student'}`}
-                              />
-                            </td>
-                            <td className="fw-semibold">{student.studentNo}</td>
-                            <td>{student.studentName}</td>
-                            <td className="fw-semibold">{student.programCode || student.program || '—'}</td>
-                            <td>{formatYear(student.dateGraduated || student.dateGraduation)}</td>
-                            <td>
-                              <span className={`badge ${student.graduated ? 'text-bg-success' : 'text-bg-secondary'}`}>
-                                {student.graduated ? 'Yes' : 'No'}
-                              </span>
-                            </td>
-                            <td className="text-end mis-table-actions" onClick={(event) => event.stopPropagation()}>
-                              <StudentActionMenu
-                                student={student}
-                                isOpen={actionMenuOpenId === student._id}
-                                onToggle={() =>
-                                  setActionMenuOpenId((prev) =>
-                                    prev === student._id ? '' : student._id
-                                  )
-                                }
-                                onClose={() => setActionMenuOpenId('')}
-                                onOpenProfile={handleOpenProfile}
-                                onOpenGrades={handleOpenGrades}
-                                onConfirmVcDraft={requestCreateVcDraft}
-                                onDeleteStudent={requestDeleteStudent}
-                                profileLoading={profileLoading}
-                                gradesLoadingId={gradesLoadingId}
-                                creatingVcDraftId={creatingVcDraftId}
-                                canCreateVcDraft={canCreateVcDraft}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  rows={students}
+                  columns={[
+                    {
+                      key: 'studentNo',
+                      header: 'Student No.',
+                      className: 'fw-semibold',
+                    },
+                    {
+                      key: 'studentName',
+                      header: 'Name',
+                    },
+                    {
+                      key: 'programCode',
+                      header: 'Program Code',
+                      className: 'fw-semibold',
+                      render: (student) => student.programCode || student.program || '-',
+                    },
+                    {
+                      key: 'yearGraduated',
+                      header: 'Year Graduated',
+                      render: (student) => formatYear(student.dateGraduated || student.dateGraduation),
+                    },
+                    {
+                      key: 'graduated',
+                      header: 'Graduated',
+                      render: (student) => (
+                        <span className={`badge ${student.graduated ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                          {student.graduated ? 'Yes' : 'No'}
+                        </span>
+                      ),
+                    },
+                  ]}
+                  selectedRows={selectedStudentIds}
+                  activeRecord={selectedStudent}
+                  onToggleRow={toggleStudentSelection}
+                  onToggleAll={toggleAllStudents}
+                  onViewDetails={(student) => handleOpenProfile(student._id)}
+                  renderActions={(student) => (
+                    <StudentActionMenu
+                      student={student}
+                      isOpen={actionMenuOpenId === student._id}
+                      onToggle={() =>
+                        setActionMenuOpenId((prev) =>
+                          prev === student._id ? '' : student._id
+                        )
+                      }
+                      onClose={() => setActionMenuOpenId('')}
+                      onOpenProfile={handleOpenProfile}
+                      onOpenGrades={handleOpenGrades}
+                      onConfirmVcDraft={requestCreateVcDraft}
+                      onDeleteStudent={requestDeleteStudent}
+                      profileLoading={profileLoading}
+                      gradesLoadingId={gradesLoadingId}
+                      creatingVcDraftId={creatingVcDraftId}
+                      canCreateVcDraft={canCreateVcDraft}
+                    />
+                  )}
+                />
 
                 <PaginationControls
                   pagination={pagination}
@@ -2084,65 +2124,168 @@ export default function StudentImportManagerPage() {
                     <h2 className="h5 mb-1">Create VC Drafts</h2>
                     <p className="text-muted mb-0 small">Create credential drafts for the selected students.</p>
                   </div>
-                  <button type="button" className="btn-close" onClick={() => setBulkCreateVcModalOpen(false)} disabled={bulkCreateVcSubmitting} aria-label="Close" />
+                  <button type="button" className="btn-close" onClick={closeBulkCreateVcModal} disabled={bulkCreateVcSubmitting} aria-label="Close" />
                 </div>
                 <div className="modal-body">
-                  <div className="alert alert-info border mb-3">
-                    This will create VC drafts for {selectedStudentCount} selected student{selectedStudentCount === 1 ? '' : 's'}. Review the list below before continuing.
-                  </div>
-                  <div className="table-responsive mb-3">
-                    <table className="table table-sm align-middle mb-0">
-                      <thead>
-                        <tr>
-                          <th>Student No.</th>
-                          <th>Student Name</th>
-                          <th>Program</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedStudents.map((student) => (
-                          <tr key={student._id}>
-                            <td>{student.studentNo || '—'}</td>
-                            <td>{student.studentName || '—'}</td>
-                            <td>{student.programCode || student.programName || '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="row g-3">
-                    <div className="col-md-6">
-                      <label className="form-label fw-semibold">Credential Type</label>
-                      <select
-                        className="form-select"
-                        value={bulkCreateVcDraft.credentialType}
-                        onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, credentialType: event.target.value }))}
-                        disabled={bulkCreateVcSubmitting}
-                      >
-                        <option value="">Choose credential type</option>
-                        <option value="tor">TOR</option>
-                        <option value="diploma">Diploma</option>
-                      </select>
+                  {bulkCreateVcStep === 'configure' ? (
+                    <>
+                      <div className="alert alert-info border mb-3">
+                        This will create VC drafts for {selectedStudentCount} selected student{selectedStudentCount === 1 ? '' : 's'}.
+                      </div>
+                      <div className="table-responsive mb-3">
+                        <table className="table table-sm align-middle mb-0">
+                          <thead>
+                            <tr>
+                              <th>Student No.</th>
+                              <th>Student Name</th>
+                              <th>Program</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedStudents.map((student) => (
+                              <tr key={student._id}>
+                                <td>{student.studentNo || '-'}</td>
+                                <td>{student.studentName || '-'}</td>
+                                <td>{student.programCode || student.programName || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="row g-3">
+                        <div className="col-md-6">
+                          <div className="fw-semibold mb-2">Credential Type</div>
+                          <label className="form-check">
+                            <input
+                              className="form-check-input"
+                              type="radio"
+                              name="bulkCredentialType"
+                              value="diploma"
+                              checked={bulkCreateVcDraft.credentialType === 'diploma'}
+                              onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, credentialType: event.target.value }))}
+                            />
+                            <span className="form-check-label">Diploma</span>
+                          </label>
+                          <label className="form-check">
+                            <input
+                              className="form-check-input"
+                              type="radio"
+                              name="bulkCredentialType"
+                              value="tor"
+                              checked={bulkCreateVcDraft.credentialType === 'tor'}
+                              onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, credentialType: event.target.value }))}
+                            />
+                            <span className="form-check-label">Transcript of Records</span>
+                          </label>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="fw-semibold mb-2">Blockchain Anchor</div>
+                          <div className="btn-group mb-3" role="group" aria-label="Anchor now">
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${bulkCreateVcDraft.anchorNow ? 'btn-primary' : 'btn-outline-primary'}`}
+                              onClick={() => setBulkCreateVcDraft((prev) => ({ ...prev, anchorNow: true }))}
+                            >
+                              YES
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${!bulkCreateVcDraft.anchorNow ? 'btn-primary' : 'btn-outline-primary'}`}
+                              onClick={() => setBulkCreateVcDraft((prev) => ({ ...prev, anchorNow: false }))}
+                            >
+                              NO
+                            </button>
+                          </div>
+                          {bulkCreateVcDraft.anchorNow ? (
+                            <div>
+                              <label className="form-label fw-semibold">Anchor Cost</label>
+                              <div className="input-group">
+                                <span className="input-group-text">PHP</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="form-control"
+                                  value={bulkCreateVcDraft.anchorCost}
+                                  onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, anchorCost: event.target.value }))}
+                                />
+                              </div>
+                              <div className="form-text">
+                                Total per credential: PHP {BASE_CREDENTIAL_AMOUNT + Number(bulkCreateVcDraft.anchorCost || 0)}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {bulkCreateVcStep === 'processing' ? (
+                    <div className="d-flex flex-column gap-3">
+                      <h3 className="h6 mb-0">Creating Credentials</h3>
+                      {bulkCreateVcResults.map((item) => (
+                        <div className="border rounded-3 p-3" key={item.studentId}>
+                          <div className="d-flex justify-content-between gap-3">
+                            <div>
+                              <div className="fw-semibold">{item.studentName}</div>
+                              <div className="small text-muted">{item.message}</div>
+                            </div>
+                            <span className={`badge ${item.status === 'success' ? 'text-bg-success' : item.status === 'failed' ? 'text-bg-danger' : item.status === 'processing' ? 'text-bg-primary' : 'text-bg-secondary'}`}>
+                              {item.status}
+                            </span>
+                          </div>
+                          <div className="progress mt-2" style={{ height: 8 }}>
+                            <div
+                              className={`progress-bar ${item.status === 'failed' ? 'bg-danger' : item.status === 'success' ? 'bg-success' : ''}`}
+                              style={{ width: `${item.progress || 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="col-md-6">
-                      <label className="form-label fw-semibold">Anchor Schedule</label>
-                      <select
-                        className="form-select"
-                        value={bulkCreateVcDraft.anchorSchedule}
-                        onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, anchorSchedule: event.target.value }))}
-                        disabled={bulkCreateVcSubmitting}
-                      >
-                        <option value="default">Default (7 Days)</option>
-                        <option value="anchorNow">Anchor Now</option>
-                      </select>
+                  ) : null}
+
+                  {bulkCreateVcStep === 'results' ? (
+                    <div className="d-flex flex-column gap-3">
+                      <div className={`alert ${bulkCreateVcSummary.failedCount ? 'alert-warning' : 'alert-success'} mb-0`}>
+                        <div className="fw-semibold">Bulk Creation Completed</div>
+                        <div>Successful: {bulkCreateVcSummary.successCount}</div>
+                        <div>Failed: {bulkCreateVcSummary.failedCount}</div>
+                      </div>
+                      <div className="table-responsive">
+                        <table className="table table-sm align-middle mb-0">
+                          <tbody>
+                            {bulkCreateVcResults.map((item) => (
+                              <tr key={item.studentId}>
+                                <td style={{ width: 36 }}>
+                                  {item.status === 'success' ? '✓' : '✗'}
+                                </td>
+                                <td>
+                                  <div className="fw-semibold">{item.studentName}</div>
+                                  <div className="small text-muted">{item.message}</div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
                 <div className="modal-footer">
-                  <button className="btn btn-outline-secondary" onClick={() => setBulkCreateVcModalOpen(false)} disabled={bulkCreateVcSubmitting}>Cancel</button>
-                  <button className="btn btn-primary" onClick={confirmBulkCreateVcDrafts} disabled={bulkCreateVcSubmitting || !bulkCreateVcDraft.credentialType}>
-                    {bulkCreateVcSubmitting ? 'Creating VC drafts...' : 'Create VC Drafts'}
+                  {bulkCreateVcStep === 'results' ? (
+                    <button className="btn btn-outline-primary me-auto" onClick={downloadBulkCreateReport}>
+                      <FaDownload className="me-2" />
+                      Download report
+                    </button>
+                  ) : null}
+                  <button className="btn btn-outline-secondary" onClick={closeBulkCreateVcModal} disabled={bulkCreateVcSubmitting}>
+                    {bulkCreateVcStep === 'results' ? 'Close' : 'Cancel'}
                   </button>
+                  {bulkCreateVcStep === 'configure' ? (
+                    <button className="btn btn-primary" onClick={confirmBulkCreateVcDrafts} disabled={bulkCreateVcSubmitting || !bulkCreateVcDraft.credentialType}>
+                      Confirm
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -2168,7 +2311,9 @@ export default function StudentImportManagerPage() {
                   <ul className="mb-3">
                     <li>Student Profile</li>
                     <li>Grade Records</li>
-                    <li>Related Academic Records</li>
+                    <li>Credential Drafts and VC Records</li>
+                    <li>Blockchain Anchor References</li>
+                    <li>Verification Records</li>
                   </ul>
                   <div className="alert alert-light border small mb-0">
                     {selectedStudentCount} selected student{selectedStudentCount === 1 ? '' : 's'} will be removed from the system.

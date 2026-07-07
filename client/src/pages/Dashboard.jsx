@@ -242,7 +242,7 @@ function LatestVerificationSubmissions({ rows = [] }) {
                     <div className="small text-muted text-truncate">{row.email || 'No email provided'}</div>
                     <div className="small text-muted mt-1">
                       Student No: <span className="fw-semibold">{row.submittedStudentNo || '-'}</span>
-                      <span className="mx-2">•</span>
+                      <span className="mx-2">|</span>
                       {formatShortDate(row.createdAt)}
                     </div>
                   </div>
@@ -301,7 +301,7 @@ function PaymentQueuePanel({ rows = [] }) {
                         {row.paymentStatus || 'unpaid'}
                       </span>
                     </td>
-                    <td>{Number(row.amount || 0) > 0 ? `₱${formatNumber(row.amount)}` : 'Not set'}</td>
+                    <td>{Number(row.amount || 0) > 0 ? `PHP ${formatNumber(row.amount)}` : 'Not set'}</td>
                     <td>{formatShortDate(row.createdAt)}</td>
                   </tr>
                 ))}
@@ -417,9 +417,13 @@ export default function Dashboard() {
       <div className="dashboard-hero">
         <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
           <div>
-            <div className="small text-muted">
+            <h2 className="dashboard-title">Operations Overview</h2>
+            <p className="dashboard-subtitle">
+              Monitor credential issuance, verification queues, and student record activity.
+            </p>
+            <div className="small text-muted mt-3">
               Signed in as <strong>{user?.fullName || user?.username || 'User'}</strong>
-              <span className="mx-2">•</span>
+              <span className="mx-2">|</span>
               Role: <strong>{titleCase(user?.role || 'unknown')}</strong>
             </div>
           </div>

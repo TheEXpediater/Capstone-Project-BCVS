@@ -1,6 +1,12 @@
 import { Types } from 'mongoose';
 import { ApiError } from '../../shared/utils/ApiError.js';
 import { getCurriculumModel } from '../curriculum/model.js';
+import { getCredentialDraftModel } from '../credentials/model.js';
+import { getMerkleAnchorModel } from '../anchors/model.js';
+import {
+  getVerificationSessionModel,
+  getVerificationSubmissionModel,
+} from '../verification/model.js';
 import { getStudentGradeModel, getStudentModel } from './model.js';
 
 function cleanString(value, fallback = '') {
@@ -281,6 +287,8 @@ function mapStudentListRow(row) {
         : row.curriculumId || null,
     dateGraduated: row.dateGraduated,
     dateGraduation: row.dateGraduation,
+    studentStatus: row.studentStatus || (row.graduated ? 'graduated' : 'enrolled'),
+    academicStatus: row.academicStatus || (row.graduated ? 'completed' : 'in_progress'),
     updatedAt: row.updatedAt,
   };
 }
@@ -303,6 +311,8 @@ function mapStudentDetailRow(row) {
     dateGraduated: row.dateGraduated,
     dateGraduation: row.dateGraduation,
     graduated: Boolean(row.graduated),
+    studentStatus: row.studentStatus || (row.graduated ? 'graduated' : 'enrolled'),
+    academicStatus: row.academicStatus || (row.graduated ? 'completed' : 'in_progress'),
     programCode: row.programCode,
     programName: row.programName,
     curriculumYear: row.curriculumYear,
@@ -499,12 +509,21 @@ export async function syncGraduationStatusForStudents(studentIds = []) {
     if (nextGraduated) graduated += 1;
     else notGraduated += 1;
 
-    if (Boolean(student.graduated) !== nextGraduated) {
+    const nextStudentStatus = nextGraduated ? 'graduated' : 'enrolled';
+    const nextAcademicStatus = nextGraduated ? 'completed' : 'incomplete';
+
+    if (
+      Boolean(student.graduated) !== nextGraduated ||
+      student.studentStatus !== nextStudentStatus ||
+      student.academicStatus !== nextAcademicStatus
+    ) {
       await Student.updateOne(
         { _id: student._id },
         {
           $set: {
             graduated: nextGraduated,
+            studentStatus: nextStudentStatus,
+            academicStatus: nextAcademicStatus,
           },
         }
       );
@@ -540,6 +559,8 @@ export async function listStudents(options = {}) {
     curriculumYear: 1,
     dateGraduated: 1,
     dateGraduation: 1,
+    studentStatus: 1,
+    academicStatus: 1,
     updatedAt: 1,
   };
 
@@ -704,6 +725,8 @@ export async function createStudent(payload = {}, actor) {
     dateGraduated: toDateOrNull(payload.dateGraduated || payload.dategraduated),
     dateGraduation: toDateOrNull(payload.dateGraduation || payload.dategraduation),
     graduated: false,
+    studentStatus: 'enrolled',
+    academicStatus: 'in_progress',
     programCode: curriculum.program,
     programName: cleanString(payload.programName || payload.programname || curriculum.programName || ''),
     curriculumId: curriculum._id,
@@ -790,6 +813,8 @@ export async function importStudents(rows, actor) {
       dateGraduated,
       dateGraduation,
       graduated: false,
+      studentStatus: dateGraduated || dateGraduation ? 'graduated' : 'enrolled',
+      academicStatus: dateGraduated || dateGraduation ? 'completed' : 'in_progress',
       programCode: curriculum?.program || normalizeProgramCode(raw?.programcode || raw?.program || ''),
       programName: cleanString(
         raw?.programname ||
@@ -1171,9 +1196,87 @@ export async function updateStudentById(id, payload, actor) {
   return getStudentById(updated._id);
 }
 
+async function cleanupStudentDependents(students = []) {
+  const StudentGrade = getStudentGradeModel();
+  const CredentialDraft = getCredentialDraftModel();
+  const MerkleAnchor = getMerkleAnchorModel();
+  const VerificationSession = getVerificationSessionModel();
+  const VerificationSubmission = getVerificationSubmissionModel();
+
+  const studentObjectIds = students.map((student) => student._id);
+  const studentIdStrings = studentObjectIds.map((studentId) => studentId.toString());
+  const studentNos = students.map((student) => cleanString(student.studentNo)).filter(Boolean);
+
+  const credentialDrafts = await CredentialDraft.find(
+    {
+      $or: [
+        { student: { $in: studentObjectIds } },
+        { studentNo: { $in: studentNos } },
+      ],
+    },
+    { _id: 1 }
+  ).lean();
+  const credentialIds = credentialDrafts.map((draft) => draft._id);
+  const credentialIdStrings = credentialIds.map((credentialId) => credentialId.toString());
+
+  let anchorsUpdated = 0;
+  let deletedEmptyAnchors = 0;
+  if (credentialIds.length) {
+    const byObjectId = await MerkleAnchor.updateMany(
+      { 'credentials.credential': { $in: credentialIds } },
+      { $pull: { credentials: { credential: { $in: credentialIds } } } }
+    );
+    const byCredentialId = await MerkleAnchor.updateMany(
+      { 'credentials.credentialId': { $in: credentialIdStrings } },
+      { $pull: { credentials: { credentialId: { $in: credentialIdStrings } } } }
+    );
+    anchorsUpdated = (byObjectId.modifiedCount || 0) + (byCredentialId.modifiedCount || 0);
+    const emptyAnchorResult = await MerkleAnchor.deleteMany({ credentials: { $size: 0 } });
+    deletedEmptyAnchors = emptyAnchorResult.deletedCount || 0;
+  }
+
+  const [
+    credentialResult,
+    verificationSessionResult,
+    verificationSubmissionResult,
+    gradeResult,
+  ] = await Promise.all([
+    credentialIds.length
+      ? CredentialDraft.deleteMany({ _id: { $in: credentialIds } })
+      : Promise.resolve({ deletedCount: 0 }),
+    VerificationSession.deleteMany({
+      $or: [
+        { studentNo: { $in: studentNos } },
+        { credentialId: { $in: credentialIdStrings } },
+      ],
+    }),
+    VerificationSubmission.deleteMany({
+      $or: [
+        { linkedStudentId: { $in: studentObjectIds } },
+        { linkedStudentNo: { $in: studentNos } },
+        { submittedStudentNo: { $in: studentNos } },
+      ],
+    }),
+    StudentGrade.deleteMany({
+      $or: [
+        { student: { $in: studentObjectIds } },
+        { studentNo: { $in: studentNos } },
+      ],
+    }),
+  ]);
+
+  return {
+    deletedCredentials: credentialResult.deletedCount || 0,
+    anchorsUpdated,
+    deletedEmptyAnchors,
+    deletedVerificationSessions: verificationSessionResult.deletedCount || 0,
+    deletedVerificationSubmissions: verificationSubmissionResult.deletedCount || 0,
+    deletedGrades: gradeResult.deletedCount || 0,
+  };
+}
+
 export async function deleteStudentById(id) {
   const Student = getStudentModel();
-  const StudentGrade = getStudentGradeModel();
 
   if (!Types.ObjectId.isValid(id)) {
     throw new ApiError(400, 'Invalid student id.');
@@ -1185,20 +1288,24 @@ export async function deleteStudentById(id) {
     throw new ApiError(404, 'Student not found.');
   }
 
-  const gradeResult = await StudentGrade.deleteMany({ student: student._id });
-  await Student.deleteOne({ _id: student._id });
+  try {
+    const cleanup = await cleanupStudentDependents([student]);
+    const studentResult = await Student.deleteOne({ _id: student._id });
 
-  return {
-    _id: student._id,
-    studentNo: student.studentNo,
-    studentName: student.studentName,
-    deletedGrades: gradeResult.deletedCount || 0,
-  };
+    return {
+      _id: student._id,
+      studentNo: student.studentNo,
+      studentName: student.studentName,
+      deletedCount: studentResult.deletedCount || 0,
+      ...cleanup,
+    };
+  } catch (error) {
+    throw new ApiError(500, error?.message || 'Student deletion failed.');
+  }
 }
 
 export async function bulkDeleteStudents(ids = [], actor) {
   const Student = getStudentModel();
-  const StudentGrade = getStudentGradeModel();
 
   const normalizedIds = Array.isArray(ids) ? ids.filter(Boolean) : [];
   if (normalizedIds.length === 0) {
@@ -1215,27 +1322,16 @@ export async function bulkDeleteStudents(ids = [], actor) {
     throw new ApiError(404, 'One or more student records were not found.');
   }
 
-  const session = await Student.startSession();
   try {
-    let deletedCount = 0;
-    let deletedGrades = 0;
-
-    await session.withTransaction(async () => {
-      const gradeResult = await StudentGrade.deleteMany({ student: { $in: validIds } }, { session });
-      deletedGrades = gradeResult.deletedCount || 0;
-
-      const studentResult = await Student.deleteMany({ _id: { $in: validIds } }, { session });
-      deletedCount = studentResult.deletedCount || 0;
-    });
+    const cleanup = await cleanupStudentDependents(students);
+    const studentResult = await Student.deleteMany({ _id: { $in: validIds } });
 
     return {
-      deletedCount,
-      deletedGrades,
+      deletedCount: studentResult.deletedCount || 0,
+      ...cleanup,
       actor: actor?._id || null,
     };
   } catch (error) {
     throw new ApiError(500, error?.message || 'Bulk student deletion failed.');
-  } finally {
-    await session.endSession();
   }
 }

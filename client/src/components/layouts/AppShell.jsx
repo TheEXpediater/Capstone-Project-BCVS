@@ -9,17 +9,20 @@ import {
   FaUsers,
   FaFileContract,
   FaCog,
-  FaUserCircle,
-  FaSignOutAlt,
   FaBook,
   FaUserGraduate,
   FaFileSignature,
+  FaShieldAlt,
 } from 'react-icons/fa';
+import PasswordResetModal from '../PasswordResetModal';
+import UserDropdown from '../UserDropdown';
 import { signOut } from '../../features/auth/authSlice';
+import { updateWebPassword } from '../../features/profile/profileAPI';
 import {
   getTodaysAnchorQueueSummary,
   processTodaysAnchorQueue,
 } from '../../features/credentials/credentialsAPI';
+import { formatRole } from '../../features/profile/roleLabels';
 import './app-shell.css';
 
 function SidebarLink({ to, icon, children, collapsed }) {
@@ -46,6 +49,7 @@ const PAGE_TITLES = [
   { path: '/users', title: 'Manage Users' },
   { path: '/contracts', title: 'Contract Manager' },
   { path: '/system-settings', title: 'System Settings' },
+  { path: '/profile', title: 'Profile' },
   { path: '/', title: 'Dashboard' },
 ];
 
@@ -57,7 +61,7 @@ function getPageTitle(pathname) {
   return match?.title || 'BCVS';
 }
 
-function Header({ user, pageTitle, onLogout, onToggleSidebar }) {
+function Header({ user, pageTitle, onLogout, onResetPassword, onToggleSidebar }) {
   return (
     <header className="app-header">
       <div className="app-header-left">
@@ -76,18 +80,7 @@ function Header({ user, pageTitle, onLogout, onToggleSidebar }) {
       </div>
 
       <div className="app-header-right">
-        <div className="app-user-pill">
-          <FaUserCircle className="app-user-avatar" />
-          <div className="app-user-meta">
-            <strong>{user?.fullName || user?.username || 'Unknown user'}</strong>
-            <span>{user?.role || 'unknown'}</span>
-          </div>
-        </div>
-
-        <button className="btn btn-outline-danger btn-sm" onClick={onLogout}>
-          <FaSignOutAlt className="me-2" />
-          Logout
-        </button>
+        <UserDropdown user={user} onLogout={onLogout} onResetPassword={onResetPassword} />
       </div>
     </header>
   );
@@ -106,6 +99,10 @@ export default function AppShell({ children }) {
   const [logoutError, setLogoutError] = useState('');
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
 
   async function performLogout() {
     await dispatch(signOut());
@@ -146,6 +143,24 @@ export default function AppShell({ children }) {
       );
     } finally {
       setLogoutBusy(false);
+    }
+  }
+
+  async function handlePasswordSubmit(payload) {
+    try {
+      setPasswordBusy(true);
+      setPasswordError('');
+      setPasswordSuccess('');
+      await updateWebPassword(payload);
+      setPasswordSuccess('Password updated successfully.');
+    } catch (error) {
+      setPasswordError(
+        error?.response?.data?.message ||
+          error?.message ||
+          'Failed to update password.'
+      );
+    } finally {
+      setPasswordBusy(false);
     }
   }
 
@@ -263,14 +278,14 @@ export default function AppShell({ children }) {
         </nav>
 
         <div className="app-sidebar-footer">
-          <div className="app-sidebar-user">
-            <FaUserCircle className="app-footer-avatar" />
+          <div className="app-sidebar-status">
+            <span className="app-sidebar-status-icon">
+              <FaShieldAlt />
+            </span>
             {!collapsed && (
               <div>
-                <div className="fw-semibold">
-                  {user?.fullName || user?.username || 'Unknown user'}
-                </div>
-                <div className="app-role-text">{user?.role || 'unknown'}</div>
+                <div className="fw-semibold">Secure session</div>
+                <div className="app-role-text">{formatRole(user?.role)}</div>
               </div>
             )}
           </div>
@@ -282,6 +297,7 @@ export default function AppShell({ children }) {
           user={user}
           pageTitle={pageTitle}
           onLogout={handleLogout}
+          onResetPassword={() => setPasswordModalOpen(true)}
           onToggleSidebar={() => setMobileOpen((prev) => !prev)}
         />
 
@@ -429,6 +445,19 @@ export default function AppShell({ children }) {
           <div className="modal-backdrop show" />
         </>
       ) : null}
+
+      <PasswordResetModal
+        open={passwordModalOpen}
+        busy={passwordBusy}
+        error={passwordError}
+        success={passwordSuccess}
+        onClose={() => {
+          setPasswordModalOpen(false);
+          setPasswordError('');
+          setPasswordSuccess('');
+        }}
+        onSubmit={handlePasswordSubmit}
+      />
     </div>
   );
 }

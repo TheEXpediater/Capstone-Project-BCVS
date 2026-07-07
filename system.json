@@ -1,0 +1,27 @@
+{
+  "system": "BCVS",
+  "environment": "development",
+  "services": {
+    "backend": true,
+    "frontend": true,
+    "database": true
+  },
+  "setup": {
+    "seed_database": true,
+    "check_accounts": true,
+    "check_curriculum": true,
+    "check_students": true
+  },
+  "seed": {
+    "curriculumYear": "2022",
+    "admissionYear": "2022",
+    "graduationYear": "2026",
+    "schoolYear": "2025-2026",
+    "studentsPerProgram": 100,
+    "createMobileUsers": false
+  },
+  "ports": {
+    "backend": 5000,
+    "frontend": 5173
+  }
+}

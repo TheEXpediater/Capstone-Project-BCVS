@@ -107,6 +107,36 @@ export const getWebMe = asyncHandler(async (req, res) => {
   res.status(200).json(result);
 });
 
+export const updateWebProfile = asyncHandler(async (req, res) => {
+  const result = await authService.updateWebProfile(req.user._id.toString(), req.body, req.user);
+  await logAuthAction(req, 'UPDATE_PROFILE', result, 'Updated profile information', 'profile');
+  res.status(200).json(result);
+});
+
+export const updateWebProfilePicture = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({
+      success: false,
+      message: 'Profile image file is required.',
+    });
+    return;
+  }
+
+  const imagePath = `/uploads/profile-images/${req.file.filename}`;
+  const result = await authService.updateWebProfilePicture(req.user._id.toString(), imagePath);
+  await logAuthAction(req, 'UPDATE_PROFILE_IMAGE', result, 'Updated profile image', 'profile');
+  res.status(200).json({
+    ...result,
+    imagePath,
+  });
+});
+
+export const updateWebPassword = asyncHandler(async (req, res) => {
+  const result = await authService.updateWebPassword(req.user._id.toString(), req.auth.sessionId, req.body);
+  await logAuthAction(req, 'RESET_PASSWORD', { user: req.user }, 'Updated account password', 'profile');
+  res.status(200).json(result);
+});
+
 export const getMobileMe = asyncHandler(async (req, res) => {
   const result = await authService.getMe(req.user._id.toString());
   res.status(200).json(result);

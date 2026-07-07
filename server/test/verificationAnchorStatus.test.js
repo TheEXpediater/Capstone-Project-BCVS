@@ -15,6 +15,7 @@ test('signed but unanchored credential reports confirmed with scheduled anchor s
     },
     payloadVerified: true,
     blockchainVerified: false,
+    now: new Date('2026-06-20T00:00:00.000Z'),
   });
 
   assert.equal(result.signatureValid, true);

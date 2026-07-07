@@ -463,6 +463,27 @@ function normalizeBulkCredentialIds(payload = {}) {
   return ids;
 }
 
+function normalizeBulkStudentIds(payload = {}) {
+  const ids = [
+    ...new Set(
+      (payload.studentIds || payload.students || payload.ids || [])
+        .map((value) => cleanString(value))
+        .filter(Boolean)
+    ),
+  ];
+
+  if (!ids.length) {
+    throw new ApiError(400, 'At least one student id is required.');
+  }
+
+  if (ids.length > 100) {
+    throw new ApiError(400, 'Bulk VC creation is limited to 100 students.');
+  }
+
+  ids.forEach((id) => assertObjectId(id, 'student id'));
+  return ids;
+}
+
 async function getBulkCredentialDrafts(ids = []) {
   const CredentialDraft = getCredentialDraftModel();
   const drafts = await CredentialDraft.find({ _id: { $in: ids } });
@@ -1055,6 +1076,59 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
   });
 
   return serializeDraft(draft);
+}
+
+export async function bulkCreateCredentialDraftsFromStudents(payload = {}, actor) {
+  assertLifecycleAllowed(vcPermissions.canCreateDraft(actor), actor, 'create');
+
+  const studentIds = normalizeBulkStudentIds(payload);
+  const credentialType = normalizeCredentialType(payload?.credentialType);
+  if (!credentialType) {
+    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
+  }
+
+  const results = [];
+
+  for (const studentId of studentIds) {
+    try {
+      const draft = await createCredentialDraftFromStudent(
+        studentId,
+        {
+          credentialType,
+          notes: payload.notes || '',
+          anchorMode: payload.anchorMode,
+          anchorNow: payload.anchorNow,
+          amount: payload.amount,
+          totalAmount: payload.totalAmount,
+          baseAmount: payload.baseAmount,
+          anchorNowFee: payload.anchorNowFee,
+        },
+        actor
+      );
+
+      results.push({
+        studentId,
+        status: 'success',
+        credential: draft,
+      });
+    } catch (error) {
+      results.push({
+        studentId,
+        status: 'failed',
+        reason: error?.message || 'Credential draft could not be created.',
+      });
+    }
+  }
+
+  const successful = results.filter((result) => result.status === 'success');
+  const failed = results.filter((result) => result.status === 'failed');
+
+  return {
+    processedCount: results.length,
+    successCount: successful.length,
+    failedCount: failed.length,
+    results,
+  };
 }
 
 export async function requestMobileCredential(payload = {}, actor) {
