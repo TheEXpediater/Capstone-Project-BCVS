@@ -16,7 +16,7 @@
     "start:server": "node scripts/start-service.js backend",
     "start:client": "node scripts/start-service.js frontend",
 
-    "start:tunnel": "cloudflared.exe tunnel run bcvs",
+    "start:tunnel": "C:\\cloudflared.exe tunnel run bcvs",
 
     "start:bcvs": "npm run start:full",
 
