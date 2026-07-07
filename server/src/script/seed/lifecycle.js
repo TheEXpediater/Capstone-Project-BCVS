@@ -7,7 +7,10 @@ export const DEFAULT_DATE_GRADUATION = `${DEFAULT_GRADUATION_YEAR}-06-15`;
 
 export function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
-  return String(value).trim();
+
+  const cleaned = String(value).trim();
+
+  return cleaned === '' ? fallback : cleaned;
 }
 
 export function firstFourDigitYear(value, fallback = DEFAULT_ADMISSION_YEAR) {
