@@ -11,6 +11,9 @@ import {
 const unsignedDraft = {
   status: 'draft',
   paymentStatus: 'unpaid',
+  studentNo: '2022-0001',
+  studentName: 'Juan Dela Cruz',
+  credentialType: 'diploma',
   signedCredential: null,
   signedAt: null,
 };
@@ -18,6 +21,9 @@ const unsignedDraft = {
 const readyForSignature = {
   status: 'for_signature',
   paymentStatus: 'paid',
+  studentNo: '2022-0001',
+  studentName: 'Juan Dela Cruz',
+  credentialType: 'diploma',
   signedCredential: null,
   signedAt: null,
 };
@@ -25,6 +31,9 @@ const readyForSignature = {
 const signedCredential = {
   status: 'signed',
   paymentStatus: 'paid',
+  studentNo: '2022-0001',
+  studentName: 'Juan Dela Cruz',
+  credentialType: 'diploma',
   signedCredential: { proof: {} },
   signedAt: new Date().toISOString(),
 };
@@ -41,6 +50,9 @@ test('signed credentials are immutable in the client permission helper', () => {
 
 test('only super_admin can sign paid credentials ready for signing', () => {
   assert.equal(canSignCredential({ role: 'super_admin' }, readyForSignature), true);
+  assert.equal(canSignCredential({ role: 'super_admin' }, { ...readyForSignature, status: 'draft' }), true);
+  assert.equal(canSignCredential({ role: 'super_admin' }, { ...readyForSignature, status: 'submitted' }), true);
+  assert.equal(canSignCredential({ role: 'super_admin' }, { ...readyForSignature, studentName: '' }), false);
   assert.equal(canSignCredential({ role: 'admin' }, readyForSignature), false);
   assert.equal(canSignCredential({ role: 'developer' }, readyForSignature), false);
 });

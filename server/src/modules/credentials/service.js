@@ -44,6 +44,9 @@ const CLAIM_TOKEN_TTL_MINUTES = 15;
 const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
 const CLAIMABLE_STATUSES = ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
 const TERMINAL_BLOCKED_STATUSES = ['claimed', 'revoked', 'rejected'];
+const SIGNED_STATUS_VALUES = ['signed', 'claim_ready', 'claimed', 'shared', 'queued_for_anchor', 'anchored'];
+const TERMINAL_STATUS_VALUES = ['rejected', 'revoked', 'cancelled', 'deleted'];
+const UNSIGNED_STATUS_VALUES = ['draft', 'for_signature', 'submitted'];
 export { SUPPORTED_CREDENTIAL_TYPES, isSupportedCredentialType, normalizeCredentialType };
 
 const DEFAULT_CREDENTIAL_PERMISSIONS = {
@@ -164,7 +167,7 @@ export function isCredentialRejectedOrRevoked(draft) {
 }
 
 export function hasSignedCredential(draft) {
-  return vcPermissions.hasSignedCredentialPayload(draft);
+  return vcPermissions.isSignedCredential(draft);
 }
 
 export function canGenerateClaimToken(draft, { override = false } = {}) {
@@ -207,7 +210,7 @@ export function canSubmitForSigning(draft) {
 }
 
 export function canSignCredential(draft) {
-  return Boolean(draft) && draft.status === 'for_signature';
+  return vcPermissions.isSigningEligible(draft);
 }
 
 function isUnsignedMutableCredential(draft) {
@@ -321,6 +324,257 @@ function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + Number(days || 0));
   return next;
+}
+
+function toPositiveInt(value, fallback, max = 100) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function localDayBounds(value = new Date()) {
+  const start = new Date(value);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function nonBlank(field) {
+  return { [field]: { $nin: ['', null] } };
+}
+
+function signedCredentialClauses() {
+  return [
+    { signedCredential: { $ne: null } },
+    { signedAt: { $ne: null } },
+    { issuedAt: { $ne: null } },
+    nonBlank('credentialHash'),
+    nonBlank('vcHash'),
+    nonBlank('canonicalVcHash'),
+    { status: { $in: SIGNED_STATUS_VALUES } },
+  ];
+}
+
+function signedCredentialFilter() {
+  return { $or: signedCredentialClauses() };
+}
+
+function unsignedCredentialFilter({ requireSignableStatus = false } = {}) {
+  const clauses = [
+    { $nor: signedCredentialClauses() },
+    { status: { $nin: [...SIGNED_STATUS_VALUES, ...TERMINAL_STATUS_VALUES] } },
+  ];
+
+  if (requireSignableStatus) {
+    clauses.push({ status: { $in: UNSIGNED_STATUS_VALUES } });
+  }
+
+  return { $and: clauses };
+}
+
+function claimedCredentialClauses() {
+  return [
+    { claimedAt: { $ne: null } },
+    { status: 'claimed' },
+  ];
+}
+
+function claimedCredentialFilter() {
+  return { $or: claimedCredentialClauses() };
+}
+
+function unclaimedCredentialFilter() {
+  return { $nor: claimedCredentialClauses() };
+}
+
+function anchoredCredentialClauses() {
+  return [
+    { anchorStatus: 'anchored' },
+    { 'anchoring.status': 'anchored' },
+    { 'anchoring.isAnchored': true },
+    { anchoredAt: { $ne: null } },
+    { 'anchoring.anchoredAt': { $ne: null } },
+    { status: 'anchored' },
+  ];
+}
+
+function anchoredCredentialFilter() {
+  return { $or: anchoredCredentialClauses() };
+}
+
+function unanchoredCredentialFilter() {
+  return { $nor: anchoredCredentialClauses() };
+}
+
+function paidCredentialFilter() {
+  return { paymentStatus: 'paid' };
+}
+
+function unpaidCredentialFilter() {
+  return {
+    $or: [
+      { paymentStatus: 'unpaid' },
+      { paymentStatus: '' },
+      { paymentStatus: null },
+      { paymentStatus: { $exists: false } },
+    ],
+  };
+}
+
+function anchorTodayFilter(now = new Date()) {
+  const { end } = localDayBounds(now);
+  return {
+    $or: [
+      { anchorMode: 'anchor_now' },
+      { anchorNow: true },
+      { anchorScheduleMode: 'same_day' },
+      { anchorMode: 'same_day' },
+      { scheduledAnchorAt: { $lte: end } },
+    ],
+  };
+}
+
+function anchorSevenDayFilter(now = new Date()) {
+  const { start } = localDayBounds(now);
+  const { end } = localDayBounds(addDays(now, 7));
+  return {
+    $and: [
+      { scheduledAnchorAt: { $gte: start, $lte: end } },
+      {
+        $or: [
+          { anchorMode: { $in: ['default', 'scheduled', 'none', ''] } },
+          { anchorScheduleMode: 'scheduled' },
+          { anchorNow: false },
+          { anchorNow: { $exists: false } },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildCredentialDraftListFilter(query = {}, now = new Date()) {
+  const filter = {};
+  const andClauses = [];
+  const status = cleanString(query?.status);
+  const rawView = cleanString(query?.view || query?.tab).toLowerCase();
+  const viewAliases = {
+    for_payment: 'drafts',
+    signing: 'sign',
+    for_signature: 'sign',
+    signed: 'sign',
+    anchoring: 'anchor',
+    anchored: 'anchor',
+  };
+  const view = viewAliases[rawView] || rawView || 'all';
+  const rawPayment = cleanString(query?.payment || query?.paymentStatus).toLowerCase();
+  const payment = rawPayment && rawPayment !== 'all'
+    ? rawPayment
+    : rawView === 'for_payment'
+      ? 'unpaid'
+      : 'all';
+  const rawSignature = cleanString(query?.signature).toLowerCase();
+  const signature = rawSignature === 'signed' || rawView === 'signed' ? 'signed' : 'unsigned';
+  const rawClaim = cleanString(query?.claim).toLowerCase();
+  const claim = ['claimed', 'unclaimed'].includes(rawClaim) ? rawClaim : 'all';
+  const rawAnchor = cleanString(query?.anchor || query?.anchorStatus || query?.schedule).toLowerCase();
+  const anchor = rawView === 'anchored'
+    ? 'anchored'
+    : rawAnchor === '7days' || rawAnchor === '7-days'
+      ? '7_days'
+      : (rawAnchor || 'default');
+  const credentialType = cleanString(query?.credentialType);
+  const program = cleanString(query?.program || query?.programCode).toUpperCase();
+  const search = cleanString(query?.search || query?.q);
+
+  if (status) {
+    filter.status = status;
+  } else if (view === 'drafts') {
+    andClauses.push(unsignedCredentialFilter());
+
+    if (payment === 'paid') {
+      andClauses.push(paidCredentialFilter());
+    } else if (payment === 'unpaid') {
+      andClauses.push(unpaidCredentialFilter());
+    }
+  } else if (view === 'sign') {
+    if (signature === 'signed') {
+      andClauses.push(signedCredentialFilter());
+
+      if (claim === 'claimed') {
+        andClauses.push(claimedCredentialFilter());
+      } else if (claim === 'unclaimed') {
+        andClauses.push(unclaimedCredentialFilter());
+      }
+    } else {
+      andClauses.push(
+        paidCredentialFilter(),
+        unsignedCredentialFilter({ requireSignableStatus: true })
+      );
+    }
+  } else if (view === 'anchor') {
+    andClauses.push(signedCredentialFilter(), paidCredentialFilter());
+
+    if (anchor === 'anchored') {
+      andClauses.push(anchoredCredentialFilter());
+    } else {
+      andClauses.push(unanchoredCredentialFilter());
+
+      if (anchor === 'today') {
+        andClauses.push(anchorTodayFilter(now));
+      } else if (anchor === '7_days') {
+        andClauses.push(anchorSevenDayFilter(now));
+      }
+    }
+  } else {
+    filter.status = { $ne: 'deleted' };
+  }
+
+  if (credentialType && credentialType !== 'all') {
+    const normalizedType = normalizeCredentialType(credentialType);
+    if (normalizedType) {
+      filter.credentialType = normalizedType;
+    }
+  }
+
+  if (status && (payment === 'paid' || payment === 'unpaid')) {
+    andClauses.push(payment === 'paid' ? paidCredentialFilter() : unpaidCredentialFilter());
+  }
+
+  if (program) {
+    andClauses.push({ $or: [
+      { 'profileSnapshot.programCode': program },
+      { 'profileSnapshot.programName': { $regex: program, $options: 'i' } },
+    ] });
+  }
+
+  if (search) {
+    const searchRegex = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    andClauses.push({ $or: [
+      { studentNo: searchRegex },
+      { studentName: searchRegex },
+      { credentialType: searchRegex },
+      { status: searchRegex },
+      { paymentStatus: searchRegex },
+      { receiptNo: searchRegex },
+      { paymentCode: searchRegex },
+      { 'profileSnapshot.programCode': searchRegex },
+      { 'profileSnapshot.programName': searchRegex },
+    ] });
+  }
+
+  if (andClauses.length) {
+    filter.$and = andClauses;
+  }
+
+  return {
+    filter,
+    view,
+    payment,
+    signature,
+    claim,
+    anchor,
+  };
 }
 
 function addMinutes(date, minutes) {
@@ -628,6 +882,10 @@ function serializeDraft(doc) {
     ? cleanString(copy.anchorMode)
     : '';
   const pricing = pricingFromDraft(copy);
+  const isSigned = vcPermissions.isSignedCredential(copy);
+  const isClaimed = vcPermissions.isClaimed(copy);
+  const isAnchored = vcPermissions.isAnchoredCredential(copy);
+  const isSigningEligible = vcPermissions.isSigningEligible(copy);
   return {
     ...copy,
     ...pricing,
@@ -636,6 +894,10 @@ function serializeDraft(doc) {
     receiptNo: cleanString(copy.receiptNo),
     paidAt: copy.paidAt || null,
     paidBy: copy.paidBy || null,
+    isSigned,
+    isClaimed,
+    isAnchored,
+    isSigningEligible,
   };
 }
 
@@ -846,89 +1108,46 @@ export async function listCredentialDrafts(query = {}, actor = null) {
   assertLifecycleAllowed(vcPermissions.canViewVcDetails(actor), actor, 'view');
 
   const CredentialDraft = getCredentialDraftModel();
+  const page = toPositiveInt(query?.page, 1, 100000);
+  const limit = toPositiveInt(query?.limit, 25, 100);
+  const skip = (page - 1) * limit;
+  const { filter, view, payment, signature, claim, anchor } = buildCredentialDraftListFilter(query);
+  const sort = view === 'anchor' && anchor === 'default'
+    ? { anchorStatus: 1, scheduledAnchorAt: 1, updatedAt: -1, createdAt: -1 }
+    : { updatedAt: -1, createdAt: -1 };
 
-  const filter = {};
-  const andClauses = [];
-  const status = cleanString(query?.status);
-  const tab = cleanString(query?.tab).toLowerCase();
-  const credentialType = cleanString(query?.credentialType);
-  const paymentStatus = cleanString(query?.paymentStatus).toLowerCase();
-  const program = cleanString(query?.program || query?.programCode).toUpperCase();
-  const search = cleanString(query?.search || query?.q);
+  const [total, drafts] = await Promise.all([
+    CredentialDraft.countDocuments(filter),
+    CredentialDraft.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
 
-  if (status) {
-    filter.status = status;
-  }
+  const pages = Math.max(Math.ceil(total / limit), 1);
+  const rows = drafts.map(serializeDraft);
 
-  if (!status && tab) {
-    if (tab === 'drafts') {
-      filter.status = { $in: ['draft', 'rejected'] };
-      filter.signedCredential = null;
-    } else if (tab === 'for_payment') {
-      filter.paymentStatus = { $ne: 'paid' };
-      filter.status = { $nin: ['signed', 'claim_ready', 'claimed', 'shared', 'queued_for_anchor', 'anchored', 'revoked'] };
-      filter.signedCredential = null;
-    } else if (tab === 'for_signature') {
-      filter.paymentStatus = 'paid';
-      filter.status = { $in: ['submitted', 'for_signature'] };
-      filter.signedCredential = null;
-    } else if (tab === 'signed') {
-      andClauses.push({ $or: [
-        { signedCredential: { $ne: null } },
-        { signedAt: { $ne: null } },
-        { status: { $in: ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'] } },
-      ] });
-    } else if (tab === 'anchoring') {
-      filter.status = 'queued_for_anchor';
-    } else if (tab === 'anchored') {
-      andClauses.push({ $or: [
-        { status: 'anchored' },
-        { anchorStatus: 'anchored' },
-      ] });
-    }
-  }
-
-  if (credentialType) {
-    const normalizedType = normalizeCredentialType(credentialType);
-    if (normalizedType) {
-      filter.credentialType = normalizedType;
-    }
-  }
-
-  if (paymentStatus === 'paid' || paymentStatus === 'unpaid') {
-    filter.paymentStatus = paymentStatus;
-  }
-
-  if (program) {
-    andClauses.push({ $or: [
-      { 'profileSnapshot.programCode': program },
-      { 'profileSnapshot.programName': { $regex: program, $options: 'i' } },
-    ] });
-  }
-
-  if (search) {
-    const searchRegex = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-    const searchClauses = [
-      { studentNo: searchRegex },
-      { studentName: searchRegex },
-      { credentialType: searchRegex },
-      { status: searchRegex },
-      { 'profileSnapshot.programCode': searchRegex },
-      { 'profileSnapshot.programName': searchRegex },
-    ];
-
-    andClauses.push({ $or: searchClauses });
-  }
-
-  if (andClauses.length) {
-    filter.$and = andClauses;
-  }
-
-  const drafts = await CredentialDraft.find(filter)
-    .sort({ updatedAt: -1, createdAt: -1 })
-    .lean();
-
-  return drafts.map(serializeDraft);
+  return {
+    rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages,
+      totalPages: pages,
+    },
+    counts: {
+      total,
+    },
+    filters: {
+      view,
+      payment,
+      signature,
+      claim,
+      anchor,
+    },
+  };
 }
 
 export async function getCredentialDraftById(id, actor = null) {

@@ -11,10 +11,14 @@ import {
   canQueueAnchor,
   canSignCredential,
   canSubmitDraft,
+  isSignedCredential,
   isAnchorReady,
   resolveAnchorReadiness,
 } from '../src/modules/credentials/permissions.js';
-import { moveToSigningQueue } from '../src/modules/credentials/service.js';
+import {
+  buildCredentialDraftListFilter,
+  moveToSigningQueue,
+} from '../src/modules/credentials/service.js';
 
 const admin = { role: 'admin' };
 const registrar = { role: 'super_admin' };
@@ -27,6 +31,9 @@ function credential(overrides = {}) {
     paymentStatus: 'unpaid',
     anchorStatus: 'not_requested',
     anchorMode: 'default',
+    studentNo: '2022-0001',
+    studentName: 'Juan Dela Cruz',
+    credentialType: 'diploma',
     signedCredential: null,
     ...overrides,
   };
@@ -59,6 +66,31 @@ test('VC lifecycle role gates permit administrative draft creation and restrict 
   assert.equal(canMarkPaid(developer, submitted), false);
   assert.equal(canQueueAnchor(developer, submitted), false);
   assert.equal(canGenerateClaimQr(developer, submitted), false);
+});
+
+test('registrar can sign paid unsigned drafts, submitted rows, and signing queue rows only', () => {
+  const paidDraft = credential({ status: 'draft', paymentStatus: 'paid' });
+  const submitted = credential({ status: 'submitted', paymentStatus: 'paid' });
+  const queued = credential({ status: 'for_signature', paymentStatus: 'paid' });
+  const missingProfile = credential({
+    status: 'for_signature',
+    paymentStatus: 'paid',
+    studentName: '',
+  });
+  const signed = credential({
+    status: 'signed',
+    paymentStatus: 'paid',
+    signedCredential: { id: 'vc-1' },
+  });
+  const revoked = credential({ status: 'revoked', paymentStatus: 'paid' });
+
+  assert.equal(canSignCredential(registrar, paidDraft), true);
+  assert.equal(canSignCredential(registrar, submitted), true);
+  assert.equal(canSignCredential(registrar, queued), true);
+  assert.equal(canSignCredential(registrar, missingProfile), false);
+  assert.equal(canSignCredential(registrar, signed), false);
+  assert.equal(canSignCredential(registrar, revoked), false);
+  assert.equal(canSignCredential(admin, queued), false);
 });
 
 test('cashier can mark payment paid but cannot perform VC lifecycle operations', () => {
@@ -100,6 +132,13 @@ test('signed content is locked against draft edits and draft deletes', () => {
 
   assert.equal(canEditDraft(admin, signed), false);
   assert.equal(canDeleteDraft(admin, signed), false);
+});
+
+test('signed credentials are recognized from status and signature artifacts', () => {
+  assert.equal(isSignedCredential(credential({ status: 'claim_ready', paymentStatus: 'paid' })), true);
+  assert.equal(isSignedCredential(credential({ status: 'queued_for_anchor', paymentStatus: 'paid' })), true);
+  assert.equal(isSignedCredential(credential({ credentialHash: 'hash-1', paymentStatus: 'paid' })), true);
+  assert.equal(isSignedCredential(credential({ status: 'for_signature', paymentStatus: 'paid' })), false);
 });
 
 test('only signed and paid credentials become anchor-ready or claim-QR eligible', () => {
@@ -169,4 +208,56 @@ test('default credentials cannot process anchoring before due date but can after
   assert.equal(canProcessAnchor(registrar, scheduled, now), false);
   assert.equal(isAnchorReady(scheduled, due), true);
   assert.equal(canProcessAnchor(registrar, scheduled, due), true);
+});
+
+test('draft list filter sends paid unsigned records to Sign without hiding draft and submitted rows', () => {
+  const { filter, view, signature } = buildCredentialDraftListFilter({ view: 'sign' });
+
+  assert.equal(view, 'sign');
+  assert.equal(signature, 'unsigned');
+  assert.deepEqual(filter.$and[0], { paymentStatus: 'paid' });
+  assert.equal(
+    filter.$and.some((clause) => clause.$and?.some((child) => {
+      return Array.isArray(child.status?.$in) &&
+        child.status.$in.includes('draft') &&
+        child.status.$in.includes('submitted') &&
+        child.status.$in.includes('for_signature');
+    })),
+    true
+  );
+});
+
+test('draft list filter recognizes signed, claimed, anchored, and scheduled anchor views', () => {
+  const now = new Date('2026-06-19T12:00:00.000Z');
+  const signed = buildCredentialDraftListFilter({ view: 'sign', signature: 'signed' }, now);
+  const claimed = buildCredentialDraftListFilter({ view: 'sign', signature: 'signed', claim: 'claimed' }, now);
+  const unclaimed = buildCredentialDraftListFilter({ view: 'sign', signature: 'signed', claim: 'unclaimed' }, now);
+  const anchored = buildCredentialDraftListFilter({ view: 'anchor', anchor: 'anchored' }, now);
+  const today = buildCredentialDraftListFilter({ view: 'anchor', anchor: 'today' }, now);
+  const sevenDays = buildCredentialDraftListFilter({ view: 'anchor', anchor: '7_days' }, now);
+
+  assert.equal(
+    signed.filter.$and.some((clause) => clause.$or?.some((child) => child.status?.$in?.includes('claim_ready'))),
+    true
+  );
+  assert.equal(
+    claimed.filter.$and.some((clause) => clause.$or?.some((child) => child.claimedAt?.$ne === null)),
+    true
+  );
+  assert.equal(
+    unclaimed.filter.$and.some((clause) => clause.$nor?.some((child) => child.status === 'claimed')),
+    true
+  );
+  assert.equal(
+    anchored.filter.$and.some((clause) => clause.$or?.some((child) => child.anchorStatus === 'anchored')),
+    true
+  );
+  assert.equal(
+    today.filter.$and.some((clause) => clause.$or?.some((child) => child.scheduledAnchorAt?.$lte instanceof Date)),
+    true
+  );
+  assert.equal(
+    sevenDays.filter.$and.some((clause) => clause.$and?.some((child) => child.scheduledAnchorAt?.$gte instanceof Date)),
+    true
+  );
 });

@@ -7,13 +7,16 @@ const DRAFT_STATUS = 'draft';
 const DRAFT_CREATION_ROLES = new Set(['admin', 'super_admin']);
 const SUBMITTED_STATUSES = new Set(['submitted', 'for_signature']);
 const TERMINAL_BLOCKED_STATUSES = new Set(['rejected', 'revoked', 'cancelled', 'deleted']);
-const IMMUTABLE_STATUSES = new Set([
+const SIGNED_STATUSES = new Set([
   'signed',
   'claim_ready',
   'claimed',
   'shared',
   'queued_for_anchor',
   'anchored',
+]);
+const IMMUTABLE_STATUSES = new Set([
+  ...SIGNED_STATUSES,
   'revoked',
   'deleted',
   'cancelled',
@@ -58,14 +61,57 @@ export function hasSignedCredentialPayload(credential) {
   return Boolean(credential?.signedCredential);
 }
 
-export function hasIssuedCredentialArtifacts(credential) {
+export function isSignedCredential(credential) {
+  const status = cleanString(credential?.status).toLowerCase();
   return Boolean(
     credential?.signedCredential ||
-      credential?.vcPayload ||
+      credential?.signedAt ||
+      credential?.issuedAt ||
       cleanString(credential?.credentialHash) ||
       cleanString(credential?.vcHash) ||
-      credential?.signedAt ||
-      IMMUTABLE_STATUSES.has(cleanString(credential?.status).toLowerCase())
+      cleanString(credential?.canonicalVcHash) ||
+      SIGNED_STATUSES.has(status)
+  );
+}
+
+export function isAnchoredCredential(credential) {
+  const status = cleanString(credential?.status).toLowerCase();
+  const anchorStatus = cleanString(credential?.anchorStatus || credential?.anchoring?.status).toLowerCase();
+  return Boolean(
+    status === 'anchored' ||
+      anchorStatus === 'anchored' ||
+      credential?.anchoring?.isAnchored ||
+      credential?.anchoredAt ||
+      credential?.anchoring?.anchoredAt
+  );
+}
+
+export function hasIssuedCredentialArtifacts(credential) {
+  return Boolean(credential?.vcPayload || isSignedCredential(credential));
+}
+
+export function isUnsignedCredential(credential) {
+  return Boolean(credential) && !isSignedCredential(credential);
+}
+
+export function hasRequiredCredentialData(credential) {
+  return Boolean(
+    credential &&
+      cleanString(credential.studentNo) &&
+      cleanString(credential.studentName) &&
+      cleanString(credential.credentialType)
+  );
+}
+
+export function isSigningEligible(credential) {
+  const status = cleanString(credential?.status).toLowerCase();
+  return (
+    Boolean(credential) &&
+    isPaid(credential) &&
+    isUnsignedCredential(credential) &&
+    !TERMINAL_BLOCKED_STATUSES.has(status) &&
+    (status === DRAFT_STATUS || SUBMITTED_STATUSES.has(status)) &&
+    hasRequiredCredentialData(credential)
   );
 }
 
@@ -82,7 +128,7 @@ export function canEditDraft(user, credential) {
     Boolean(credential) &&
     !TERMINAL_BLOCKED_STATUSES.has(status) &&
     !IMMUTABLE_STATUSES.has(status) &&
-    !hasIssuedCredentialArtifacts(credential)
+    isUnsignedCredential(credential)
   );
 }
 
@@ -92,7 +138,7 @@ export function canSubmitDraft(user, credential) {
     roleOf(user) === 'admin' &&
     Boolean(credential) &&
     isPaid(credential) &&
-    !hasSignedCredentialPayload(credential) &&
+    isUnsignedCredential(credential) &&
     !TERMINAL_BLOCKED_STATUSES.has(status) &&
     (status === DRAFT_STATUS || SUBMITTED_STATUSES.has(status))
   );
@@ -103,16 +149,11 @@ export function canDeleteDraft(user, credential) {
 }
 
 export function canRejectDraft(user, credential) {
-  return roleOf(user) === 'super_admin' && SUBMITTED_STATUSES.has(cleanString(credential?.status).toLowerCase());
+  return roleOf(user) === 'super_admin' && isSigningEligible(credential);
 }
 
 export function canSignCredential(user, credential) {
-  return (
-    roleOf(user) === 'super_admin' &&
-    isPaid(credential) &&
-    SUBMITTED_STATUSES.has(cleanString(credential?.status).toLowerCase()) &&
-    !hasSignedCredentialPayload(credential)
-  );
+  return roleOf(user) === 'super_admin' && isSigningEligible(credential);
 }
 
 export function canMarkPaid(user, credential) {
@@ -123,7 +164,7 @@ export function isAnchorEligible(credential) {
   return (
     Boolean(credential) &&
     isPaid(credential) &&
-    hasSignedCredentialPayload(credential) &&
+    isSignedCredential(credential) &&
     !isRejectedRevokedOrCancelled(credential)
   );
 }
@@ -162,7 +203,10 @@ export function canGenerateClaimQr(user, credential, { override = false } = {}) 
     return Boolean(override);
   }
 
-  return CLAIMABLE_STATUSES.has(cleanString(credential?.status).toLowerCase());
+  return (
+    CLAIMABLE_STATUSES.has(cleanString(credential?.status).toLowerCase()) ||
+    isSignedCredential(credential)
+  );
 }
 
 export function canMarkClaimed(user, credential) {

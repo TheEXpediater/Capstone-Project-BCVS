@@ -1,3 +1,12 @@
+import {
+  isPaidCredential,
+  isSignedCredential,
+  isSigningEligible,
+  isTerminalCredential,
+  isUnsignedCredential,
+  statusOf,
+} from './credentialLifecycle.js';
+
 const CREATE_ROLES = new Set(['admin', 'super_admin']);
 const EDIT_ROLES = new Set(['admin', 'super_admin']);
 const SUBMIT_ROLES = new Set(['admin']);
@@ -6,63 +15,33 @@ const PAYMENT_ROLES = new Set(['cashier']);
 const DELETE_ROLES = new Set(['admin']);
 const READONLY_ROLES = new Set(['developer']);
 const SUBMITTED_STATUSES = new Set(['submitted', 'for_signature']);
-const TERMINAL_STATUSES = new Set(['rejected', 'revoked', 'cancelled', 'deleted']);
-const IMMUTABLE_STATUSES = new Set([
-  'signed',
-  'claim_ready',
-  'claimed',
-  'shared',
-  'queued_for_anchor',
-  'anchored',
-  'revoked',
-  'deleted',
-  'cancelled',
-]);
 
 function roleOf(user) {
   return String(user?.role || '').trim().toLowerCase();
 }
 
-function statusOf(credential) {
-  return String(credential?.status || '').trim().toLowerCase();
-}
-
 export function isCredentialPaid(credential) {
-  return String(credential?.paymentStatus || 'unpaid').trim().toLowerCase() === 'paid';
+  return isPaidCredential(credential);
 }
 
 export function hasSignedCredential(credential) {
-  return Boolean(credential?.signedCredential || credential?.signedAt);
+  return isSignedCredential(credential);
 }
 
 export function hasIssuedCredentialArtifacts(credential) {
-  const status = statusOf(credential);
-  return Boolean(
-    credential?.signedCredential ||
-      credential?.vcPayload ||
-      credential?.credentialHash ||
-      credential?.vcHash ||
-      credential?.signedAt ||
-      IMMUTABLE_STATUSES.has(status)
-  );
+  return Boolean(credential?.vcPayload || isSignedCredential(credential));
 }
 
 export function isCredentialUnsigned(credential) {
-  return Boolean(credential) && !hasSignedCredential(credential) && !hasIssuedCredentialArtifacts(credential);
+  return isUnsignedCredential(credential);
 }
 
 export function isCredentialTerminal(credential) {
-  return TERMINAL_STATUSES.has(statusOf(credential));
+  return isTerminalCredential(credential);
 }
 
 export function isCredentialReadyForSigning(credential) {
-  const status = statusOf(credential);
-  return (
-    Boolean(credential) &&
-    isCredentialPaid(credential) &&
-    isCredentialUnsigned(credential) &&
-    SUBMITTED_STATUSES.has(status)
-  );
+  return isSigningEligible(credential);
 }
 
 export function canCreateCredential(user) {
@@ -99,7 +78,7 @@ export function canSignCredential(user, credential) {
 }
 
 export function canRejectCredential(user, credential) {
-  return SIGN_ROLES.has(roleOf(user)) && SUBMITTED_STATUSES.has(statusOf(credential)) && isCredentialUnsigned(credential);
+  return SIGN_ROLES.has(roleOf(user)) && isCredentialReadyForSigning(credential);
 }
 
 export function canMarkCredentialPaid(user, credential) {

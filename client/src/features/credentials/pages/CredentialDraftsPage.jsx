@@ -28,6 +28,12 @@ import {
   canSubmitCredential,
 } from '../credentialPermissions';
 import {
+  isAnchoredCredential,
+  isClaimedCredential,
+  isPaidCredential,
+  isSignedCredential,
+} from '../credentialLifecycle.js';
+import {
   bulkCreateCredentialClaimTokens,
   bulkCreateCredentialDraftsFromStudents,
   bulkDeleteCredentialDrafts,
@@ -129,11 +135,11 @@ function cleanText(value) {
 }
 
 function isCredentialPaid(draft) {
-  return String(draft?.paymentStatus || 'unpaid').toLowerCase() === 'paid';
+  return isPaidCredential(draft);
 }
 
 function isCredentialClaimed(draft) {
-  return draft?.status === 'claimed' || Boolean(draft?.claimedAt);
+  return isClaimedCredential(draft);
 }
 
 function isCredentialRejectedOrRevoked(draft) {
@@ -145,7 +151,7 @@ function isCredentialClaimableStatus(draft) {
 }
 
 function hasSignedCredential(draft) {
-  return Boolean(draft?.signedCredential);
+  return isSignedCredential(draft);
 }
 
 function canShowClaimQr(draft) {
@@ -241,27 +247,6 @@ function credentialLabel(value) {
   return titleCase(value || 'credential');
 }
 
-function matchesCredentialSearch(draft, search) {
-  const query = cleanText(search).toLowerCase();
-  if (!query) return true;
-  return [
-    draft?.studentName,
-    draft?.studentNo,
-    draft?.credentialType,
-    draft?.status,
-    draft?.paymentStatus,
-    draft?.anchorStatus,
-  ].some((value) => cleanText(value).toLowerCase().includes(query));
-}
-
-const matchesStudentName = matchesCredentialSearch;
-
-function matchesPaymentStatus(draft, status) {
-  const selected = cleanText(status).toLowerCase();
-  if (!selected) return true;
-  return cleanText(draft?.paymentStatus).toLowerCase() === selected;
-}
-
 function anchorScheduleLabel(draft) {
   const mode = cleanText(draft?.anchorScheduleMode || draft?.anchorMode).toLowerCase();
   const preference = cleanText(draft?.anchorPreference).toLowerCase();
@@ -269,14 +254,6 @@ function anchorScheduleLabel(draft) {
   if (mode === 'same_day' || preference === 'request') return 'Today';
   if (draft?.anchorNow || cleanText(draft?.anchorMode).toLowerCase() === 'anchor_now') return 'Priority';
   return '7 Days';
-}
-
-function matchesAnchorSchedule(draft, schedule) {
-  const selected = cleanText(schedule).toLowerCase();
-  if (!selected) return true;
-  return selected === 'today'
-    ? anchorScheduleLabel(draft) === 'Today'
-    : anchorScheduleLabel(draft) === '7 Days';
 }
 
 function signatureStatusLabel(draft) {
@@ -309,45 +286,8 @@ function anchorStatusBadge(draft) {
   return 'text-bg-warning';
 }
 
-function anchorStatusFilterValue(draft) {
-  const label = anchorStatusLabel(draft);
-  if (label === 'Anchored') return 'anchored';
-  if (label === 'Failed') return 'failed';
-  if (label === 'Processing') return 'processing';
-  if (label === 'Scheduled') return 'scheduled';
-  return 'queued';
-}
-
-function matchesAnchorStatus(draft, status) {
-  const selected = cleanText(status).toLowerCase();
-  const value = anchorStatusFilterValue(draft);
-  if (selected === 'queued') return ['queued', 'scheduled', 'processing'].includes(value);
-  return value === selected;
-}
-
-function matchesAnchorSearch(draft, search) {
-  const query = cleanText(search).toLowerCase();
-  if (!query) return true;
-  return [
-    draft?.studentName,
-    draft?.studentNo,
-    draft?.credentialType,
-    draft?.anchorStatus,
-    draft?.paymentCode,
-    draft?.receiptNo,
-    draft?.credentialHash,
-    draft?.vcHash,
-    draft?.anchorTxHash,
-    draft?.anchorBatchId,
-    draft?.contractAddress,
-    draft?.anchorContractAddress,
-  ]
-    .map((value) => cleanText(value).toLowerCase())
-    .some((value) => value.includes(query));
-}
-
 function isAnchored(draft) {
-  return cleanText(draft?.anchorStatus).toLowerCase() === 'anchored';
+  return isAnchoredCredential(draft);
 }
 
 function getDraftId(item) {
@@ -1429,6 +1369,7 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
   const [remainingSeconds, setRemainingSeconds] = useState(
     claimQr?.initialRemainingSeconds || 0
   );
+  const [copyStatus, setCopyStatus] = useState('');
 
   useEffect(() => {
     if (!claimQr) return undefined;
@@ -1447,14 +1388,45 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
   const isExpired = remainingSeconds <= 0;
   const minutes = String(Math.floor(remainingSeconds / 60)).padStart(2, '0');
   const seconds = String(remainingSeconds % 60).padStart(2, '0');
+  const credential = claimQr.credential || {};
+  const claimStatus = isCredentialClaimed(credential)
+    ? 'Claimed'
+    : isExpired
+      ? 'Expired'
+      : 'Unclaimed';
+  const expirationLabel = claimQr.expiresAt ? formatDate(claimQr.expiresAt) : 'Not available';
+
+  async function copyClaimLink() {
+    if (!claimQr.claimUri) return;
+    try {
+      await navigator.clipboard.writeText(claimQr.claimUri);
+      setCopyStatus('Claim link copied.');
+    } catch {
+      setCopyStatus('Unable to copy claim link.');
+    }
+  }
+
+  function downloadQr() {
+    if (!claimQr.dataUrl) return;
+    const link = document.createElement('a');
+    link.href = claimQr.dataUrl;
+    link.download = `bcvs-claim-${credential.studentNo || credential._id || 'credential'}.png`;
+    link.click();
+  }
 
   return (
     <ModalShell
       title={claimQr.override ? 'Override Claim QR' : 'Claim QR'}
-      subtitle={`${claimQr.credential?.studentNo || 'Student'} - scan with the mobile app.`}
+      subtitle={`${credential.studentNo || 'Student'} - scan with the mobile app.`}
       onClose={onClose}
       footer={
         <>
+          <button className="btn btn-outline-secondary" onClick={copyClaimLink} disabled={!claimQr.claimUri}>
+            Copy Link
+          </button>
+          <button className="btn btn-outline-secondary" onClick={downloadQr} disabled={!claimQr.dataUrl}>
+            Download PNG
+          </button>
           <button className="btn btn-outline-secondary" onClick={onRefresh}>
             Refresh List
           </button>
@@ -1481,7 +1453,26 @@ function ClaimQrModal({ claimQr, onClose, onRefresh }) {
           </span>
         </div>
 
+        <div className="row g-2 mt-3 text-start">
+          <FieldValue label="Student Number" className="col-md-6">
+            {credential.studentNo || 'Not available'}
+          </FieldValue>
+          <FieldValue label="Student Name" className="col-md-6">
+            {credential.studentName || 'Not available'}
+          </FieldValue>
+          <FieldValue label="Credential Type" className="col-md-6">
+            {credentialLabel(credential.credentialType)}
+          </FieldValue>
+          <FieldValue label="Claim Status" className="col-md-6">
+            {claimStatus}
+          </FieldValue>
+          <FieldValue label="Expiration Date" className="col-md-6">
+            {expirationLabel}
+          </FieldValue>
+        </div>
+
         <div className="small text-muted mt-3 text-break">{claimQr.claimUri}</div>
+        {copyStatus ? <div className="small text-success mt-2">{copyStatus}</div> : null}
         <div className="alert alert-light border mt-3 mb-0 text-start small">
           The QR contains a temporary claim token. The signed VC is delivered only after
           the student signs in and claims it from the backend.
@@ -1846,7 +1837,11 @@ function RowActionCell({
     : actions;
 
   return (
-    <div className="d-inline-flex flex-wrap justify-content-end gap-2">
+    <div
+      className="d-inline-flex flex-wrap justify-content-end gap-2"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
       {!detailsInMenu ? (
         <button
           className="btn btn-outline-primary btn-sm text-nowrap"
@@ -1871,8 +1866,9 @@ function VcProcessingTable({
   loading,
   busyId,
   paymentStatus,
+  showPaymentFilter = false,
   search,
-  selectedIds,
+  selectedRows,
   selectedCount,
   page,
   pageCount,
@@ -1880,7 +1876,7 @@ function VcProcessingTable({
   onSearch,
   onRefresh,
   onDetails,
-  onToggleSelected,
+  onToggleRow,
   onTogglePage,
   onPage,
   canSelectRow,
@@ -1897,8 +1893,8 @@ function VcProcessingTable({
     .filter((item) => canSelectRow(item))
     .map((item) => item._id);
   const allPageSelected =
-    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id));
-  const somePageSelected = selectableIds.some((id) => selectedIds.has(id));
+    selectableIds.length > 0 && selectableIds.every((id) => selectedRows.has(id));
+  const somePageSelected = selectableIds.some((id) => selectedRows.has(id));
 
   return (
     <CredentialTableShell
@@ -1909,6 +1905,7 @@ function VcProcessingTable({
       onRefresh={onRefresh}
       filters={
         <div className="row g-2 align-items-end mb-3">
+          {showPaymentFilter ? (
           <div className="col-md-3 col-lg-2">
             <label className="form-label small fw-semibold" htmlFor="vc-payment-status">
               Payment Status
@@ -1919,11 +1916,12 @@ function VcProcessingTable({
               value={paymentStatus}
               onChange={(event) => onPaymentStatus(event.target.value)}
             >
-              <option value="">All</option>
+              <option value="all">All</option>
               <option value="paid">Paid</option>
               <option value="unpaid">Unpaid</option>
             </select>
           </div>
+          ) : null}
           <div className="col-md-5 col-lg-4">
             <label className="form-label small fw-semibold" htmlFor="vc-student-search">
               Search
@@ -1981,13 +1979,26 @@ function VcProcessingTable({
             {rows.map((item) => {
               const selectable = canSelectRow(item);
               return (
-                <tr key={item._id}>
-                  <td>
+                <tr
+                  key={item._id}
+                  className={selectedRows.has(item._id) ? 'table-success' : ''}
+                  style={selectable ? { cursor: 'pointer' } : undefined}
+                  tabIndex={selectable ? 0 : undefined}
+                  onClick={() => {
+                    if (selectable) onToggleRow(item._id, !selectedRows.has(item._id));
+                  }}
+                  onKeyDown={(event) => {
+                    if (!selectable || event.key !== ' ') return;
+                    event.preventDefault();
+                    onToggleRow(item._id, !selectedRows.has(item._id));
+                  }}
+                >
+                  <td onClick={(event) => event.stopPropagation()}>
                     <input
                       className="form-check-input"
                       type="checkbox"
-                      checked={selectedIds.has(item._id)}
-                      onChange={(event) => onToggleSelected(item._id, event.target.checked)}
+                      checked={selectedRows.has(item._id)}
+                      onChange={(event) => onToggleRow(item._id, event.target.checked)}
                       disabled={!selectable}
                       aria-label={`Select ${item.studentName || 'credential draft'}`}
                     />
@@ -2060,11 +2071,16 @@ function SigningTable({
   rows,
   loading,
   busyId,
-  paymentStatus,
+  signatureFilter,
+  claimFilter,
   search,
-  onPaymentStatus,
+  selectedRows,
+  onSignatureFilter,
+  onClaimFilter,
   onSearch,
   onRefresh,
+  onToggleRow,
+  canSelectRow,
   onDetails,
   getActions,
   actionMenuOpenId,
@@ -2082,19 +2098,35 @@ function SigningTable({
         <div className="row g-2 align-items-end mb-3">
           <div className="col-md-3 col-lg-2">
             <label className="form-label small fw-semibold" htmlFor="signing-payment-status">
-              Payment Status
+              Signature
             </label>
             <select
               id="signing-payment-status"
               className="form-select form-select-sm"
-              value={paymentStatus}
-              onChange={(event) => onPaymentStatus(event.target.value)}
+              value={signatureFilter}
+              onChange={(event) => onSignatureFilter(event.target.value)}
             >
-              <option value="">All</option>
-              <option value="paid">Paid</option>
-              <option value="unpaid">Unpaid</option>
+              <option value="unsigned">Not Signed</option>
+              <option value="signed">Signed</option>
             </select>
           </div>
+          {signatureFilter === 'signed' ? (
+            <div className="col-md-3 col-lg-2">
+              <label className="form-label small fw-semibold" htmlFor="signing-claim-status">
+                Claim
+              </label>
+              <select
+                id="signing-claim-status"
+                className="form-select form-select-sm"
+                value={claimFilter}
+                onChange={(event) => onClaimFilter(event.target.value)}
+              >
+                <option value="all">All</option>
+                <option value="unclaimed">Unclaimed</option>
+                <option value="claimed">Claimed</option>
+              </select>
+            </div>
+          ) : null}
           <div className="col-md-5 col-lg-4">
             <label className="form-label small fw-semibold" htmlFor="signing-student-search">
               Student Name
@@ -2113,6 +2145,7 @@ function SigningTable({
       <table className="table table-sm align-middle mb-0">
         <thead>
           <tr>
+            <th style={{ width: 36 }} />
             <th>Student Name</th>
             <th>Credential</th>
             <th>Payment</th>
@@ -2121,34 +2154,60 @@ function SigningTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((item) => (
-            <tr key={item._id}>
-              <td className="fw-semibold">{item.studentName || 'Not available'}</td>
-              <td>{credentialLabel(item.credentialType)}</td>
-              <td>
-                <span className={`badge ${getPaymentBadge(item)}`}>
-                  {isCredentialPaid(item) ? 'Paid' : 'Unpaid'}
-                </span>
-              </td>
-              <td>
-                <span className={`badge ${signatureStatusBadge(item)}`}>
-                  {signatureStatusLabel(item)}
-                </span>
-              </td>
-              <td className="text-end">
-                <RowActionCell
-                  item={item}
-                  busyId={busyId}
-                  onDetails={onDetails}
-                  actions={getActions(item)}
-                  detailsInMenu
-                  isMenuOpen={actionMenuOpenId === item._id}
-                  onToggleMenu={() => onToggleActionMenu(item._id)}
-                  onCloseMenu={onCloseActionMenu}
-                />
-              </td>
-            </tr>
-          ))}
+          {rows.map((item) => {
+            const selectable = canSelectRow(item);
+            return (
+              <tr
+                key={item._id}
+                className={selectedRows.has(item._id) ? 'table-success' : ''}
+                style={selectable ? { cursor: 'pointer' } : undefined}
+                tabIndex={selectable ? 0 : undefined}
+                onClick={() => {
+                  if (selectable) onToggleRow(item._id, !selectedRows.has(item._id));
+                }}
+                onKeyDown={(event) => {
+                  if (!selectable || event.key !== ' ') return;
+                  event.preventDefault();
+                  onToggleRow(item._id, !selectedRows.has(item._id));
+                }}
+              >
+                <td onClick={(event) => event.stopPropagation()}>
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={selectedRows.has(item._id)}
+                    onChange={(event) => onToggleRow(item._id, event.target.checked)}
+                    disabled={!selectable}
+                    aria-label={`Select ${item.studentName || 'credential'}`}
+                  />
+                </td>
+                <td className="fw-semibold">{item.studentName || 'Not available'}</td>
+                <td>{credentialLabel(item.credentialType)}</td>
+                <td>
+                  <span className={`badge ${getPaymentBadge(item)}`}>
+                    {isCredentialPaid(item) ? 'Paid' : 'Unpaid'}
+                  </span>
+                </td>
+                <td>
+                  <span className={`badge ${signatureStatusBadge(item)}`}>
+                    {signatureStatusLabel(item)}
+                  </span>
+                </td>
+                <td className="text-end">
+                  <RowActionCell
+                    item={item}
+                    busyId={busyId}
+                    onDetails={onDetails}
+                    actions={getActions(item)}
+                    detailsInMenu
+                    isMenuOpen={actionMenuOpenId === item._id}
+                    onToggleMenu={() => onToggleActionMenu(item._id)}
+                    onCloseMenu={onCloseActionMenu}
+                  />
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </CredentialTableShell>
@@ -2159,13 +2218,14 @@ function AnchorProgressTable({
   rows,
   loading,
   busyId,
-  schedule,
-  status,
+  anchorFilter,
   search,
-  onSchedule,
-  onStatus,
+  selectedRows,
+  onAnchorFilter,
   onSearch,
   onRefresh,
+  onToggleRow,
+  canSelectRow,
   onDetails,
   getActions,
   actionMenuOpenId,
@@ -2183,32 +2243,18 @@ function AnchorProgressTable({
         <div className="row g-2 align-items-end mb-3">
           <div className="col-md-3 col-lg-2">
             <label className="form-label small fw-semibold" htmlFor="anchor-schedule">
-              Schedule
+              Anchor
             </label>
             <select
               id="anchor-schedule"
               className="form-select form-select-sm"
-              value={schedule}
-              onChange={(event) => onSchedule(event.target.value)}
+              value={anchorFilter}
+              onChange={(event) => onAnchorFilter(event.target.value)}
             >
+              <option value="default">Default</option>
               <option value="today">Today</option>
-              <option value="7days">7 Days</option>
-            </select>
-          </div>
-          <div className="col-md-3 col-lg-2">
-            <label className="form-label small fw-semibold" htmlFor="anchor-status">
-              Status
-            </label>
-            <select
-              id="anchor-status"
-              className="form-select form-select-sm"
-              value={status}
-              onChange={(event) => onStatus(event.target.value)}
-            >
-              <option value="queued">Queued / Scheduled</option>
-              <option value="scheduled">Scheduled</option>
+              <option value="7_days">7 Days</option>
               <option value="anchored">Anchored</option>
-              <option value="failed">Failed</option>
             </select>
           </div>
           <div className="col-md-5 col-lg-4">
@@ -2229,6 +2275,7 @@ function AnchorProgressTable({
       <table className="table table-sm align-middle mb-0">
         <thead>
           <tr>
+            <th style={{ width: 36 }} />
             <th>Student Name</th>
             <th>Credential</th>
             <th>Anchor Status</th>
@@ -2236,104 +2283,40 @@ function AnchorProgressTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((item) => (
-            <tr key={item._id}>
-              <td className="fw-semibold">{item.studentName || 'Not available'}</td>
-              <td>{credentialLabel(item.credentialType)}</td>
-              <td>
-                <span className={`badge ${anchorStatusBadge(item)}`}>
-                  {anchorStatusLabel(item)}
-                </span>
-              </td>
-              <td className="text-end">
-                <RowActionCell
-                  item={item}
-                  busyId={busyId}
-                  detailsLabel="More Details"
-                  onDetails={onDetails}
-                  actions={getActions(item)}
-                  detailsInMenu
-                  isMenuOpen={actionMenuOpenId === item._id}
-                  onToggleMenu={() => onToggleActionMenu(item._id)}
-                  onCloseMenu={onCloseActionMenu}
-                />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </CredentialTableShell>
-  );
-}
-
-function ClaimedCredentialsTable({
-  rows,
-  loading,
-  busyId,
-  anchorStatus,
-  search,
-  onAnchorStatus,
-  onSearch,
-  onRefresh,
-  onDetails,
-  getActions,
-  actionMenuOpenId,
-  onToggleActionMenu,
-  onCloseActionMenu,
-}) {
-  return (
-    <CredentialTableShell
-      title="Claimed"
-      loading={loading}
-      hasRows={rows.length > 0}
-      emptyText="No claimed credentials match the selected filters."
-      onRefresh={onRefresh}
-      filters={
-        <div className="row g-2 align-items-end mb-3">
-          <div className="col-md-3 col-lg-2">
-            <label className="form-label small fw-semibold" htmlFor="claimed-anchor-status">
-              Anchor Status
-            </label>
-            <select
-              id="claimed-anchor-status"
-              className="form-select form-select-sm"
-              value={anchorStatus}
-              onChange={(event) => onAnchorStatus(event.target.value)}
-            >
-              <option value="anchored">Anchored</option>
-              <option value="not_anchored">Not Anchored</option>
-            </select>
-          </div>
-          <div className="col-md-5 col-lg-4">
-            <label className="form-label small fw-semibold" htmlFor="claimed-student-search">
-              Student Name
-            </label>
-            <input
-              id="claimed-student-search"
-              className="form-control form-control-sm"
-              value={search}
-              onChange={(event) => onSearch(event.target.value)}
-              placeholder="Search student name"
-            />
-          </div>
-        </div>
-      }
-    >
-      <table className="table table-sm align-middle mb-0">
-        <thead>
-          <tr>
-            <th>Student Name</th>
-            <th>Credential</th>
-            <th>Claimed Date</th>
-            <th className="text-end">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((item) => (
-              <tr key={item._id}>
+          {rows.map((item) => {
+            const selectable = canSelectRow(item);
+            return (
+              <tr
+                key={item._id}
+                className={selectedRows.has(item._id) ? 'table-success' : ''}
+                style={selectable ? { cursor: 'pointer' } : undefined}
+                tabIndex={selectable ? 0 : undefined}
+                onClick={() => {
+                  if (selectable) onToggleRow(item._id, !selectedRows.has(item._id));
+                }}
+                onKeyDown={(event) => {
+                  if (!selectable || event.key !== ' ') return;
+                  event.preventDefault();
+                  onToggleRow(item._id, !selectedRows.has(item._id));
+                }}
+              >
+                <td onClick={(event) => event.stopPropagation()}>
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={selectedRows.has(item._id)}
+                    onChange={(event) => onToggleRow(item._id, event.target.checked)}
+                    disabled={!selectable}
+                    aria-label={`Select ${item.studentName || 'credential'}`}
+                  />
+                </td>
                 <td className="fw-semibold">{item.studentName || 'Not available'}</td>
                 <td>{credentialLabel(item.credentialType)}</td>
-                <td>{formatDate(item.claimedAt)}</td>
+                <td>
+                  <span className={`badge ${anchorStatusBadge(item)}`}>
+                    {anchorStatusLabel(item)}
+                  </span>
+                </td>
                 <td className="text-end">
                   <RowActionCell
                     item={item}
@@ -2348,7 +2331,8 @@ function ClaimedCredentialsTable({
                   />
                 </td>
               </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </CredentialTableShell>
@@ -2370,17 +2354,21 @@ export default function CredentialDraftsPage() {
   const [rows, setRows] = useState([]);
   const [paymentRows, setPaymentRows] = useState([]);
   const [activeTab, setActiveTab] = useState(cashierOnly ? 'payments' : 'all');
-  const [vcPaymentFilter, setVcPaymentFilter] = useState('');
+  const [draftPaymentFilter, setDraftPaymentFilter] = useState('all');
   const [vcSearch, setVcSearch] = useState('');
-  const [signingPaymentFilter, setSigningPaymentFilter] = useState('');
+  const [signSignatureFilter, setSignSignatureFilter] = useState('unsigned');
+  const [signClaimFilter, setSignClaimFilter] = useState('all');
   const [signingSearch, setSigningSearch] = useState('');
-  const [anchorScheduleFilter, setAnchorScheduleFilter] = useState('today');
-  const [anchorStatusFilter, setAnchorStatusFilter] = useState('queued');
+  const [anchorFilter, setAnchorFilter] = useState('default');
   const [anchorSearch, setAnchorSearch] = useState('');
-  const [claimedAnchorFilter, setClaimedAnchorFilter] = useState('anchored');
-  const [claimedSearch, setClaimedSearch] = useState('');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('unpaid');
+  const [credentialPagination, setCredentialPagination] = useState({
+    page: 1,
+    limit: VC_PAGE_SIZE,
+    total: 0,
+    pages: 1,
+  });
   const [loading, setLoading] = useState(true);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [busyId, setBusyId] = useState('');
@@ -2421,11 +2409,53 @@ export default function CredentialDraftsPage() {
     }
   }, [activeTab, cashierOnly, canSeePaymentsTab]);
 
+  const buildDraftListParams = useCallback(() => {
+    const params = {
+      view: activeTab,
+      page: vcPage,
+      limit: VC_PAGE_SIZE,
+    };
+
+    if (activeTab === 'all') {
+      params.search = vcSearch;
+    } else if (activeTab === 'drafts') {
+      params.payment = draftPaymentFilter;
+      params.search = vcSearch;
+    } else if (activeTab === 'sign') {
+      params.signature = signSignatureFilter;
+      params.claim = signSignatureFilter === 'signed' ? signClaimFilter : 'all';
+      params.search = signingSearch;
+    } else if (activeTab === 'anchor') {
+      params.anchor = anchorFilter;
+      params.search = anchorSearch;
+    }
+
+    return params;
+  }, [
+    activeTab,
+    anchorFilter,
+    anchorSearch,
+    draftPaymentFilter,
+    signClaimFilter,
+    signSignatureFilter,
+    signingSearch,
+    vcPage,
+    vcSearch,
+  ]);
+
   const loadDrafts = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await listCredentialDrafts();
-      setRows(data || []);
+      const data = await listCredentialDrafts(buildDraftListParams());
+      const nextRows = Array.isArray(data) ? data : data?.rows || [];
+      const pagination = Array.isArray(data) ? null : data?.pagination;
+      setRows(nextRows);
+      setCredentialPagination({
+        page: Number(pagination?.page || vcPage || 1),
+        limit: Number(pagination?.limit || VC_PAGE_SIZE),
+        total: Number(pagination?.total || nextRows.length || 0),
+        pages: Number(pagination?.pages || pagination?.totalPages || 1),
+      });
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -2437,7 +2467,7 @@ export default function CredentialDraftsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [buildDraftListParams, vcPage]);
 
   const loadPayments = useCallback(async () => {
     try {
@@ -2481,14 +2511,12 @@ export default function CredentialDraftsPage() {
   }, [activeTab, loadDrafts, loadPayments, loadAnchorSummary]);
 
   useEffect(() => {
-    if (!['all', 'drafts', 'for_payment'].includes(activeTab)) {
-      setSelectedVcIds(new Set());
-    }
-  }, [activeTab]);
+    setSelectedVcIds(new Set());
+  }, [activeTab, anchorFilter, draftPaymentFilter, signClaimFilter, signSignatureFilter, vcPage]);
 
   useEffect(() => {
     setVcPage(1);
-  }, [vcPaymentFilter, vcSearch]);
+  }, [activeTab, anchorFilter, anchorSearch, draftPaymentFilter, signClaimFilter, signSignatureFilter, signingSearch, vcSearch]);
 
   useEffect(() => {
     if (!routeDraftId || openedRouteDraftId === routeDraftId) return undefined;
@@ -2707,6 +2735,9 @@ export default function CredentialDraftsPage() {
         setBusyId(item._id);
         await signCredentialDraft(item._id);
         setBusyId('');
+        setActiveTab('sign');
+        setSignSignatureFilter('signed');
+        setSignClaimFilter('all');
         await refreshAfterAction('Credential signed successfully.');
       },
     });
@@ -3031,6 +3062,9 @@ export default function CredentialDraftsPage() {
         await bulkSignCredentialDrafts(targets.map((item) => item._id));
         setBusyId('');
         setSelectedVcIds(new Set());
+        setActiveTab('sign');
+        setSignSignatureFilter('signed');
+        setSignClaimFilter('all');
         await refreshAfterAction(`${targets.length} credential${targets.length === 1 ? '' : 's'} signed.`);
       },
     });
@@ -3129,10 +3163,21 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (canSubmitCredential(currentUser, draft)) {
+    const draftStatus = cleanText(draft.status).toLowerCase();
+
+    if (canManageDrafts && draftStatus === 'for_signature' && isCredentialPaid(draft) && !hasIssuedCredentialArtifacts(draft)) {
+      actions.push({
+        key: 'submit-disabled',
+        label: 'Already sent for signing',
+        icon: <FaPaperPlane />,
+        onClick: () => {},
+        disabled: true,
+        title: 'This credential is already in the signing queue.',
+      });
+    } else if (canSubmitCredential(currentUser, draft)) {
       actions.push({
         key: 'submit',
-        label: 'Send for Signing',
+        label: 'Send to Registrar for Signing',
         icon: <FaPaperPlane />,
         onClick: () => runRowAction(() => confirmSubmit(draft)),
         disabled: busyId === draft._id,
@@ -3140,11 +3185,11 @@ export default function CredentialDraftsPage() {
     } else if (
       canManageDrafts &&
       !hasIssuedCredentialArtifacts(draft) &&
-      ['draft', 'submitted', 'for_signature'].includes(cleanText(draft.status).toLowerCase())
+      ['draft', 'submitted', 'for_signature'].includes(draftStatus)
     ) {
       actions.push({
         key: 'submit-disabled',
-        label: isCredentialPaid(draft) ? 'Already Sent' : 'Payment Required',
+        label: isCredentialPaid(draft) ? 'Already sent for signing' : 'Payment Required',
         icon: <FaPaperPlane />,
         onClick: () => {},
         disabled: true,
@@ -3168,7 +3213,7 @@ export default function CredentialDraftsPage() {
     if (canSignCredentialForUser(currentUser, draft)) {
       actions.push({
         key: 'sign',
-        label: 'Sign',
+        label: 'Sign VC',
         icon: <FaSignature />,
         onClick: () => runRowAction(() => confirmSign(draft)),
         disabled: busyId === draft._id,
@@ -3204,7 +3249,7 @@ export default function CredentialDraftsPage() {
     ) {
       actions.push({
         key: 'claim-qr',
-        label: hasExpiredClaimToken(draft) ? 'Fresh QR' : 'Claim QR',
+        label: hasExpiredClaimToken(draft) ? 'Generate Fresh QR' : 'Generate Claim QR',
         icon: <FaQrcode />,
         onClick: () => runRowAction(() => confirmClaimQr(draft, hasExpiredClaimToken(draft))),
         disabled: busyId === draft._id,
@@ -3293,47 +3338,13 @@ export default function CredentialDraftsPage() {
     : [
         { key: 'all', label: 'All' },
         { key: 'drafts', label: 'Drafts' },
-        { key: 'for_payment', label: 'For Payment' },
-        { key: 'for_signature', label: 'For Signing' },
-        { key: 'signed', label: 'Signed' },
-        { key: 'anchoring', label: 'Anchoring' },
-        { key: 'anchored', label: 'Anchored' },
-        ...(canSeePaymentsTab ? [{ key: 'payments', label: 'Payments' }] : []),
+        { key: 'sign', label: 'Sign' },
+        { key: 'anchor', label: 'Anchor' },
       ];
 
-  const vcRows = useMemo(
-    () =>
-      rows.filter((item) => {
-        const status = cleanText(item.status).toLowerCase();
-        const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
-        const isIntakeStatus = ['draft', 'for_signature', 'signed', 'claim_ready'].includes(status);
-        const isAlreadyQueued = ['queued', 'anchored'].includes(anchorStatus);
-        const matchesActiveTab =
-          activeTab === 'all' ||
-          (activeTab === 'drafts' && status === 'draft') ||
-          (activeTab === 'for_payment' &&
-            !isCredentialPaid(item) &&
-            !hasIssuedCredentialArtifacts(item) &&
-            !['rejected', 'revoked', 'cancelled', 'deleted'].includes(status));
-
-        return (
-          matchesActiveTab &&
-          isIntakeStatus &&
-          !isCredentialClaimed(item) &&
-          !isAlreadyQueued &&
-          matchesPaymentStatus(item, vcPaymentFilter) &&
-          matchesStudentName(item, vcSearch)
-        );
-      }),
-    [rows, vcPaymentFilter, vcSearch, activeTab]
-  );
-
-  const vcPageCount = Math.max(1, Math.ceil(vcRows.length / VC_PAGE_SIZE));
-  const vcPageRows = useMemo(() => {
-    const safePage = Math.min(Math.max(vcPage, 1), vcPageCount);
-    const start = (safePage - 1) * VC_PAGE_SIZE;
-    return vcRows.slice(start, start + VC_PAGE_SIZE);
-  }, [vcPage, vcPageCount, vcRows]);
+  const vcRows = rows;
+  const vcPageCount = Math.max(1, Number(credentialPagination.pages || 1));
+  const vcPageRows = rows;
   const selectedVcRows = useMemo(
     () => vcRows.filter((item) => selectedVcIds.has(item._id)),
     [selectedVcIds, vcRows]
@@ -3426,77 +3437,16 @@ export default function CredentialDraftsPage() {
   }, [vcPageCount]);
 
   useEffect(() => {
-    const visibleIds = new Set(vcRows.filter(canBulkSelectCredential).map((item) => item._id));
+    const visibleIds = new Set(rows.filter(canBulkSelectCredential).map((item) => item._id));
     setSelectedVcIds((prev) => {
       const next = new Set([...prev].filter((id) => visibleIds.has(id)));
       if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
       return next;
     });
-  }, [canBulkSelectCredential, vcRows]);
+  }, [canBulkSelectCredential, rows]);
 
-  const signingRows = useMemo(
-    () =>
-      rows.filter((item) => {
-        const status = cleanText(item.status).toLowerCase();
-        const matchesActiveTab =
-          (activeTab === 'for_signature' && ['submitted', 'for_signature'].includes(status)) ||
-          (activeTab === 'signed' &&
-            (hasSignedCredential(item) || ['signed', 'claim_ready'].includes(status)));
-
-        return (
-          matchesActiveTab &&
-          ['submitted', 'for_signature', 'signed', 'claim_ready'].includes(status) &&
-          matchesPaymentStatus(item, signingPaymentFilter) &&
-          matchesStudentName(item, signingSearch)
-        );
-      }),
-    [rows, signingPaymentFilter, signingSearch, activeTab]
-  );
-
-  const anchorRows = useMemo(
-    () =>
-      rows.filter((item) => {
-        const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
-        const anchored = isAnchored(item);
-        const isAnchorTracked = [
-          'queued',
-          'merkle_ready',
-          'contract_missing',
-          'contract_unsupported',
-          'anchor_failed',
-          'anchored',
-        ].includes(anchorStatus);
-        const matchesActiveTab =
-          (activeTab === 'anchoring' && isAnchorTracked && !anchored) ||
-          (activeTab === 'anchored' && anchored);
-
-        return (
-          matchesActiveTab &&
-          isAnchorTracked &&
-          isCredentialPaid(item) &&
-          hasSignedCredential(item) &&
-          matchesAnchorSchedule(item, anchorScheduleFilter) &&
-          matchesAnchorStatus(item, anchorStatusFilter) &&
-          matchesAnchorSearch(item, anchorSearch)
-        );
-      }),
-    [rows, anchorScheduleFilter, anchorStatusFilter, anchorSearch, activeTab]
-  );
-
-  const claimedRows = useMemo(
-    () =>
-      rows.filter((item) => {
-        const anchorMatch =
-          claimedAnchorFilter === 'anchored' ? isAnchored(item) : !isAnchored(item);
-
-        return (
-          isCredentialClaimed(item) &&
-          anchorMatch &&
-          matchesStudentName(item, claimedSearch)
-        );
-      }),
-    [rows, claimedAnchorFilter, claimedSearch]
-  );
+  const signingRows = rows;
+  const anchorRows = rows;
 
   return (
     <>
@@ -3556,22 +3506,23 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {['all', 'drafts', 'for_payment'].includes(activeTab) ? (
+        {['all', 'drafts'].includes(activeTab) ? (
           <VcProcessingTable
             rows={vcPageRows}
             loading={loading}
             busyId={busyId}
-            paymentStatus={vcPaymentFilter}
+            paymentStatus={draftPaymentFilter}
+            showPaymentFilter={activeTab === 'drafts'}
             search={vcSearch}
-            selectedIds={selectedVcIds}
+            selectedRows={selectedVcIds}
             selectedCount={selectedVcIds.size}
             page={vcPage}
             pageCount={vcPageCount}
-            onPaymentStatus={setVcPaymentFilter}
+            onPaymentStatus={setDraftPaymentFilter}
             onSearch={setVcSearch}
             onRefresh={loadDrafts}
             onDetails={openDraft}
-            onToggleSelected={toggleVcSelection}
+            onToggleRow={toggleVcSelection}
             onTogglePage={toggleVcPageSelection}
             onPage={setVcPage}
             canSelectRow={canBulkSelectCredential}
@@ -3586,16 +3537,21 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {['for_signature', 'signed'].includes(activeTab) ? (
+        {activeTab === 'sign' ? (
           <SigningTable
             rows={signingRows}
             loading={loading}
             busyId={busyId}
-            paymentStatus={signingPaymentFilter}
+            signatureFilter={signSignatureFilter}
+            claimFilter={signClaimFilter}
             search={signingSearch}
-            onPaymentStatus={setSigningPaymentFilter}
+            selectedRows={selectedVcIds}
+            onSignatureFilter={setSignSignatureFilter}
+            onClaimFilter={setSignClaimFilter}
             onSearch={setSigningSearch}
             onRefresh={loadDrafts}
+            onToggleRow={toggleVcSelection}
+            canSelectRow={canBulkSelectCredential}
             onDetails={openDraft}
             getActions={buildDraftActions}
             actionMenuOpenId={rowActionMenuOpenId}
@@ -3604,18 +3560,19 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {['anchoring', 'anchored'].includes(activeTab) ? (
+        {activeTab === 'anchor' ? (
           <AnchorProgressTable
             rows={anchorRows}
             loading={loading}
             busyId={busyId}
-            schedule={anchorScheduleFilter}
-            status={anchorStatusFilter}
+            anchorFilter={anchorFilter}
             search={anchorSearch}
-            onSchedule={setAnchorScheduleFilter}
-            onStatus={setAnchorStatusFilter}
+            selectedRows={selectedVcIds}
+            onAnchorFilter={setAnchorFilter}
             onSearch={setAnchorSearch}
             onRefresh={loadDrafts}
+            onToggleRow={toggleVcSelection}
+            canSelectRow={canBulkSelectCredential}
             onDetails={openDraft}
             getActions={buildDraftActions}
             actionMenuOpenId={rowActionMenuOpenId}
@@ -3624,23 +3581,6 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {activeTab === 'claimed' ? (
-          <ClaimedCredentialsTable
-            rows={claimedRows}
-            loading={loading}
-            busyId={busyId}
-            anchorStatus={claimedAnchorFilter}
-            search={claimedSearch}
-            onAnchorStatus={setClaimedAnchorFilter}
-            onSearch={setClaimedSearch}
-            onRefresh={loadDrafts}
-            onDetails={openDraft}
-            getActions={buildDraftActions}
-            actionMenuOpenId={rowActionMenuOpenId}
-            onToggleActionMenu={toggleRowActionMenu}
-            onCloseActionMenu={closeRowActionMenu}
-          />
-        ) : null}
       </div>
 
       <DraftDetailsModal
