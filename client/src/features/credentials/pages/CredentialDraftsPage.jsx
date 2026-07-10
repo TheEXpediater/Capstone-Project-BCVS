@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { useSearchParams } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   FaBan,
   FaCalendarAlt,
@@ -16,10 +17,19 @@ import {
 } from 'react-icons/fa';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import CreateVcDraftModal from '../../../components/CreateVcDraftModal';
-import { hasValidStoredAuth } from '../../auth/authStorage';
-import { listStudents } from '../../students/studentsAPI';
+import SelectStudentsForVcModal from '../components/SelectStudentsForVcModal';
+import {
+  canCreateCredential,
+  canDeleteCredential,
+  canEditCredential,
+  canMarkCredentialPaid,
+  canRejectCredential,
+  canSignCredential as canSignCredentialForUser,
+  canSubmitCredential,
+} from '../credentialPermissions';
 import {
   bulkCreateCredentialClaimTokens,
+  bulkCreateCredentialDraftsFromStudents,
   bulkDeleteCredentialDrafts,
   bulkScheduleCredentialAnchors,
   bulkSignCredentialDrafts,
@@ -43,13 +53,12 @@ import {
 
 const CLAIMABLE_STATUSES = new Set(['signed', 'claim_ready', 'queued_for_anchor', 'anchored']);
 const PAYMENT_TAB_ROLES = new Set(['cashier']);
-const DRAFT_ADMIN_ROLES = new Set(['admin']);
-const REGISTRAR_ACTION_ROLES = new Set(['super_admin']);
 const OVERRIDE_QR_ROLES = new Set(['super_admin']);
 const BASE_CREDENTIAL_AMOUNT = 150;
 const ANCHOR_NOW_FEE = 20;
 const VC_PAGE_SIZE = 10;
 const MAX_BULK_SELECTION = 10;
+const EMPTY_USER = Object.freeze({});
 
 function formatDate(value) {
   if (!value) return 'Not available';
@@ -182,7 +191,7 @@ function canShowClaimOverrideQr(draft, currentUser) {
 }
 
 function canQueueAnchor(draft, currentUser) {
-  if (!REGISTRAR_ACTION_ROLES.has(currentUser?.role)) return false;
+  if (currentUser?.role !== 'super_admin') return false;
   if (!isCredentialPaid(draft) || !draft?.signedCredential) return false;
   if (isCredentialRejectedOrRevoked(draft)) return false;
   if (draft?.anchorStatus === 'queued' || draft?.anchorStatus === 'anchored') return false;
@@ -202,16 +211,6 @@ function hasIssuedCredentialArtifacts(draft) {
         cleanText(draft?.status).toLowerCase()
       )
   );
-}
-
-function canEditCredentialDraft(draft) {
-  if (!draft || hasIssuedCredentialArtifacts(draft)) return false;
-  return cleanText(draft.status).toLowerCase() === 'draft';
-}
-
-function canDeleteCredentialDraft(draft) {
-  if (!draft || hasIssuedCredentialArtifacts(draft)) return false;
-  return cleanText(draft.status).toLowerCase() === 'draft';
 }
 
 function getStatusBadge(status) {
@@ -2017,6 +2016,7 @@ function VcProcessingTable({
                       busyId={busyId}
                       onDetails={onDetails}
                       actions={getActions(item)}
+                      detailsInMenu
                       isMenuOpen={actionMenuOpenId === item._id}
                       onToggleMenu={() => onToggleActionMenu(item._id)}
                       onCloseMenu={onCloseActionMenu}
@@ -2141,6 +2141,7 @@ function SigningTable({
                   busyId={busyId}
                   onDetails={onDetails}
                   actions={getActions(item)}
+                  detailsInMenu
                   isMenuOpen={actionMenuOpenId === item._id}
                   onToggleMenu={() => onToggleActionMenu(item._id)}
                   onCloseMenu={onCloseActionMenu}
@@ -2357,18 +2358,18 @@ function ClaimedCredentialsTable({
 export default function CredentialDraftsPage() {
   const [searchParams] = useSearchParams();
   const routeDraftId = searchParams.get('draftId') || '';
-  const auth = useMemo(() => hasValidStoredAuth(), []);
-  const currentUser = useMemo(() => auth?.user || {}, [auth?.user]);
+  const currentUser = useSelector((state) => state.auth.user) || EMPTY_USER;
   const currentRole = currentUser?.role || '';
   const canSeePaymentsTab = PAYMENT_TAB_ROLES.has(currentRole);
-  const canManageDrafts = DRAFT_ADMIN_ROLES.has(currentRole);
-  const canUseRegistrarActions = REGISTRAR_ACTION_ROLES.has(currentRole);
+  const canManageDrafts = currentRole === 'admin';
+  const canUseRegistrarActions = currentRole === 'super_admin';
+  const canCreateVc = canCreateCredential(currentUser);
   const canUseBulkActions = canManageDrafts || canUseRegistrarActions;
   const cashierOnly = currentRole === 'cashier';
 
   const [rows, setRows] = useState([]);
   const [paymentRows, setPaymentRows] = useState([]);
-  const [activeTab, setActiveTab] = useState(cashierOnly ? 'payments' : 'drafts');
+  const [activeTab, setActiveTab] = useState(cashierOnly ? 'payments' : 'all');
   const [vcPaymentFilter, setVcPaymentFilter] = useState('');
   const [vcSearch, setVcSearch] = useState('');
   const [signingPaymentFilter, setSigningPaymentFilter] = useState('');
@@ -2405,10 +2406,20 @@ export default function CredentialDraftsPage() {
   const [openedRouteDraftId, setOpenedRouteDraftId] = useState('');
   const [createVcModalOpen, setCreateVcModalOpen] = useState(false);
   const [createVcStudent, setCreateVcStudent] = useState(null);
+  const [createVcSelectedStudents, setCreateVcSelectedStudents] = useState([]);
   const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
-  const [createVcStudents, setCreateVcStudents] = useState([]);
-  const [createVcStudentsLoading, setCreateVcStudentsLoading] = useState(false);
   const [createVcPickerOpen, setCreateVcPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (cashierOnly && activeTab !== 'payments') {
+      setActiveTab('payments');
+      return;
+    }
+
+    if (!cashierOnly && activeTab === 'payments' && !canSeePaymentsTab) {
+      setActiveTab('all');
+    }
+  }, [activeTab, cashierOnly, canSeePaymentsTab]);
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -2470,7 +2481,7 @@ export default function CredentialDraftsPage() {
   }, [activeTab, loadDrafts, loadPayments, loadAnchorSummary]);
 
   useEffect(() => {
-    if (activeTab !== 'drafts') {
+    if (!['all', 'drafts', 'for_payment'].includes(activeTab)) {
       setSelectedVcIds(new Set());
     }
   }, [activeTab]);
@@ -2489,7 +2500,7 @@ export default function CredentialDraftsPage() {
         setBusyId(routeDraftId);
         const data = await getCredentialDraftById(routeDraftId);
         if (!cancelled) {
-          setActiveTab('drafts');
+          setActiveTab('all');
           setSelectedDraft(data);
           setOpenedRouteDraftId(routeDraftId);
         }
@@ -2596,49 +2607,63 @@ export default function CredentialDraftsPage() {
     }
   }
 
-  async function loadCreateVcStudents() {
-    if (createVcStudents.length || createVcStudentsLoading) return;
-
-    try {
-      setCreateVcStudentsLoading(true);
-      const data = await listStudents({ page: 1, limit: 100 });
-      const rows = Array.isArray(data) ? data : data?.rows || [];
-      setCreateVcStudents(rows);
-    } catch {
-      setCreateVcStudents([]);
-    } finally {
-      setCreateVcStudentsLoading(false);
-    }
-  }
-
   function openCreateVcPicker() {
+    if (!canCreateVc) {
+      setFeedback({ type: 'warning', text: 'Only admin and super admin users can create VC drafts.' });
+      return;
+    }
+
     setCreateVcStudent(null);
-    setCreateVcStudents([]);
+    setCreateVcSelectedStudents([]);
     setCreateVcPickerOpen(true);
-    loadCreateVcStudents();
   }
 
-  function selectCreateVcStudent(student) {
-    setCreateVcStudent(student);
+  function selectCreateVcStudents(students) {
+    const selectedStudents = Array.isArray(students) ? students : [];
+    setCreateVcSelectedStudents(selectedStudents);
+    setCreateVcStudent(selectedStudents[0] || null);
     setCreateVcPickerOpen(false);
     setCreateVcModalOpen(true);
   }
 
   async function submitCreateVcDraft(payload) {
-    if (!createVcStudent?._id) {
-      setFeedback({ type: 'warning', text: 'Choose a student before creating a VC draft.' });
+    const selectedStudents = createVcSelectedStudents.length
+      ? createVcSelectedStudents
+      : createVcStudent
+        ? [createVcStudent]
+        : [];
+    const studentIds = selectedStudents.map((student) => student?._id).filter(Boolean);
+
+    if (!studentIds.length) {
+      setFeedback({ type: 'warning', text: 'Choose at least one student before creating a VC draft.' });
       return;
     }
 
     try {
       setCreateVcSubmitting(true);
-      await createCredentialDraftFromStudent(createVcStudent._id, payload);
+      const data = studentIds.length > 1
+        ? await bulkCreateCredentialDraftsFromStudents(studentIds, payload)
+        : await createCredentialDraftFromStudent(studentIds[0], payload);
+
+      if (studentIds.length > 1 && data?.failedCount) {
+        await refreshAfterAction(
+          `Bulk VC creation completed with ${data.successCount || 0} successful and ${data.failedCount || 0} failed.`
+        );
+        return data;
+      }
+
       setCreateVcModalOpen(false);
       setCreateVcStudent(null);
-      setCreateVcStudents([]);
-      await refreshAfterAction('VC draft created successfully.');
+      setCreateVcSelectedStudents([]);
+      await refreshAfterAction(
+        studentIds.length > 1
+          ? `${studentIds.length} VC drafts created successfully.`
+          : 'VC draft created successfully.'
+      );
+      return data;
     } catch (error) {
       setFeedback({ type: 'danger', text: actionError(error, 'Failed to create VC draft.') });
+      throw error;
     } finally {
       setCreateVcSubmitting(false);
     }
@@ -2667,19 +2692,20 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmSign(item) {
-    const unpaid = !isCredentialPaid(item);
+    if (!canSignCredentialForUser(currentUser, item)) {
+      setFeedback({ type: 'warning', text: 'Only paid credentials in the signing queue can be signed.' });
+      return;
+    }
 
     setConfirmAction({
-      title: unpaid ? 'Sign unpaid credential?' : 'Sign credential?',
-      subtitle: unpaid
-        ? 'Payment is still marked unpaid. Continue only if the registrar intentionally approves signing before cashier confirmation.'
-        : 'This signs the VC with the active issuer key. Private key material stays on the server.',
+      title: 'Sign credential?',
+      subtitle: 'This signs the VC with the active issuer key. Private key material stays on the server.',
       details: `${item.studentName} (${item.studentNo}) - ${titleCase(item.credentialType)}`,
-      confirmLabel: unpaid ? 'Sign Anyway' : 'Sign',
-      variant: unpaid ? 'warning' : 'success',
+      confirmLabel: 'Sign',
+      variant: 'success',
       run: async () => {
         setBusyId(item._id);
-        await signCredentialDraft(item._id, unpaid ? { allowUnpaid: true } : {});
+        await signCredentialDraft(item._id);
         setBusyId('');
         await refreshAfterAction('Credential signed successfully.');
       },
@@ -2721,6 +2747,11 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmMarkPaid(item) {
+    if (!canMarkCredentialPaid(currentUser, item)) {
+      setFeedback({ type: 'warning', text: 'Only cashier users can confirm credential payments.' });
+      return;
+    }
+
     setPaymentConfirmDraft(item);
   }
 
@@ -2919,9 +2950,7 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmBulkSubmitSelected() {
-    const targets = selectedVcRows.filter(
-      (item) => cleanText(item.status).toLowerCase() === 'draft'
-    );
+    const targets = selectedVcRows.filter((item) => canSubmitCredential(currentUser, item));
 
     if (!canManageDrafts) {
       setFeedback({ type: 'warning', text: 'Only admin users can submit drafts.' });
@@ -2950,7 +2979,7 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmBulkDeleteSelected() {
-    const targets = selectedVcRows.filter((item) => canDeleteCredentialDraft(item));
+    const targets = selectedVcRows.filter((item) => canDeleteCredential(currentUser, item));
 
     if (!canManageDrafts) {
       setFeedback({ type: 'warning', text: 'Only admin users can delete drafts.' });
@@ -2979,9 +3008,7 @@ export default function CredentialDraftsPage() {
   }
 
   function confirmBulkSignSelected() {
-    const targets = selectedVcRows.filter(
-      (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
-    );
+    const targets = selectedVcRows.filter((item) => canSignCredentialForUser(currentUser, item));
 
     if (!canUseRegistrarActions) {
       setFeedback({ type: 'warning', text: 'Only registrar users can sign credentials.' });
@@ -2993,15 +3020,12 @@ export default function CredentialDraftsPage() {
       return;
     }
 
-    const unpaidCount = targets.filter((item) => !isCredentialPaid(item)).length;
     setConfirmAction({
-      title: unpaidCount ? 'Sign selected unpaid credentials?' : 'Sign selected credentials?',
-      subtitle: unpaidCount
-        ? `${unpaidCount} selected credential(s) are still unpaid. Continue only if this is intentional.`
-        : 'Each selected credential will be signed with the active issuer key.',
+      title: 'Sign selected credentials?',
+      subtitle: 'Each selected credential must be paid and will be signed with the active issuer key.',
       details: `${targets.length} credential${targets.length === 1 ? '' : 's'} selected.`,
-      confirmLabel: unpaidCount ? 'Sign Anyway' : 'Sign Selected',
-      variant: unpaidCount ? 'warning' : 'success',
+      confirmLabel: 'Sign Selected',
+      variant: 'success',
       run: async () => {
         setBusyId('bulk-sign');
         await bulkSignCredentialDrafts(targets.map((item) => item._id));
@@ -3092,7 +3116,7 @@ export default function CredentialDraftsPage() {
 
     const actions = [];
 
-    if (canManageDrafts && canEditCredentialDraft(draft)) {
+    if (canEditCredential(currentUser, draft)) {
       actions.push({
         key: 'edit',
         label: 'Edit',
@@ -3105,17 +3129,32 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (draft.status === 'draft' && canManageDrafts) {
+    if (canSubmitCredential(currentUser, draft)) {
       actions.push({
         key: 'submit',
-        label: 'Submit',
+        label: 'Send for Signing',
         icon: <FaPaperPlane />,
         onClick: () => runRowAction(() => confirmSubmit(draft)),
         disabled: busyId === draft._id,
       });
+    } else if (
+      canManageDrafts &&
+      !hasIssuedCredentialArtifacts(draft) &&
+      ['draft', 'submitted', 'for_signature'].includes(cleanText(draft.status).toLowerCase())
+    ) {
+      actions.push({
+        key: 'submit-disabled',
+        label: isCredentialPaid(draft) ? 'Already Sent' : 'Payment Required',
+        icon: <FaPaperPlane />,
+        onClick: () => {},
+        disabled: true,
+        title: isCredentialPaid(draft)
+          ? 'This credential is already in the signing queue.'
+          : 'Payment is required before sending for signing.',
+      });
     }
 
-    if (canManageDrafts && canDeleteCredentialDraft(draft)) {
+    if (canDeleteCredential(currentUser, draft)) {
       actions.push({
         key: 'delete',
         label: 'Delete',
@@ -3126,14 +3165,17 @@ export default function CredentialDraftsPage() {
       });
     }
 
-    if (draft.status === 'for_signature' && canUseRegistrarActions) {
+    if (canSignCredentialForUser(currentUser, draft)) {
       actions.push({
         key: 'sign',
         label: 'Sign',
         icon: <FaSignature />,
         onClick: () => runRowAction(() => confirmSign(draft)),
-        disabled: busyId === draft._id || hasSignedCredential(draft),
+        disabled: busyId === draft._id,
       });
+    }
+
+    if (canRejectCredential(currentUser, draft)) {
       actions.push({
         key: 'reject',
         label: 'Reject',
@@ -3227,14 +3269,17 @@ export default function CredentialDraftsPage() {
   const canBulkSelectCredential = useCallback((item) => {
     if (!canUseBulkActions) return false;
 
-    const status = cleanText(item?.status).toLowerCase();
     if (canManageDrafts) {
-      return status === 'draft' && (canDeleteCredentialDraft(item) || canEditCredentialDraft(item));
+      return (
+        canDeleteCredential(currentUser, item) ||
+        canSubmitCredential(currentUser, item) ||
+        canEditCredential(currentUser, item)
+      );
     }
 
     if (canUseRegistrarActions) {
       return (
-        (status === 'for_signature' && !hasSignedCredential(item)) ||
+        canSignCredentialForUser(currentUser, item) ||
         canQueueAnchor(item, currentUser) ||
         canShowClaimQr(item)
       );
@@ -3246,10 +3291,13 @@ export default function CredentialDraftsPage() {
   const tabs = cashierOnly
     ? [{ key: 'payments', label: 'Payments' }]
     : [
-        { key: 'drafts', label: 'VC' },
-        { key: 'signing', label: 'Signing' },
-        { key: 'anchor', label: 'Anchor' },
-        { key: 'claimed', label: 'Claimed' },
+        { key: 'all', label: 'All' },
+        { key: 'drafts', label: 'Drafts' },
+        { key: 'for_payment', label: 'For Payment' },
+        { key: 'for_signature', label: 'For Signing' },
+        { key: 'signed', label: 'Signed' },
+        { key: 'anchoring', label: 'Anchoring' },
+        { key: 'anchored', label: 'Anchored' },
         ...(canSeePaymentsTab ? [{ key: 'payments', label: 'Payments' }] : []),
       ];
 
@@ -3260,8 +3308,16 @@ export default function CredentialDraftsPage() {
         const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
         const isIntakeStatus = ['draft', 'for_signature', 'signed', 'claim_ready'].includes(status);
         const isAlreadyQueued = ['queued', 'anchored'].includes(anchorStatus);
+        const matchesActiveTab =
+          activeTab === 'all' ||
+          (activeTab === 'drafts' && status === 'draft') ||
+          (activeTab === 'for_payment' &&
+            !isCredentialPaid(item) &&
+            !hasIssuedCredentialArtifacts(item) &&
+            !['rejected', 'revoked', 'cancelled', 'deleted'].includes(status));
 
         return (
+          matchesActiveTab &&
           isIntakeStatus &&
           !isCredentialClaimed(item) &&
           !isAlreadyQueued &&
@@ -3269,7 +3325,7 @@ export default function CredentialDraftsPage() {
           matchesStudentName(item, vcSearch)
         );
       }),
-    [rows, vcPaymentFilter, vcSearch]
+    [rows, vcPaymentFilter, vcSearch, activeTab]
   );
 
   const vcPageCount = Math.max(1, Math.ceil(vcRows.length / VC_PAGE_SIZE));
@@ -3283,21 +3339,18 @@ export default function CredentialDraftsPage() {
     [selectedVcIds, vcRows]
   );
   const hasSelectedVcRows = selectedVcRows.length > 0;
-  const allSelectedDrafts =
-    hasSelectedVcRows && selectedVcRows.every((item) => cleanText(item.status).toLowerCase() === 'draft');
+  const allSelectedSubmittable =
+    hasSelectedVcRows && selectedVcRows.every((item) => canSubmitCredential(currentUser, item));
   const allSelectedDeletable =
-    hasSelectedVcRows && selectedVcRows.every((item) => canDeleteCredentialDraft(item));
+    hasSelectedVcRows && selectedVcRows.every((item) => canDeleteCredential(currentUser, item));
   const allSelectedSignable =
-    hasSelectedVcRows &&
-    selectedVcRows.every(
-      (item) => cleanText(item.status).toLowerCase() === 'for_signature' && !hasSignedCredential(item)
-    );
+    hasSelectedVcRows && selectedVcRows.every((item) => canSignCredentialForUser(currentUser, item));
   const allSelectedAnchorable =
     hasSelectedVcRows && selectedVcRows.every((item) => canQueueAnchor(item, currentUser));
   const allSelectedClaimQr =
     hasSelectedVcRows && selectedVcRows.every((item) => canShowClaimQr(item));
   const bulkActions = [
-    ...(canManageDrafts && allSelectedDrafts
+    ...(canManageDrafts && allSelectedSubmittable
       ? [
           {
             key: 'submit-selected',
@@ -3385,19 +3438,26 @@ export default function CredentialDraftsPage() {
     () =>
       rows.filter((item) => {
         const status = cleanText(item.status).toLowerCase();
+        const matchesActiveTab =
+          (activeTab === 'for_signature' && ['submitted', 'for_signature'].includes(status)) ||
+          (activeTab === 'signed' &&
+            (hasSignedCredential(item) || ['signed', 'claim_ready'].includes(status)));
+
         return (
-          ['for_signature', 'signed'].includes(status) &&
+          matchesActiveTab &&
+          ['submitted', 'for_signature', 'signed', 'claim_ready'].includes(status) &&
           matchesPaymentStatus(item, signingPaymentFilter) &&
           matchesStudentName(item, signingSearch)
         );
       }),
-    [rows, signingPaymentFilter, signingSearch]
+    [rows, signingPaymentFilter, signingSearch, activeTab]
   );
 
   const anchorRows = useMemo(
     () =>
       rows.filter((item) => {
         const anchorStatus = cleanText(item.anchorStatus).toLowerCase();
+        const anchored = isAnchored(item);
         const isAnchorTracked = [
           'queued',
           'merkle_ready',
@@ -3406,8 +3466,12 @@ export default function CredentialDraftsPage() {
           'anchor_failed',
           'anchored',
         ].includes(anchorStatus);
+        const matchesActiveTab =
+          (activeTab === 'anchoring' && isAnchorTracked && !anchored) ||
+          (activeTab === 'anchored' && anchored);
 
         return (
+          matchesActiveTab &&
           isAnchorTracked &&
           isCredentialPaid(item) &&
           hasSignedCredential(item) &&
@@ -3416,7 +3480,7 @@ export default function CredentialDraftsPage() {
           matchesAnchorSearch(item, anchorSearch)
         );
       }),
-    [rows, anchorScheduleFilter, anchorStatusFilter, anchorSearch]
+    [rows, anchorScheduleFilter, anchorStatusFilter, anchorSearch, activeTab]
   );
 
   const claimedRows = useMemo(
@@ -3438,8 +3502,7 @@ export default function CredentialDraftsPage() {
     <>
       <div className="d-flex flex-column gap-4">
         <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
-          {canUseRegistrarActions ? (
-            <>
+          {canCreateVc ? (
               <button
                 className="btn btn-primary"
                 onClick={openCreateVcPicker}
@@ -3448,6 +3511,9 @@ export default function CredentialDraftsPage() {
                 <FaPlus className="me-2" />
                 Create VC
               </button>
+          ) : null}
+          {canUseRegistrarActions ? (
+            <>
               <button
                 className="btn btn-warning"
                 onClick={confirmProcessQueue}
@@ -3490,7 +3556,7 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {activeTab === 'drafts' ? (
+        {['all', 'drafts', 'for_payment'].includes(activeTab) ? (
           <VcProcessingTable
             rows={vcPageRows}
             loading={loading}
@@ -3520,7 +3586,7 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {activeTab === 'signing' ? (
+        {['for_signature', 'signed'].includes(activeTab) ? (
           <SigningTable
             rows={signingRows}
             loading={loading}
@@ -3538,7 +3604,7 @@ export default function CredentialDraftsPage() {
           />
         ) : null}
 
-        {activeTab === 'anchor' ? (
+        {['anchoring', 'anchored'].includes(activeTab) ? (
           <AnchorProgressTable
             rows={anchorRows}
             loading={loading}
@@ -3635,64 +3701,29 @@ export default function CredentialDraftsPage() {
         onProcess={processQueueFromModal}
         onView={viewQueueCredential}
       />
-      {createVcPickerOpen ? (
-        <>
-          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content border-0 shadow">
-                <div className="modal-header">
-                  <div>
-                    <h2 className="h5 mb-1">Select Student</h2>
-                    <p className="text-muted mb-0 small">Choose a student before creating a VC draft.</p>
-                  </div>
-                  <button type="button" className="btn-close" onClick={() => setCreateVcPickerOpen(false)} aria-label="Close" />
-                </div>
-                <div className="modal-body">
-                  {createVcStudentsLoading ? (
-                    <div className="text-muted">Loading students...</div>
-                  ) : createVcStudents.length ? (
-                    <div className="list-group">
-                      {createVcStudents.map((student) => (
-                        <button
-                          key={student._id}
-                          type="button"
-                          className="list-group-item list-group-item-action"
-                          onClick={() => selectCreateVcStudent(student)}
-                        >
-                          <div className="fw-semibold">{student.studentName || 'Unnamed student'}</div>
-                          <div className="small text-muted">
-                            {student.studentNo || 'No student number'} · {student.programCode || student.programName || 'No program'}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="alert alert-light border mb-0">No students found.</div>
-                  )}
-                </div>
-                <div className="modal-footer">
-                  <button className="btn btn-outline-secondary" onClick={() => setCreateVcPickerOpen(false)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="modal-backdrop show" />
-        </>
-      ) : null}
+      <SelectStudentsForVcModal
+        open={createVcPickerOpen}
+        onClose={() => setCreateVcPickerOpen(false)}
+        onContinue={selectCreateVcStudents}
+      />
       <CreateVcDraftModal
         open={createVcModalOpen}
-        mode="single"
-        student={createVcStudent}
-        students={createVcStudent ? [createVcStudent] : []}
+        mode={createVcSelectedStudents.length > 1 ? 'bulk' : 'single'}
+        student={createVcSelectedStudents[0] || createVcStudent}
+        students={createVcSelectedStudents}
         submitting={createVcSubmitting}
         onClose={() => {
           setCreateVcModalOpen(false);
           setCreateVcStudent(null);
-          setCreateVcStudents([]);
+          setCreateVcSelectedStudents([]);
         }}
         onConfirm={submitCreateVcDraft}
+        onOpenCredentials={() => {
+          setCreateVcModalOpen(false);
+          setCreateVcStudent(null);
+          setCreateVcSelectedStudents([]);
+          setActiveTab('all');
+        }}
       />
     </>
   );

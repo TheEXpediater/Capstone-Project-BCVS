@@ -14,7 +14,8 @@ const initialState = {
   token: stored?.token || null,
   sessionId: stored?.sessionId || null,
   user: stored?.user || null,
-  isLoading: false,
+  isLoading: Boolean(stored?.token),
+  hydrationComplete: !stored?.token,
   isError: false,
   message: '',
 };
@@ -66,6 +67,16 @@ const authSlice = createSlice({
       state.isError = false;
       state.message = '';
     },
+    clearAuthState: (state) => {
+      clearStoredAuth();
+      state.token = null;
+      state.sessionId = null;
+      state.user = null;
+      state.isLoading = false;
+      state.isError = false;
+      state.message = '';
+      state.hydrationComplete = true;
+    },
     setAuthUser: (state, action) => {
       state.user = action.payload || null;
 
@@ -82,17 +93,20 @@ const authSlice = createSlice({
     builder
       .addCase(login.pending, (state) => {
         state.isLoading = true;
+        state.hydrationComplete = true;
         state.isError = false;
         state.message = '';
       })
       .addCase(login.fulfilled, (state, action) => {
         state.isLoading = false;
+        state.hydrationComplete = true;
         state.token = action.payload.token;
         state.sessionId = action.payload.sessionId;
         state.user = action.payload.user;
       })
       .addCase(login.rejected, (state, action) => {
         state.isLoading = false;
+        state.hydrationComplete = true;
         state.isError = true;
         state.message = action.payload;
         state.token = null;
@@ -104,6 +118,7 @@ const authSlice = createSlice({
       })
       .addCase(hydrateAuth.fulfilled, (state, action) => {
         state.isLoading = false;
+        state.hydrationComplete = true;
 
         if (!action.payload) {
           state.token = null;
@@ -118,6 +133,7 @@ const authSlice = createSlice({
       })
       .addCase(hydrateAuth.rejected, (state, action) => {
         state.isLoading = false;
+        state.hydrationComplete = true;
         state.isError = true;
         state.message = action.payload;
         state.token = null;
@@ -129,11 +145,12 @@ const authSlice = createSlice({
         state.sessionId = null;
         state.user = null;
         state.isLoading = false;
+        state.hydrationComplete = true;
         state.isError = false;
         state.message = '';
       });
   },
 });
 
-export const { resetAuthMessage, setAuthUser } = authSlice.actions;
+export const { clearAuthState, resetAuthMessage, setAuthUser } = authSlice.actions;
 export default authSlice.reducer;

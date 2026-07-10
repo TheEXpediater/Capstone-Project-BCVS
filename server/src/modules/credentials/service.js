@@ -102,12 +102,6 @@ function assertObjectId(value, label = 'id') {
   }
 }
 
-function assertRegistrar(actor) {
-  if (!actor || !['admin', 'super_admin', 'developer'].includes(actor.role)) {
-    throw new ApiError(403, 'Only admin, super admin, or MIS developer can perform this action');
-  }
-}
-
 function getDefaultCredentialPermissions(role) {
   return {
     canConfirmPayments: false,
@@ -214,6 +208,22 @@ export function canSubmitForSigning(draft) {
 
 export function canSignCredential(draft) {
   return Boolean(draft) && draft.status === 'for_signature';
+}
+
+function isUnsignedMutableCredential(draft) {
+  return Boolean(draft) && !vcPermissions.hasSignedCredentialPayload(draft) && !hasIssuedCredentialArtifacts(draft);
+}
+
+export function moveToSigningQueue(draft, actor, now = new Date()) {
+  if (!isUnsignedMutableCredential(draft)) return false;
+  if (!isCredentialPaid(draft)) return false;
+  if (cleanString(draft.status).toLowerCase() === 'for_signature') return false;
+
+  draft.status = 'for_signature';
+  draft.submittedBy = actor?._id || draft.submittedBy || null;
+  draft.submittedAt = draft.submittedAt || now;
+  draft.rejectionReason = '';
+  return true;
 }
 
 export function canOverrideClaimQr(draft) {
@@ -838,20 +848,84 @@ export async function listCredentialDrafts(query = {}, actor = null) {
   const CredentialDraft = getCredentialDraftModel();
 
   const filter = {};
+  const andClauses = [];
   const status = cleanString(query?.status);
+  const tab = cleanString(query?.tab).toLowerCase();
   const credentialType = cleanString(query?.credentialType);
+  const paymentStatus = cleanString(query?.paymentStatus).toLowerCase();
+  const program = cleanString(query?.program || query?.programCode).toUpperCase();
+  const search = cleanString(query?.search || query?.q);
 
   if (status) {
     filter.status = status;
   }
 
+  if (!status && tab) {
+    if (tab === 'drafts') {
+      filter.status = { $in: ['draft', 'rejected'] };
+      filter.signedCredential = null;
+    } else if (tab === 'for_payment') {
+      filter.paymentStatus = { $ne: 'paid' };
+      filter.status = { $nin: ['signed', 'claim_ready', 'claimed', 'shared', 'queued_for_anchor', 'anchored', 'revoked'] };
+      filter.signedCredential = null;
+    } else if (tab === 'for_signature') {
+      filter.paymentStatus = 'paid';
+      filter.status = { $in: ['submitted', 'for_signature'] };
+      filter.signedCredential = null;
+    } else if (tab === 'signed') {
+      andClauses.push({ $or: [
+        { signedCredential: { $ne: null } },
+        { signedAt: { $ne: null } },
+        { status: { $in: ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'] } },
+      ] });
+    } else if (tab === 'anchoring') {
+      filter.status = 'queued_for_anchor';
+    } else if (tab === 'anchored') {
+      andClauses.push({ $or: [
+        { status: 'anchored' },
+        { anchorStatus: 'anchored' },
+      ] });
+    }
+  }
+
   if (credentialType) {
     const normalizedType = normalizeCredentialType(credentialType);
-    filter.credentialType = normalizedType || credentialType;
+    if (normalizedType) {
+      filter.credentialType = normalizedType;
+    }
+  }
+
+  if (paymentStatus === 'paid' || paymentStatus === 'unpaid') {
+    filter.paymentStatus = paymentStatus;
+  }
+
+  if (program) {
+    andClauses.push({ $or: [
+      { 'profileSnapshot.programCode': program },
+      { 'profileSnapshot.programName': { $regex: program, $options: 'i' } },
+    ] });
+  }
+
+  if (search) {
+    const searchRegex = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    const searchClauses = [
+      { studentNo: searchRegex },
+      { studentName: searchRegex },
+      { credentialType: searchRegex },
+      { status: searchRegex },
+      { 'profileSnapshot.programCode': searchRegex },
+      { 'profileSnapshot.programName': searchRegex },
+    ];
+
+    andClauses.push({ $or: searchClauses });
+  }
+
+  if (andClauses.length) {
+    filter.$and = andClauses;
   }
 
   const drafts = await CredentialDraft.find(filter)
-    .sort({ createdAt: -1 })
+    .sort({ updatedAt: -1, createdAt: -1 })
     .lean();
 
   return drafts.map(serializeDraft);
@@ -882,11 +956,11 @@ export async function updateCredentialDraft(id, payload = {}, actor) {
   }
 
   if (!vcPermissions.canEditDraft(actor, draft)) {
-    if (actor?.role !== 'admin') {
+    if (!['admin', 'super_admin'].includes(actor?.role)) {
       assertLifecycleAllowed(false, actor, 'edit');
     }
 
-    throw new ApiError(409, 'Only unsigned draft credentials can be edited.');
+    throw new ApiError(409, 'Only unsigned credentials can be edited before signing.');
   }
 
   const credentialType = payload?.credentialType === undefined
@@ -917,6 +991,12 @@ export async function updateCredentialDraft(id, payload = {}, actor) {
 
   if (payload?.presetRemark !== undefined) {
     draft.presetRemark = cleanString(payload.presetRemark);
+  }
+
+  if (credentialType === 'diploma') {
+    draft.notes = '';
+    draft.remarks = '';
+    draft.presetRemark = '';
   }
 
   if (payload?.anchorPreference !== undefined) {
@@ -1304,17 +1384,23 @@ export async function submitCredentialDraft(id, actor) {
     throw new ApiError(404, 'Credential draft not found');
   }
 
+  if (cleanString(draft.status).toLowerCase() === 'for_signature' && isCredentialPaid(draft)) {
+    return serializeDraft(draft);
+  }
+
   if (!vcPermissions.canSubmitDraft(actor, draft)) {
     if (actor?.role !== 'admin') {
       assertLifecycleAllowed(false, actor, 'submit');
     }
 
-    throw new ApiError(409, 'Only draft records can be submitted for signature');
+    if (!isCredentialPaid(draft)) {
+      throw new ApiError(409, 'Payment is required before sending for signing.');
+    }
+
+    throw new ApiError(409, 'Only paid unsigned credentials can be submitted for signature.');
   }
 
-  draft.status = 'for_signature';
-  draft.submittedBy = actor?._id || null;
-  draft.submittedAt = new Date();
+  moveToSigningQueue(draft, actor, new Date());
 
   await draft.save();
   return serializeDraft(draft);
@@ -1367,7 +1453,7 @@ export async function signCredentialDraft(id, payload = {}, actor) {
       assertLifecycleAllowed(false, actor, 'sign');
     }
 
-    throw new ApiError(409, 'Only unsigned drafts pending signature can be signed');
+    throw new ApiError(409, 'Only paid unsigned drafts pending signature can be signed');
   }
 
   const issuerKey = await getActiveIssuerKeyOrThrow();
@@ -1757,6 +1843,9 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   }
 
   if (draft.paymentStatus === 'paid') {
+    if (moveToSigningQueue(draft, actor, new Date())) {
+      await draft.save();
+    }
     return serializeDraft(draft);
   }
 
@@ -1798,7 +1887,7 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
   draft.paymentConfirmedAt = now;
   draft.paymentConfirmedBy = actor?._id || null;
   draft.paymentNotes = cleanString(payload?.paymentNotes || payload?.notes);
-  vcPermissions.applyAnchorReadinessToDraft(draft, now);
+  moveToSigningQueue(draft, actor, now);
 
   await draft.save();
   const serializedDraft = serializeDraft(draft);

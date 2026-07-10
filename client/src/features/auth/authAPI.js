@@ -84,7 +84,7 @@ export async function updateWebPassword(payload) {
 
 export async function logout() {
   try {
-    await api.post('/auth/logout');
+    await api.post('/auth/logout', null, { skipAuthRedirect: true });
   } finally {
     clearStoredAuth();
   }

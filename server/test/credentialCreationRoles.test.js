@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import { canCreateDraft } from '../src/modules/credentials/permissions.js';
 import { allowRoles } from '../src/shared/middleware/auth.middleware.js';
 
-const createVcRoles = ['admin', 'super_admin', 'developer'];
-const blockedRoles = ['cashier', 'student'];
+const createVcRoles = ['admin', 'super_admin'];
+const blockedRoles = ['cashier', 'developer', 'student'];
 
 function runRoleMiddleware(role) {
-  const middleware = allowRoles('admin', 'super_admin', 'developer');
+  const middleware = allowRoles('admin', 'super_admin');
   let nextError = null;
   let nextCalled = false;
 
@@ -20,13 +20,13 @@ function runRoleMiddleware(role) {
   return { nextCalled, nextError };
 }
 
-test('admin, super_admin, and developer can create one VC draft internally', () => {
+test('admin and super_admin can create one VC draft internally', () => {
   for (const role of createVcRoles) {
     assert.equal(canCreateDraft({ role }), true, `${role} should create a VC draft`);
   }
 });
 
-test('cashier and student cannot create VC drafts internally', () => {
+test('cashier, developer, and student cannot create VC drafts internally', () => {
   for (const role of blockedRoles) {
     assert.equal(canCreateDraft({ role }), false, `${role} should not create a VC draft`);
   }
@@ -41,7 +41,7 @@ test('solo Create VC route role gate permits administrative creation roles', () 
   }
 });
 
-test('solo Create VC route role gate rejects cashier and student with 403', () => {
+test('solo Create VC route role gate rejects cashier, developer, and student with 403', () => {
   for (const role of blockedRoles) {
     const result = runRoleMiddleware(role);
 

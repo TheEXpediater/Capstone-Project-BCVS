@@ -1,14 +1,26 @@
 import { Navigate } from 'react-router-dom';
-import { hasValidStoredAuth } from '../features/auth/authStorage';
+import { useSelector } from 'react-redux';
+
+function SessionLoading() {
+  return (
+    <div className="min-vh-100 d-flex align-items-center justify-content-center">
+      Loading session...
+    </div>
+  );
+}
 
 export default function RoleRoute({ allowedRoles = [], children }) {
-  const auth = hasValidStoredAuth();
+  const { token, user, isLoading, hydrationComplete } = useSelector((state) => state.auth);
 
-  if (!auth?.token) {
+  if (isLoading && !hydrationComplete) {
+    return <SessionLoading />;
+  }
+
+  if (hydrationComplete && !token) {
     return <Navigate to="/login" replace />;
   }
 
-  const role = auth?.user?.role;
+  const role = user?.role;
 
   if (!role || !allowedRoles.includes(role)) {
     return <Navigate to="/unauthorized" replace />;

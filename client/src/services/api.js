@@ -51,10 +51,11 @@ api.interceptors.response.use(
     const normalized = String(message).toLowerCase();
 
     const shouldForceLogout =
-      status === 401 ||
-      normalized.includes('jwt expired') ||
-      normalized.includes('session expired') ||
-      normalized.includes('session has expired');
+      !error.config?.skipAuthRedirect &&
+      (status === 401 ||
+        normalized.includes('jwt expired') ||
+        normalized.includes('session expired') ||
+        normalized.includes('session has expired'));
 
     if (shouldForceLogout) {
       clearStoredAuth();

@@ -16,7 +16,8 @@ import {
 } from 'react-icons/fa';
 import PasswordResetModal from '../PasswordResetModal';
 import UserDropdown from '../UserDropdown';
-import { signOut } from '../../features/auth/authSlice';
+import { clearAuthState } from '../../features/auth/authSlice';
+import { logout } from '../../features/auth/authAPI';
 import { updateWebPassword } from '../../features/profile/profileAPI';
 import {
   getTodaysAnchorQueueSummary,
@@ -105,8 +106,9 @@ export default function AppShell({ children }) {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   async function performLogout() {
-    await dispatch(signOut());
+    dispatch(clearAuthState());
     navigate('/login', { replace: true });
+    logout().catch(() => null);
   }
 
   async function continueLogoutAfterConfirmation() {

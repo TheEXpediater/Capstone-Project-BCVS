@@ -36,14 +36,14 @@ router.get(
 router.post(
   '/from-student/:studentId',
   protect({ kind: 'web' }),
-  allowRoles('admin', 'super_admin', 'developer'),
+  allowRoles('admin', 'super_admin'),
   createCredentialDraftFromStudent
 );
 
 router.post(
   '/bulk/from-students',
   protect({ kind: 'web' }),
-  allowRoles('admin', 'super_admin', 'developer'),
+  allowRoles('admin', 'super_admin'),
   bulkCreateCredentialDraftsFromStudents
 );
 
@@ -155,7 +155,7 @@ router.put(
 router.put(
   '/:id',
   protect({ kind: 'web' }),
-  allowRoles('admin'),
+  allowRoles('admin', 'super_admin'),
   updateCredentialDraft
 );
 

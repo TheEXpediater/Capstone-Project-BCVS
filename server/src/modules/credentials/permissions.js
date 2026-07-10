@@ -4,9 +4,20 @@ export const DEVELOPER_READONLY_MESSAGE =
   'MIS/developer access is read-only for VC lifecycle operations.';
 
 const DRAFT_STATUS = 'draft';
-const DRAFT_CREATION_ROLES = new Set(['admin', 'super_admin', 'developer']);
+const DRAFT_CREATION_ROLES = new Set(['admin', 'super_admin']);
 const SUBMITTED_STATUSES = new Set(['submitted', 'for_signature']);
 const TERMINAL_BLOCKED_STATUSES = new Set(['rejected', 'revoked', 'cancelled', 'deleted']);
+const IMMUTABLE_STATUSES = new Set([
+  'signed',
+  'claim_ready',
+  'claimed',
+  'shared',
+  'queued_for_anchor',
+  'anchored',
+  'revoked',
+  'deleted',
+  'cancelled',
+]);
 const CLAIMABLE_STATUSES = new Set(['signed', 'claim_ready', 'queued_for_anchor', 'anchored']);
 
 function cleanString(value, fallback = '') {
@@ -54,9 +65,7 @@ export function hasIssuedCredentialArtifacts(credential) {
       cleanString(credential?.credentialHash) ||
       cleanString(credential?.vcHash) ||
       credential?.signedAt ||
-      ['signed', 'claim_ready', 'claimed', 'shared', 'queued_for_anchor', 'anchored', 'revoked'].includes(
-        cleanString(credential?.status).toLowerCase()
-      )
+      IMMUTABLE_STATUSES.has(cleanString(credential?.status).toLowerCase())
   );
 }
 
@@ -65,15 +74,28 @@ export function canCreateDraft(user) {
 }
 
 export function canEditDraft(user, credential) {
+  const role = roleOf(user);
+  const status = cleanString(credential?.status).toLowerCase();
+
   return (
-    roleOf(user) === 'admin' &&
-    cleanString(credential?.status).toLowerCase() === DRAFT_STATUS &&
+    ['admin', 'super_admin'].includes(role) &&
+    Boolean(credential) &&
+    !TERMINAL_BLOCKED_STATUSES.has(status) &&
+    !IMMUTABLE_STATUSES.has(status) &&
     !hasIssuedCredentialArtifacts(credential)
   );
 }
 
 export function canSubmitDraft(user, credential) {
-  return roleOf(user) === 'admin' && cleanString(credential?.status).toLowerCase() === DRAFT_STATUS;
+  const status = cleanString(credential?.status).toLowerCase();
+  return (
+    roleOf(user) === 'admin' &&
+    Boolean(credential) &&
+    isPaid(credential) &&
+    !hasSignedCredentialPayload(credential) &&
+    !TERMINAL_BLOCKED_STATUSES.has(status) &&
+    (status === DRAFT_STATUS || SUBMITTED_STATUSES.has(status))
+  );
 }
 
 export function canDeleteDraft(user, credential) {
@@ -87,6 +109,7 @@ export function canRejectDraft(user, credential) {
 export function canSignCredential(user, credential) {
   return (
     roleOf(user) === 'super_admin' &&
+    isPaid(credential) &&
     SUBMITTED_STATUSES.has(cleanString(credential?.status).toLowerCase()) &&
     !hasSignedCredentialPayload(credential)
   );

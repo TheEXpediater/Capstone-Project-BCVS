@@ -14,6 +14,7 @@ import {
   isAnchorReady,
   resolveAnchorReadiness,
 } from '../src/modules/credentials/permissions.js';
+import { moveToSigningQueue } from '../src/modules/credentials/service.js';
 
 const admin = { role: 'admin' };
 const registrar = { role: 'super_admin' };
@@ -33,18 +34,23 @@ function credential(overrides = {}) {
 
 test('VC lifecycle role gates permit administrative draft creation and restrict later stages', () => {
   const draft = credential();
-  const submitted = credential({ status: 'for_signature' });
+  const paidDraft = credential({ paymentStatus: 'paid' });
+  const submitted = credential({ status: 'for_signature', paymentStatus: 'paid' });
+  const unpaidSubmitted = credential({ status: 'for_signature', paymentStatus: 'unpaid' });
 
   assert.equal(canCreateDraft(admin), true);
   assert.equal(canCreateDraft(registrar), true);
-  assert.equal(canCreateDraft(developer), true);
+  assert.equal(canCreateDraft(developer), false);
   assert.equal(canEditDraft(admin, draft), true);
-  assert.equal(canSubmitDraft(admin, draft), true);
+  assert.equal(canEditDraft(registrar, draft), true);
+  assert.equal(canSubmitDraft(admin, draft), false);
+  assert.equal(canSubmitDraft(admin, paidDraft), true);
   assert.equal(canDeleteDraft(admin, draft), true);
 
   assert.equal(canSignCredential(admin, submitted), false);
   assert.equal(canSignCredential(cashier, submitted), false);
   assert.equal(canSignCredential(registrar, submitted), true);
+  assert.equal(canSignCredential(registrar, unpaidSubmitted), false);
 
   assert.equal(canEditDraft(developer, draft), false);
   assert.equal(canSubmitDraft(developer, draft), false);
@@ -63,6 +69,26 @@ test('cashier can mark payment paid but cannot perform VC lifecycle operations',
   assert.equal(canSignCredential(cashier, submitted), false);
   assert.equal(canQueueAnchor(cashier, submitted), false);
   assert.equal(canGenerateClaimQr(cashier, submitted), false);
+});
+
+test('paid unsigned credentials move to the signing queue idempotently', () => {
+  const now = new Date('2026-06-19T00:00:00.000Z');
+  const draft = credential({ paymentStatus: 'paid' });
+
+  assert.equal(moveToSigningQueue(draft, admin, now), true);
+  assert.equal(draft.status, 'for_signature');
+  assert.equal(draft.submittedBy, null);
+  assert.equal(draft.submittedAt, now);
+
+  assert.equal(moveToSigningQueue(draft, admin, new Date('2026-06-20T00:00:00.000Z')), false);
+  assert.equal(draft.submittedAt, now);
+});
+
+test('unpaid credentials do not enter the signing queue', () => {
+  const draft = credential({ paymentStatus: 'unpaid' });
+
+  assert.equal(moveToSigningQueue(draft, admin, new Date('2026-06-19T00:00:00.000Z')), false);
+  assert.equal(draft.status, 'draft');
 });
 
 test('signed content is locked against draft edits and draft deletes', () => {
