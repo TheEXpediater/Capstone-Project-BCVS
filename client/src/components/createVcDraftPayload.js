@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 export const DEFAULT_TOR_REMARKS = 'General Purposes';
 export const BASE_CREDENTIAL_AMOUNT = 150;
 export const ANCHOR_NOW_FEE = 20;
@@ -74,5 +75,17 @@ export function getCreateVcPricingSummary(anchorMode = 'default', count = 1) {
     totalAmount: totalPerCredential * itemCount,
     anchorMode: normalizedAnchorMode,
     anchorNow: normalizedAnchorMode === 'anchor_now',
+=======
+export function buildCreateVcDraftPayload({ credentialType, notes = '', anchorNow = false, anchorCost = 20 }) {
+  const normalizedCredentialType = String(credentialType || 'tor').toLowerCase();
+  const numericAnchorCost = Number(anchorCost || 0);
+
+  return {
+    credentialType: normalizedCredentialType,
+    notes: String(notes || ''),
+    anchorMode: anchorNow ? 'same_day' : 'scheduled',
+    anchorNow: Boolean(anchorNow),
+    anchorNowFee: anchorNow ? numericAnchorCost : 0,
+>>>>>>> debc39457aea2953515c4ff15d60179d9938d485
   };
 }

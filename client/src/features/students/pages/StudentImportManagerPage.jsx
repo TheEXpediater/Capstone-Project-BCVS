@@ -973,7 +973,11 @@ function StudentActionMenu({
             disabled={creatingVcDraftId === student._id}
           >
             <FaFileSignature className="me-2" />
+<<<<<<< HEAD
             {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC'}
+=======
+            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create Verifiable Credential (VC)'}
+>>>>>>> debc39457aea2953515c4ff15d60179d9938d485
           </button>
         ) : null}
         <button
@@ -1203,7 +1207,7 @@ export default function StudentImportManagerPage() {
   const navigate = useNavigate();
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentRole = auth?.user?.role || '';
-  const canCreateVcDraft = currentRole === 'admin';
+  const canCreateVcDraft = ['admin', 'super_admin'].includes(currentRole);
 
   const [students, setStudents] = useState([]);
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
@@ -1242,6 +1246,9 @@ export default function StudentImportManagerPage() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [busyAction, setBusyAction] = useState(false);
   const [creatingVcDraftId, setCreatingVcDraftId] = useState('');
+  const [createVcModalOpen, setCreateVcModalOpen] = useState(false);
+  const [createVcStudent, setCreateVcStudent] = useState(null);
+  const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
   const [bulkActionMenuOpen, setBulkActionMenuOpen] = useState(false);
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
   const [createVcWorkflow, setCreateVcWorkflow] = useState({
@@ -1588,12 +1595,41 @@ export default function StudentImportManagerPage() {
       return;
     }
 
+<<<<<<< HEAD
     setActionMenuOpenId('');
     setCreateVcWorkflow({
       open: true,
       mode: 'single',
       students: student ? [student] : [],
     });
+=======
+    setCreateVcStudent(student || null);
+    setCreateVcModalOpen(true);
+  }
+
+  async function submitCreateVcDraft(payload) {
+    if (!createVcStudent?._id) {
+      setFeedback({ type: 'warning', text: 'Choose a student before creating a VC draft.', issues: [] });
+      return;
+    }
+
+    try {
+      setCreateVcSubmitting(true);
+      await createCredentialDraftFromStudent(createVcStudent._id, payload);
+      setCreateVcModalOpen(false);
+      setCreateVcStudent(null);
+      setFeedback({ type: 'success', text: 'VC draft created successfully.', issues: [] });
+      await loadStudents({ page: pagination.page, showBusy: true });
+    } catch (error) {
+      setFeedback({
+        type: 'danger',
+        text: getErrorMessage(error, 'Failed to create VC draft.'),
+        issues: [],
+      });
+    } finally {
+      setCreateVcSubmitting(false);
+    }
+>>>>>>> debc39457aea2953515c4ff15d60179d9938d485
   }
 
   function requestDeleteStudent(student) {
@@ -1833,6 +1869,12 @@ export default function StudentImportManagerPage() {
             <FaUpload className="me-2" />
             Import
           </button>
+          {canCreateVcDraft ? (
+            <button className="btn btn-outline-primary" onClick={() => { setCreateVcStudent(null); setCreateVcModalOpen(true); }} disabled={loadingStudents || refreshingStudents}>
+              <FaFileSignature className="me-2" />
+              Create VC
+            </button>
+          ) : null}
           <button className="btn btn-outline-secondary" onClick={() => loadStudents({ page: pagination.page, showBusy: true })} disabled={refreshingStudents}>
             {refreshingStudents ? 'Refreshing...' : 'Refresh'}
           </button>
@@ -2026,6 +2068,21 @@ export default function StudentImportManagerPage() {
       />
 
       <StudentGradesModal data={selectedGradesData} onClose={() => setSelectedGradesData(null)} />
+
+      <CreateVcDraftModal
+        open={createVcModalOpen}
+        title="Create VC Draft"
+        subtitle="Create a VC draft for one student from the registrar workspace."
+        student={createVcStudent}
+        students={students}
+        loading={loadingStudents || refreshingStudents}
+        submitting={createVcSubmitting}
+        onClose={() => {
+          setCreateVcModalOpen(false);
+          setCreateVcStudent(null);
+        }}
+        onConfirm={submitCreateVcDraft}
+      />
 
       <ConfirmActionModal
         action={confirmAction}

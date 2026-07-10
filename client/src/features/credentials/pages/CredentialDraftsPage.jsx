@@ -9,12 +9,15 @@ import {
   FaEdit,
   FaEye,
   FaPaperPlane,
+  FaPlus,
   FaQrcode,
   FaSignature,
   FaTrash,
 } from 'react-icons/fa';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
+import CreateVcDraftModal from '../../../components/CreateVcDraftModal';
 import { hasValidStoredAuth } from '../../auth/authStorage';
+import { listStudents } from '../../students/studentsAPI';
 import {
   bulkCreateCredentialClaimTokens,
   bulkDeleteCredentialDrafts,
@@ -23,6 +26,7 @@ import {
   bulkSubmitCredentialDrafts,
   createCredentialClaimOverrideToken,
   createCredentialClaimToken,
+  createCredentialDraftFromStudent,
   deleteCredentialDraft,
   getCredentialDraftById,
   getTodaysAnchorQueueSummary,
@@ -2398,7 +2402,16 @@ export default function CredentialDraftsPage() {
   const [queueProcessing, setQueueProcessing] = useState(false);
   const [queueProcessResult, setQueueProcessResult] = useState(null);
   const [queueError, setQueueError] = useState('');
+<<<<<<< HEAD
   const [openedRouteDraftId, setOpenedRouteDraftId] = useState('');
+=======
+  const [createVcModalOpen, setCreateVcModalOpen] = useState(false);
+  const [createVcStudent, setCreateVcStudent] = useState(null);
+  const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
+  const [createVcStudents, setCreateVcStudents] = useState([]);
+  const [createVcStudentsLoading, setCreateVcStudentsLoading] = useState(false);
+  const [createVcPickerOpen, setCreateVcPickerOpen] = useState(false);
+>>>>>>> debc39457aea2953515c4ff15d60179d9938d485
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -2583,6 +2596,64 @@ export default function CredentialDraftsPage() {
       setFeedback({ type: 'danger', text: actionError(error, 'Failed to load details.') });
     } finally {
       setBusyId('');
+    }
+  }
+
+  async function loadCreateVcStudents() {
+    if (createVcStudents.length || createVcStudentsLoading) return;
+
+    try {
+      setCreateVcStudentsLoading(true);
+      const data = await listStudents({ page: 1, limit: 100 });
+      const rows = Array.isArray(data) ? data : data?.rows || [];
+      setCreateVcStudents(rows);
+    } catch {
+      setCreateVcStudents([]);
+    } finally {
+      setCreateVcStudentsLoading(false);
+    }
+  }
+
+  function openCreateVcPicker() {
+    setCreateVcStudent(null);
+    setCreateVcStudents([]);
+    setCreateVcPickerOpen(true);
+    loadCreateVcStudents();
+  }
+
+  function selectCreateVcStudent(student) {
+    setCreateVcStudent(student);
+    setCreateVcPickerOpen(false);
+    setCreateVcModalOpen(true);
+  }
+
+  function openCreateVcModal(student = null, students = []) {
+    setCreateVcStudent(student);
+    setCreateVcStudents(students);
+    setCreateVcModalOpen(true);
+    if (!students.length) {
+      loadCreateVcStudents();
+    }
+  }
+
+  async function submitCreateVcDraft(payload) {
+    const targetStudent = createVcStudent || createVcStudents[0] || null;
+    if (!targetStudent?._id) {
+      setFeedback({ type: 'warning', text: 'Choose a student before creating a VC draft.' });
+      return;
+    }
+
+    try {
+      setCreateVcSubmitting(true);
+      await createCredentialDraftFromStudent(targetStudent._id, payload);
+      setCreateVcModalOpen(false);
+      setCreateVcStudent(null);
+      setCreateVcStudents([]);
+      await refreshAfterAction('VC draft created successfully.');
+    } catch (error) {
+      setFeedback({ type: 'danger', text: actionError(error, 'Failed to create VC draft.') });
+    } finally {
+      setCreateVcSubmitting(false);
     }
   }
 
@@ -3381,14 +3452,24 @@ export default function CredentialDraftsPage() {
       <div className="d-flex flex-column gap-4">
         <div className="d-flex flex-wrap justify-content-end align-items-center gap-2">
           {canUseRegistrarActions ? (
-            <button
-              className="btn btn-warning"
-              onClick={confirmProcessQueue}
-              disabled={modalBusy}
-            >
-              Process Today's Anchor Queue
-              {queueSummary?.pendingCount ? ` (${queueSummary.pendingCount})` : ''}
-            </button>
+            <>
+              <button
+                className="btn btn-primary"
+                onClick={openCreateVcPicker}
+                disabled={modalBusy}
+              >
+                <FaPlus className="me-2" />
+                Create VC
+              </button>
+              <button
+                className="btn btn-warning"
+                onClick={confirmProcessQueue}
+                disabled={modalBusy}
+              >
+                Process Today's Anchor Queue
+                {queueSummary?.pendingCount ? ` (${queueSummary.pendingCount})` : ''}
+              </button>
+            </>
           ) : null}
         </div>
 
@@ -3566,6 +3647,67 @@ export default function CredentialDraftsPage() {
         onClose={() => setQueueModalOpen(false)}
         onProcess={processQueueFromModal}
         onView={viewQueueCredential}
+      />
+      {createVcPickerOpen ? (
+        <>
+          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content border-0 shadow">
+                <div className="modal-header">
+                  <div>
+                    <h2 className="h5 mb-1">Select Student</h2>
+                    <p className="text-muted mb-0 small">Choose a student before creating a VC draft.</p>
+                  </div>
+                  <button type="button" className="btn-close" onClick={() => setCreateVcPickerOpen(false)} aria-label="Close" />
+                </div>
+                <div className="modal-body">
+                  {createVcStudentsLoading ? (
+                    <div className="text-muted">Loading students...</div>
+                  ) : createVcStudents.length ? (
+                    <div className="list-group">
+                      {createVcStudents.map((student) => (
+                        <button
+                          key={student._id}
+                          type="button"
+                          className="list-group-item list-group-item-action"
+                          onClick={() => selectCreateVcStudent(student)}
+                        >
+                          <div className="fw-semibold">{student.studentName || 'Unnamed student'}</div>
+                          <div className="small text-muted">
+                            {student.studentNo || 'No student number'} · {student.programCode || student.programName || 'No program'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="alert alert-light border mb-0">No students found.</div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-outline-secondary" onClick={() => setCreateVcPickerOpen(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="modal-backdrop show" />
+        </>
+      ) : null}
+      <CreateVcDraftModal
+        open={createVcModalOpen}
+        title="Create VC Draft"
+        subtitle="Create a VC draft for a student from the registrar workspace."
+        student={createVcStudent}
+        students={createVcStudents}
+        loading={loading || createVcStudentsLoading}
+        submitting={createVcSubmitting}
+        onClose={() => {
+          setCreateVcModalOpen(false);
+          setCreateVcStudent(null);
+          setCreateVcStudents([]);
+        }}
+        onConfirm={submitCreateVcDraft}
       />
     </>
   );
