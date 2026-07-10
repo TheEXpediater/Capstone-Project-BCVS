@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { useSearchParams } from 'react-router-dom';
 import {
   FaBan,
   FaCalendarAlt,
@@ -2350,6 +2351,8 @@ function ClaimedCredentialsTable({
 }
 
 export default function CredentialDraftsPage() {
+  const [searchParams] = useSearchParams();
+  const routeDraftId = searchParams.get('draftId') || '';
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentUser = useMemo(() => auth?.user || {}, [auth?.user]);
   const currentRole = currentUser?.role || '';
@@ -2395,6 +2398,7 @@ export default function CredentialDraftsPage() {
   const [queueProcessing, setQueueProcessing] = useState(false);
   const [queueProcessResult, setQueueProcessResult] = useState(null);
   const [queueError, setQueueError] = useState('');
+  const [openedRouteDraftId, setOpenedRouteDraftId] = useState('');
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -2464,6 +2468,43 @@ export default function CredentialDraftsPage() {
   useEffect(() => {
     setVcPage(1);
   }, [vcPaymentFilter, vcSearch]);
+
+  useEffect(() => {
+    if (!routeDraftId || openedRouteDraftId === routeDraftId) return undefined;
+
+    let cancelled = false;
+
+    async function openRouteDraft() {
+      try {
+        setBusyId(routeDraftId);
+        const data = await getCredentialDraftById(routeDraftId);
+        if (!cancelled) {
+          setActiveTab('drafts');
+          setSelectedDraft(data);
+          setOpenedRouteDraftId(routeDraftId);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFeedback({
+            type: 'danger',
+            text:
+              error?.response?.data?.message ||
+              error?.message ||
+              'Failed to load credential draft.',
+          });
+          setOpenedRouteDraftId(routeDraftId);
+        }
+      } finally {
+        if (!cancelled) setBusyId('');
+      }
+    }
+
+    openRouteDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeDraftId, openedRouteDraftId]);
 
   function closeActionModals() {
     setConfirmAction(null);

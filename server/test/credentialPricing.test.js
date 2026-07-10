@@ -48,12 +48,48 @@ test('blank client amount does not break Anchor Now default pricing', () => {
   assert.equal(pricing.amount, 170);
 });
 
-test('authorized staff can override the final payable amount with a positive value', () => {
-  const pricing = buildCredentialPricing({ anchorMode: 'anchor_now', amount: '175.50' });
+test('client fee and total manipulation do not override server draft pricing', () => {
+  const pricing = buildCredentialPricing({
+    anchorMode: 'anchor_now',
+    baseAmount: 1,
+    anchorNowFee: 999,
+    amount: 1,
+    totalAmount: 1,
+  });
 
   assert.equal(pricing.anchorMode, 'anchor_now');
+  assert.equal(pricing.baseAmount, 150);
+  assert.equal(pricing.anchorNowFee, 20);
+  assert.equal(pricing.totalAmount, 170);
+  assert.equal(pricing.amount, 170);
+});
+
+test('stored pricing values are preserved only when explicitly trusted', () => {
+  const pricing = buildCredentialPricing(
+    { anchorMode: 'anchor_now', amount: '175.50', anchorNowFee: '25' },
+    { trustStoredValues: true }
+  );
+
+  assert.equal(pricing.anchorMode, 'anchor_now');
+  assert.equal(pricing.anchorNowFee, 25);
   assert.equal(pricing.totalAmount, 175.5);
   assert.equal(pricing.amount, 175.5);
+});
+
+test('bulk Anchor Now pricing applies the configured fee to each created draft', () => {
+  const rows = [1, 2, 3].map(() =>
+    buildCredentialPricing({
+      anchorNow: true,
+      anchorNowFee: 0,
+      totalAmount: 150,
+    })
+  );
+
+  rows.forEach((pricing) => {
+    assert.equal(pricing.anchorMode, 'anchor_now');
+    assert.equal(pricing.anchorNowFee, 20);
+    assert.equal(pricing.totalAmount, 170);
+  });
 });
 
 test('payment amount validation rejects zero, negative, and non-numeric values', () => {

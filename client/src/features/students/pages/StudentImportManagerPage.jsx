@@ -3,7 +3,6 @@ import {
   FaChevronLeft,
   FaChevronRight,
   FaCog,
-  FaDownload,
   FaEdit,
   FaFileSignature,
   FaFilter,
@@ -14,8 +13,10 @@ import {
   FaTrash,
   FaUpload,
 } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import BulkActionsMenu from '../../../components/BulkActionsMenu';
+import CreateVcDraftModal from '../../../components/CreateVcDraftModal';
 import DataTable from '../../../components/DataTable';
 import FloatingActionMenu from '../../../components/FloatingActionMenu';
 import { hasValidStoredAuth } from '../../auth/authStorage';
@@ -31,11 +32,12 @@ import {
   updateStudentProfile,
 } from '../studentsAPI';
 import { listCurricula } from '../../curriculum/curriculumAPI';
-import { createCredentialDraftFromStudent } from '../../credentials/credentialsAPI';
+import {
+  bulkCreateCredentialDraftsFromStudents,
+  createCredentialDraftFromStudent,
+} from '../../credentials/credentialsAPI';
 
 const PAGE_SIZE = 10;
-const BASE_CREDENTIAL_AMOUNT = 150;
-const DEFAULT_ANCHOR_NOW_FEE = 20;
 
 const EMPTY_STUDENT_FORM = {
   studentNo: '',
@@ -251,6 +253,12 @@ function FeedbackAlert({ feedback }) {
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {feedback.actionPath && feedback.actionLabel ? (
+        <a className="btn btn-sm btn-outline-primary mt-3" href={feedback.actionPath}>
+          {feedback.actionLabel}
+        </a>
       ) : null}
     </div>
   );
@@ -929,7 +937,7 @@ function StudentActionMenu({
           disabled={profileLoading}
         >
           <FaIdCard className="me-2" />
-          View Profile
+          View Student
         </button>
         <button
           type="button"
@@ -940,7 +948,7 @@ function StudentActionMenu({
           }}
         >
           <FaEdit className="me-2" />
-          Edit Profile
+          Edit Student
         </button>
         <button
           type="button"
@@ -965,7 +973,7 @@ function StudentActionMenu({
             disabled={creatingVcDraftId === student._id}
           >
             <FaFileSignature className="me-2" />
-            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC Draft'}
+            {creatingVcDraftId === student._id ? 'Creating VC...' : 'Create VC'}
           </button>
         ) : null}
         <button
@@ -977,24 +985,17 @@ function StudentActionMenu({
           }}
         >
           <FaTrash className="me-2" />
-          Delete Student
+          Delete
         </button>
       </div>
     </FloatingActionMenu>
   );
 }
 
-function ConfirmActionModal({ action, busy, onCancel, onConfirm, onCredentialTypeChange }) {
+function ConfirmActionModal({ action, busy, onCancel, onConfirm }) {
   if (!action) return null;
 
-  const isDelete = action.type === 'deleteStudent';
-  const isCreateVcDraft = action.type === 'createVcDraft';
-  const title = isDelete ? 'Delete student record?' : 'Create VC draft?';
-  const message = isDelete
-    ? `This will delete ${action.student?.studentName || 'this student'} and all imported grade rows linked to this student. This cannot be undone.`
-    : `Create a verifiable credential draft for ${action.student?.studentName || 'this student'}?`;
-  const confirmText = isDelete ? 'Delete Student' : 'Create VC Draft';
-  const buttonClass = isDelete ? 'btn-danger' : 'btn-primary';
+  const message = `This will delete ${action.student?.studentName || 'this student'} and all imported grade rows linked to this student. This cannot be undone.`;
 
   return (
     <>
@@ -1002,7 +1003,7 @@ function ConfirmActionModal({ action, busy, onCancel, onConfirm, onCredentialTyp
         <div className="modal-dialog modal-dialog-centered">
           <div className="modal-content border-0 shadow">
             <div className="modal-header">
-              <h2 className="h5 mb-0">{title}</h2>
+              <h2 className="h5 mb-0">Delete student record?</h2>
               <button type="button" className="btn-close" onClick={onCancel} disabled={busy} aria-label="Close" />
             </div>
             <div className="modal-body">
@@ -1012,31 +1013,15 @@ function ConfirmActionModal({ action, busy, onCancel, onConfirm, onCredentialTyp
                   Student No: <strong>{action.student.studentNo}</strong>
                 </div>
               ) : null}
-              {isCreateVcDraft ? (
-                <div>
-                  <label className="form-label fw-semibold">Credential Type</label>
-                  <select
-                    className="form-select"
-                    value={action.credentialType || ''}
-                    onChange={(event) => onCredentialTypeChange(event.target.value)}
-                    disabled={busy}
-                  >
-                    <option value="">Choose credential type</option>
-                    <option value="diploma">Diploma</option>
-                    <option value="tor">TOR</option>
-                  </select>
-                  <div className="form-text">New VC drafts require an explicit type.</div>
-                </div>
-              ) : null}
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
               <button
-                className={`btn ${buttonClass}`}
+                className="btn btn-danger"
                 onClick={onConfirm}
-                disabled={busy || (isCreateVcDraft && !action.credentialType)}
+                disabled={busy}
               >
-                {busy ? 'Processing...' : confirmText}
+                {busy ? 'Processing...' : 'Delete Student'}
               </button>
             </div>
           </div>
@@ -1215,6 +1200,7 @@ function PaginationControls({ pagination, onPageChange, disabled }) {
 }
 
 export default function StudentImportManagerPage() {
+  const navigate = useNavigate();
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentRole = auth?.user?.role || '';
   const canCreateVcDraft = currentRole === 'admin';
@@ -1257,16 +1243,13 @@ export default function StudentImportManagerPage() {
   const [busyAction, setBusyAction] = useState(false);
   const [creatingVcDraftId, setCreatingVcDraftId] = useState('');
   const [bulkActionMenuOpen, setBulkActionMenuOpen] = useState(false);
-  const [bulkCreateVcModalOpen, setBulkCreateVcModalOpen] = useState(false);
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
-  const [bulkCreateVcDraft, setBulkCreateVcDraft] = useState({
-    credentialType: '',
-    anchorNow: false,
-    anchorCost: DEFAULT_ANCHOR_NOW_FEE,
+  const [createVcWorkflow, setCreateVcWorkflow] = useState({
+    open: false,
+    mode: 'single',
+    students: [],
   });
-  const [bulkCreateVcStep, setBulkCreateVcStep] = useState('configure');
-  const [bulkCreateVcResults, setBulkCreateVcResults] = useState([]);
-  const [bulkCreateVcSubmitting, setBulkCreateVcSubmitting] = useState(false);
+  const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
   const [bulkDeleteSubmitting, setBulkDeleteSubmitting] = useState(false);
 
   const activeFilterCount = useMemo(
@@ -1288,16 +1271,6 @@ export default function StudentImportManagerPage() {
     [students, selectedStudentIds]
   );
   const selectedStudentCount = selectedStudentIds.size;
-  const bulkCreateVcSummary = useMemo(() => {
-    const successful = bulkCreateVcResults.filter((item) => item.status === 'success');
-    const failed = bulkCreateVcResults.filter((item) => item.status === 'failed');
-    return {
-      successful,
-      failed,
-      successCount: successful.length,
-      failedCount: failed.length,
-    };
-  }, [bulkCreateVcResults]);
 
   async function loadCurricula() {
     try {
@@ -1615,7 +1588,12 @@ export default function StudentImportManagerPage() {
       return;
     }
 
-    setConfirmAction({ type: 'createVcDraft', student, credentialType: '' });
+    setActionMenuOpenId('');
+    setCreateVcWorkflow({
+      open: true,
+      mode: 'single',
+      students: student ? [student] : [],
+    });
   }
 
   function requestDeleteStudent(student) {
@@ -1645,27 +1623,7 @@ export default function StudentImportManagerPage() {
         return;
       }
 
-      if (confirmAction.type === 'createVcDraft' && !confirmAction.credentialType) {
-        setFeedback({
-          type: 'warning',
-          text: 'Choose Diploma or TOR before creating a VC draft.',
-          issues: [],
-        });
-        return;
-      }
-
-      setCreatingVcDraftId(confirmAction.student._id);
-      const data = await createCredentialDraftFromStudent(confirmAction.student._id, {
-        credentialType: confirmAction.credentialType,
-        notes: '',
-      });
-
       setConfirmAction(null);
-      setFeedback({
-        type: 'success',
-        text: `VC draft created for ${data.studentName}.`,
-        issues: [],
-      });
     } catch (error) {
       setFeedback({
         type: 'danger',
@@ -1736,41 +1694,12 @@ export default function StudentImportManagerPage() {
       return;
     }
 
-    setBulkCreateVcDraft({
-      credentialType: '',
-      anchorNow: false,
-      anchorCost: DEFAULT_ANCHOR_NOW_FEE,
+    setBulkActionMenuOpen(false);
+    setCreateVcWorkflow({
+      open: true,
+      mode: 'bulk',
+      students: selectedStudents,
     });
-    setBulkCreateVcStep('configure');
-    setBulkCreateVcResults([]);
-    setBulkCreateVcModalOpen(true);
-  }
-
-  function closeBulkCreateVcModal() {
-    if (bulkCreateVcSubmitting) return;
-    setBulkCreateVcModalOpen(false);
-    setBulkCreateVcStep('configure');
-  }
-
-  function downloadBulkCreateReport() {
-    const header = ['Student No', 'Student Name', 'Credential Type', 'Status', 'Message'];
-    const rows = bulkCreateVcResults.map((item) => [
-      item.studentNo,
-      item.studentName,
-      bulkCreateVcDraft.credentialType === 'diploma' ? 'Diploma' : 'Transcript of Records',
-      item.status,
-      item.message || item.error || '',
-    ]);
-    const csv = [header, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `bcvs-bulk-vc-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
   function openBulkDeleteModal() {
@@ -1786,86 +1715,80 @@ export default function StudentImportManagerPage() {
     setBulkDeleteModalOpen(true);
   }
 
-  async function confirmBulkCreateVcDrafts() {
-    if (!selectedStudentCount) {
-      setFeedback({
-        type: 'warning',
-        text: 'Select at least one student before creating VC drafts.',
-        issues: [],
-      });
-      return;
-    }
+  function closeCreateVcWorkflow() {
+    if (createVcSubmitting) return;
+    setCreateVcWorkflow({
+      open: false,
+      mode: 'single',
+      students: [],
+    });
+  }
 
-    if (!bulkCreateVcDraft.credentialType) {
-      setFeedback({
-        type: 'warning',
-        text: 'Choose Diploma or TOR before creating VC drafts.',
-        issues: [],
-      });
-      return;
+  async function submitCreateVcWorkflow(payload) {
+    const workflowStudents = createVcWorkflow.students;
+    const studentIds = workflowStudents
+      .map((student) => String(student?._id || student?.id || ''))
+      .filter(Boolean);
+
+    if (!studentIds.length) {
+      throw new Error('No student records were selected.');
     }
 
     try {
-      setBulkCreateVcSubmitting(true);
-      setBulkCreateVcStep('processing');
-      const targets = selectedStudents.map((student) => ({
-        studentId: student._id,
-        studentNo: student.studentNo || '',
-        studentName: student.studentName || '',
-        program: student.programCode || student.programName || '',
-        status: 'pending',
-        progress: 0,
-        message: 'Pending',
-      }));
-      setBulkCreateVcResults(targets);
-      let resultRows = targets;
-      const applyResult = (studentId, patch) => {
-        resultRows = resultRows.map((item) => (item.studentId === studentId ? { ...item, ...patch } : item));
-        setBulkCreateVcResults(resultRows);
-      };
+      setCreateVcSubmitting(true);
 
-      for (const target of targets) {
-        applyResult(target.studentId, {
-          status: 'processing',
-          progress: 35,
-          message: 'Generating VC...',
-        });
+      if (createVcWorkflow.mode === 'bulk') {
+        const data = await bulkCreateCredentialDraftsFromStudents(studentIds, payload);
+        const successfulIds = new Set(
+          (data?.created || [])
+            .map((item) => String(item.studentId || ''))
+            .filter(Boolean)
+        );
 
-        try {
-          const anchorNow = Boolean(bulkCreateVcDraft.anchorNow);
-          await createCredentialDraftFromStudent(target.studentId, {
-            credentialType: bulkCreateVcDraft.credentialType,
-            notes: '',
-            anchorMode: anchorNow ? 'same_day' : 'scheduled',
-            anchorNow,
-            anchorNowFee: anchorNow ? Number(bulkCreateVcDraft.anchorCost || DEFAULT_ANCHOR_NOW_FEE) : 0,
-          });
-          applyResult(target.studentId, {
-            status: 'success',
-            progress: 100,
-            message: `${bulkCreateVcDraft.credentialType === 'diploma' ? 'Diploma' : 'Transcript of Records'} VC created`,
-          });
-        } catch (error) {
-          applyResult(target.studentId, {
-            status: 'failed',
-            progress: 100,
-            message: getErrorMessage(error, 'Unable to create VC draft.'),
+        if (successfulIds.size) {
+          setSelectedStudentIds((current) => {
+            const next = new Set(current);
+            successfulIds.forEach((id) => next.delete(id));
+            return next;
           });
         }
+
+        setCreateVcWorkflow({
+          open: false,
+          mode: 'single',
+          students: [],
+        });
+        setFeedback({
+          type: data?.failedCount ? 'warning' : 'success',
+          text: `Bulk Create VC completed. Successful: ${data?.successCount || 0}. Failed: ${data?.failedCount || 0}.`,
+          issues: data?.failed || [],
+          actionLabel: 'Open Credential Drafts',
+          actionPath: '/credentials',
+        });
+
+        return data;
       }
 
-      setBulkCreateVcStep('results');
-      setSelectedStudentIds(new Set());
-      await loadStudents({ page: pagination.page, showBusy: true });
-    } catch (error) {
+      const studentId = studentIds[0];
+      setCreatingVcDraftId(studentId);
+      const draft = await createCredentialDraftFromStudent(studentId, payload);
+      setCreateVcWorkflow({
+        open: false,
+        mode: 'single',
+        students: [],
+      });
       setFeedback({
-        type: 'danger',
-        text: getErrorMessage(error, 'Failed to create VC drafts.'),
+        type: 'success',
+        text: `VC draft created for ${draft.studentName || 'the selected student'}.`,
         issues: [],
       });
-      setBulkCreateVcStep('configure');
+
+      const draftId = draft?._id || draft?.id || draft?.credentialId;
+      navigate(draftId ? `/credentials?draftId=${encodeURIComponent(draftId)}` : '/credentials');
+      return draft;
     } finally {
-      setBulkCreateVcSubmitting(false);
+      setCreateVcSubmitting(false);
+      setCreatingVcDraftId('');
     }
   }
 
@@ -1967,7 +1890,7 @@ export default function StudentImportManagerPage() {
                       : []),
                     {
                       key: 'delete-selected',
-                      label: 'Delete Selected Students',
+                      label: 'Delete Student Records',
                       icon: <FaTrash />, 
                       variant: 'danger',
                       onClick: openBulkDeleteModal,
@@ -2109,190 +2032,18 @@ export default function StudentImportManagerPage() {
         busy={busyAction}
         onCancel={() => setConfirmAction(null)}
         onConfirm={runConfirmedAction}
-        onCredentialTypeChange={(credentialType) =>
-          setConfirmAction((prev) => (prev ? { ...prev, credentialType } : prev))
-        }
       />
 
-      {bulkCreateVcModalOpen ? (
-        <>
-          <div className="modal d-block" tabIndex="-1" role="dialog" aria-modal="true">
-            <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-              <div className="modal-content border-0 shadow">
-                <div className="modal-header">
-                  <div>
-                    <h2 className="h5 mb-1">Create VC Drafts</h2>
-                    <p className="text-muted mb-0 small">Create credential drafts for the selected students.</p>
-                  </div>
-                  <button type="button" className="btn-close" onClick={closeBulkCreateVcModal} disabled={bulkCreateVcSubmitting} aria-label="Close" />
-                </div>
-                <div className="modal-body">
-                  {bulkCreateVcStep === 'configure' ? (
-                    <>
-                      <div className="alert alert-info border mb-3">
-                        This will create VC drafts for {selectedStudentCount} selected student{selectedStudentCount === 1 ? '' : 's'}.
-                      </div>
-                      <div className="table-responsive mb-3">
-                        <table className="table table-sm align-middle mb-0">
-                          <thead>
-                            <tr>
-                              <th>Student No.</th>
-                              <th>Student Name</th>
-                              <th>Program</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selectedStudents.map((student) => (
-                              <tr key={student._id}>
-                                <td>{student.studentNo || '-'}</td>
-                                <td>{student.studentName || '-'}</td>
-                                <td>{student.programCode || student.programName || '-'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="row g-3">
-                        <div className="col-md-6">
-                          <div className="fw-semibold mb-2">Credential Type</div>
-                          <label className="form-check">
-                            <input
-                              className="form-check-input"
-                              type="radio"
-                              name="bulkCredentialType"
-                              value="diploma"
-                              checked={bulkCreateVcDraft.credentialType === 'diploma'}
-                              onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, credentialType: event.target.value }))}
-                            />
-                            <span className="form-check-label">Diploma</span>
-                          </label>
-                          <label className="form-check">
-                            <input
-                              className="form-check-input"
-                              type="radio"
-                              name="bulkCredentialType"
-                              value="tor"
-                              checked={bulkCreateVcDraft.credentialType === 'tor'}
-                              onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, credentialType: event.target.value }))}
-                            />
-                            <span className="form-check-label">Transcript of Records</span>
-                          </label>
-                        </div>
-                        <div className="col-md-6">
-                          <div className="fw-semibold mb-2">Blockchain Anchor</div>
-                          <div className="btn-group mb-3" role="group" aria-label="Anchor now">
-                            <button
-                              type="button"
-                              className={`btn btn-sm ${bulkCreateVcDraft.anchorNow ? 'btn-primary' : 'btn-outline-primary'}`}
-                              onClick={() => setBulkCreateVcDraft((prev) => ({ ...prev, anchorNow: true }))}
-                            >
-                              YES
-                            </button>
-                            <button
-                              type="button"
-                              className={`btn btn-sm ${!bulkCreateVcDraft.anchorNow ? 'btn-primary' : 'btn-outline-primary'}`}
-                              onClick={() => setBulkCreateVcDraft((prev) => ({ ...prev, anchorNow: false }))}
-                            >
-                              NO
-                            </button>
-                          </div>
-                          {bulkCreateVcDraft.anchorNow ? (
-                            <div>
-                              <label className="form-label fw-semibold">Anchor Cost</label>
-                              <div className="input-group">
-                                <span className="input-group-text">PHP</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="form-control"
-                                  value={bulkCreateVcDraft.anchorCost}
-                                  onChange={(event) => setBulkCreateVcDraft((prev) => ({ ...prev, anchorCost: event.target.value }))}
-                                />
-                              </div>
-                              <div className="form-text">
-                                Total per credential: PHP {BASE_CREDENTIAL_AMOUNT + Number(bulkCreateVcDraft.anchorCost || 0)}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </>
-                  ) : null}
-
-                  {bulkCreateVcStep === 'processing' ? (
-                    <div className="d-flex flex-column gap-3">
-                      <h3 className="h6 mb-0">Creating Credentials</h3>
-                      {bulkCreateVcResults.map((item) => (
-                        <div className="border rounded-3 p-3" key={item.studentId}>
-                          <div className="d-flex justify-content-between gap-3">
-                            <div>
-                              <div className="fw-semibold">{item.studentName}</div>
-                              <div className="small text-muted">{item.message}</div>
-                            </div>
-                            <span className={`badge ${item.status === 'success' ? 'text-bg-success' : item.status === 'failed' ? 'text-bg-danger' : item.status === 'processing' ? 'text-bg-primary' : 'text-bg-secondary'}`}>
-                              {item.status}
-                            </span>
-                          </div>
-                          <div className="progress mt-2" style={{ height: 8 }}>
-                            <div
-                              className={`progress-bar ${item.status === 'failed' ? 'bg-danger' : item.status === 'success' ? 'bg-success' : ''}`}
-                              style={{ width: `${item.progress || 0}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {bulkCreateVcStep === 'results' ? (
-                    <div className="d-flex flex-column gap-3">
-                      <div className={`alert ${bulkCreateVcSummary.failedCount ? 'alert-warning' : 'alert-success'} mb-0`}>
-                        <div className="fw-semibold">Bulk Creation Completed</div>
-                        <div>Successful: {bulkCreateVcSummary.successCount}</div>
-                        <div>Failed: {bulkCreateVcSummary.failedCount}</div>
-                      </div>
-                      <div className="table-responsive">
-                        <table className="table table-sm align-middle mb-0">
-                          <tbody>
-                            {bulkCreateVcResults.map((item) => (
-                              <tr key={item.studentId}>
-                                <td style={{ width: 36 }}>
-                                  {item.status === 'success' ? '✓' : '✗'}
-                                </td>
-                                <td>
-                                  <div className="fw-semibold">{item.studentName}</div>
-                                  <div className="small text-muted">{item.message}</div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="modal-footer">
-                  {bulkCreateVcStep === 'results' ? (
-                    <button className="btn btn-outline-primary me-auto" onClick={downloadBulkCreateReport}>
-                      <FaDownload className="me-2" />
-                      Download report
-                    </button>
-                  ) : null}
-                  <button className="btn btn-outline-secondary" onClick={closeBulkCreateVcModal} disabled={bulkCreateVcSubmitting}>
-                    {bulkCreateVcStep === 'results' ? 'Close' : 'Cancel'}
-                  </button>
-                  {bulkCreateVcStep === 'configure' ? (
-                    <button className="btn btn-primary" onClick={confirmBulkCreateVcDrafts} disabled={bulkCreateVcSubmitting || !bulkCreateVcDraft.credentialType}>
-                      Confirm
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="modal-backdrop show" />
-        </>
-      ) : null}
+      <CreateVcDraftModal
+        open={createVcWorkflow.open}
+        mode={createVcWorkflow.mode}
+        student={createVcWorkflow.mode === 'single' ? createVcWorkflow.students[0] : null}
+        students={createVcWorkflow.students}
+        submitting={createVcSubmitting}
+        onClose={closeCreateVcWorkflow}
+        onConfirm={submitCreateVcWorkflow}
+        onOpenCredentials={() => navigate('/credentials')}
+      />
 
       {bulkDeleteModalOpen ? (
         <>

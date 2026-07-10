@@ -31,13 +31,20 @@ import {
   normalizeReceiptNo,
   pricingFromDraft,
 } from './pricing.js';
+import {
+  SUPPORTED_CREDENTIAL_TYPES,
+  buildCredentialDraftCreationFields,
+  isSupportedCredentialType,
+  normalizeBulkStudentIdEntries,
+  normalizeCredentialType,
+} from './draftInput.js';
 import * as vcPermissions from './permissions.js';
 
 const CLAIM_TOKEN_TTL_MINUTES = 15;
 const OPEN_REQUEST_STATUSES = ['draft', 'for_signature', 'signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
 const CLAIMABLE_STATUSES = ['signed', 'claim_ready', 'queued_for_anchor', 'anchored'];
 const TERMINAL_BLOCKED_STATUSES = ['claimed', 'revoked', 'rejected'];
-export const SUPPORTED_CREDENTIAL_TYPES = ['tor', 'diploma'];
+export { SUPPORTED_CREDENTIAL_TYPES, isSupportedCredentialType, normalizeCredentialType };
 
 const DEFAULT_CREDENTIAL_PERMISSIONS = {
   admin: {
@@ -73,26 +80,6 @@ const DEFAULT_CREDENTIAL_PERMISSIONS = {
 function cleanString(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
   return String(value).trim();
-}
-
-export function normalizeCredentialType(value, fallback = 'tor') {
-  const normalized = cleanString(value || fallback, fallback)
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-
-  if (['tor', 'transcript', 'transcript_of_records', 'student_record', 'student_academic_record'].includes(normalized)) {
-    return 'tor';
-  }
-
-  if (['diploma', 'degree', 'graduation_diploma'].includes(normalized)) {
-    return 'diploma';
-  }
-
-  return '';
-}
-
-export function isSupportedCredentialType(value) {
-  return SUPPORTED_CREDENTIAL_TYPES.includes(normalizeCredentialType(value));
 }
 
 function credentialTypeLabel(value) {
@@ -460,27 +447,6 @@ function normalizeBulkCredentialIds(payload = {}) {
   }
 
   ids.forEach((id) => assertObjectId(id, 'credential id'));
-  return ids;
-}
-
-function normalizeBulkStudentIds(payload = {}) {
-  const ids = [
-    ...new Set(
-      (payload.studentIds || payload.students || payload.ids || [])
-        .map((value) => cleanString(value))
-        .filter(Boolean)
-    ),
-  ];
-
-  if (!ids.length) {
-    throw new ApiError(400, 'At least one student id is required.');
-  }
-
-  if (ids.length > 100) {
-    throw new ApiError(400, 'Bulk VC creation is limited to 100 students.');
-  }
-
-  ids.forEach((id) => assertObjectId(id, 'student id'));
   return ids;
 }
 
@@ -1015,14 +981,10 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
   assertLifecycleAllowed(vcPermissions.canCreateDraft(actor), actor, 'create');
 
   const CredentialDraft = getCredentialDraftModel();
-  const credentialType = normalizeCredentialType(payload?.credentialType);
-  if (!credentialType) {
-    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
-  }
-  const notes = cleanString(payload?.notes);
+  const draftInput = buildCredentialDraftCreationFields(payload);
+  const { credentialType, notes, remarks, pricing } = draftInput;
   const paymentCode = await generateUniquePaymentCode(CredentialDraft);
   const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
-  const pricing = pricingFields(payload);
 
   const { student, grades } = await getStudentBundle(studentId);
 
@@ -1058,7 +1020,7 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
     : null
 ),
     notes,
-    remarks: notes,
+    remarks,
     presetRemark: '',
     anchorPreference,
     anchorMode: pricing.anchorMode,
@@ -1078,55 +1040,107 @@ export async function createCredentialDraftFromStudent(studentId, payload = {}, 
   return serializeDraft(draft);
 }
 
+async function getBulkStudentFailureSummary(studentId) {
+  if (!Types.ObjectId.isValid(studentId)) {
+    return {
+      studentNo: '',
+      studentName: '',
+    };
+  }
+
+  try {
+    const Student = getStudentModel();
+    const student = await Student.findById(studentId)
+      .select('studentNo studentName')
+      .lean();
+
+    return {
+      studentNo: student?.studentNo || '',
+      studentName: student?.studentName || '',
+    };
+  } catch {
+    return {
+      studentNo: '',
+      studentName: '',
+    };
+  }
+}
+
 export async function bulkCreateCredentialDraftsFromStudents(payload = {}, actor) {
   assertLifecycleAllowed(vcPermissions.canCreateDraft(actor), actor, 'create');
 
-  const studentIds = normalizeBulkStudentIds(payload);
-  const credentialType = normalizeCredentialType(payload?.credentialType);
-  if (!credentialType) {
-    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
-  }
+  const studentEntries = normalizeBulkStudentIdEntries(payload);
+  const draftInput = buildCredentialDraftCreationFields(payload);
 
   const results = [];
+  const created = [];
+  const failed = [];
 
-  for (const studentId of studentIds) {
+  for (const entry of studentEntries) {
+    const { studentId } = entry;
+
+    if (!entry.valid) {
+      const failure = {
+        studentId,
+        studentNo: '',
+        studentName: '',
+        reason: entry.reason || 'Invalid student id',
+      };
+      failed.push(failure);
+      results.push({
+        ...failure,
+        status: 'failed',
+      });
+      continue;
+    }
+
     try {
       const draft = await createCredentialDraftFromStudent(
         studentId,
         {
-          credentialType,
-          notes: payload.notes || '',
-          anchorMode: payload.anchorMode,
-          anchorNow: payload.anchorNow,
-          amount: payload.amount,
-          totalAmount: payload.totalAmount,
-          baseAmount: payload.baseAmount,
-          anchorNowFee: payload.anchorNowFee,
+          credentialType: draftInput.credentialType,
+          remarks: draftInput.remarks,
+          notes: draftInput.notes,
+          anchorMode: draftInput.pricing.anchorMode,
+          anchorNow: draftInput.pricing.anchorNow,
         },
         actor
       );
 
-      results.push({
+      const createdRow = {
         studentId,
+        studentNo: draft.studentNo || '',
+        studentName: draft.studentName || '',
+        credentialId: String(draft._id || draft.id || ''),
+      };
+      created.push(createdRow);
+      results.push({
+        ...createdRow,
         status: 'success',
         credential: draft,
       });
     } catch (error) {
-      results.push({
+      const summary = await getBulkStudentFailureSummary(studentId);
+      const failure = {
         studentId,
-        status: 'failed',
+        studentNo: summary.studentNo,
+        studentName: summary.studentName,
         reason: error?.message || 'Credential draft could not be created.',
+      };
+      failed.push(failure);
+      results.push({
+        ...failure,
+        status: 'failed',
       });
     }
   }
 
-  const successful = results.filter((result) => result.status === 'success');
-  const failed = results.filter((result) => result.status === 'failed');
-
   return {
     processedCount: results.length,
-    successCount: successful.length,
+    successCount: created.length,
     failedCount: failed.length,
+    created,
+    failed,
     results,
   };
 }
@@ -1135,14 +1149,10 @@ export async function requestMobileCredential(payload = {}, actor) {
   assertMobileStudent(actor, 'requesting');
 
   const CredentialDraft = getCredentialDraftModel();
-  const credentialType = normalizeCredentialType(payload?.credentialType);
-  if (!credentialType) {
-    throw new ApiError(400, 'Only TOR and Diploma credentials are supported');
-  }
-  const remarks = cleanString(payload?.remarks || payload?.notes);
+  const draftInput = buildCredentialDraftCreationFields(payload);
+  const { credentialType, notes, remarks, pricing } = draftInput;
   const presetRemark = cleanString(payload?.presetRemark);
   const anchorPreference = normalizeAnchorPreference(payload?.anchorPreference);
-  const pricing = pricingFields(payload);
   const livenessPassed = normalizeBoolean(payload?.livenessPassed);
   const livenessMethod = cleanString(payload?.livenessMethod, 'faceVerifierLocal');
   const livenessPassedAt = toDateOrNull(payload?.livenessPassedAt) || new Date();
@@ -1185,7 +1195,7 @@ export async function requestMobileCredential(payload = {}, actor) {
           }
         : null
     ),
-    notes: remarks,
+    notes,
     remarks,
     presetRemark,
     anchorPreference,
@@ -1758,7 +1768,23 @@ export async function markCredentialPaymentPaid(id, payload = {}, actor) {
     anchorMode: payload?.anchorMode ?? draft.anchorMode,
     anchorNow: payload?.anchorNow ?? draft.anchorNow,
   });
-  const confirmedAmount = normalizePaymentAmount(payload?.amount ?? payload?.totalAmount, pricing.amount);
+  const providedAmount = payload?.amount ?? payload?.totalAmount;
+  const hasProvidedAmount =
+    providedAmount !== undefined &&
+    providedAmount !== null &&
+    !(typeof providedAmount === 'string' && providedAmount.trim() === '');
+
+  if (hasProvidedAmount) {
+    const requestedAmount = normalizePaymentAmount(providedAmount, pricing.amount);
+    if (requestedAmount !== pricing.amount) {
+      throw new ApiError(
+        400,
+        `Payment amount must match the server-calculated total of PHP ${pricing.amount}.`
+      );
+    }
+  }
+
+  const confirmedAmount = pricing.amount;
   draft.paymentStatus = 'paid';
   draft.receiptNo = await resolveReceiptNo(CredentialDraft, payload?.receiptNo);
   draft.baseAmount = pricing.baseAmount;

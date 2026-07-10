@@ -50,16 +50,33 @@ export function normalizeReceiptNo(value) {
   return receiptNo;
 }
 
-export function buildCredentialPricing(input = {}) {
+function hasExplicitValue(value) {
+  return (
+    value !== undefined &&
+    value !== null &&
+    !(typeof value === 'string' && value.trim() === '')
+  );
+}
+
+export function buildCredentialPricing(input = {}, options = {}) {
   const anchorMode = normalizeAnchorMode(input.anchorMode, { anchorNow: input.anchorNow });
   const anchorNow = anchorMode === ANCHOR_MODE_NOW;
-  const baseAmount = normalizePaymentAmount(input.baseAmount, BASE_CREDENTIAL_AMOUNT);
-  const anchorNowFee = anchorNow ? normalizePaymentAmount(input.anchorNowFee, ANCHOR_NOW_FEE) : 0;
+  const baseAmount =
+    options.trustStoredValues && hasExplicitValue(input.baseAmount)
+      ? normalizePaymentAmount(input.baseAmount, BASE_CREDENTIAL_AMOUNT)
+      : BASE_CREDENTIAL_AMOUNT;
+  const anchorNowFee =
+    anchorNow && options.trustStoredValues && hasExplicitValue(input.anchorNowFee)
+      ? normalizePaymentAmount(input.anchorNowFee, ANCHOR_NOW_FEE)
+      : anchorNow
+        ? ANCHOR_NOW_FEE
+        : 0;
   const defaultTotal = baseAmount + anchorNowFee;
-  const totalAmount = normalizePaymentAmount(
-    input.amount ?? input.totalAmount,
-    defaultTotal
-  );
+  const requestedTotal = input.amount ?? input.totalAmount;
+  const totalAmount =
+    options.trustStoredValues && hasExplicitValue(requestedTotal)
+      ? normalizePaymentAmount(requestedTotal, defaultTotal)
+      : defaultTotal;
 
   return {
     baseAmount,
@@ -78,5 +95,5 @@ export function pricingFromDraft(draft = {}) {
     amount: draft.amount || draft.totalAmount || undefined,
     anchorMode: draft.anchorMode,
     anchorNow: draft.anchorNow,
-  });
+  }, { trustStoredValues: true });
 }
