@@ -31,11 +31,13 @@ function credential(overrides = {}) {
   };
 }
 
-test('VC lifecycle role gates keep developer read-only and restrict signing to registrar', () => {
+test('VC lifecycle role gates permit administrative draft creation and restrict later stages', () => {
   const draft = credential();
   const submitted = credential({ status: 'for_signature' });
 
   assert.equal(canCreateDraft(admin), true);
+  assert.equal(canCreateDraft(registrar), true);
+  assert.equal(canCreateDraft(developer), true);
   assert.equal(canEditDraft(admin, draft), true);
   assert.equal(canSubmitDraft(admin, draft), true);
   assert.equal(canDeleteDraft(admin, draft), true);
@@ -44,7 +46,6 @@ test('VC lifecycle role gates keep developer read-only and restrict signing to r
   assert.equal(canSignCredential(cashier, submitted), false);
   assert.equal(canSignCredential(registrar, submitted), true);
 
-  assert.equal(canCreateDraft(developer), false);
   assert.equal(canEditDraft(developer, draft), false);
   assert.equal(canSubmitDraft(developer, draft), false);
   assert.equal(canDeleteDraft(developer, draft), false);

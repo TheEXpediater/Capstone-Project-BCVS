@@ -4,6 +4,7 @@ export const DEVELOPER_READONLY_MESSAGE =
   'MIS/developer access is read-only for VC lifecycle operations.';
 
 const DRAFT_STATUS = 'draft';
+const DRAFT_CREATION_ROLES = new Set(['admin', 'super_admin', 'developer']);
 const SUBMITTED_STATUSES = new Set(['submitted', 'for_signature']);
 const TERMINAL_BLOCKED_STATUSES = new Set(['rejected', 'revoked', 'cancelled', 'deleted']);
 const CLAIMABLE_STATUSES = new Set(['signed', 'claim_ready', 'queued_for_anchor', 'anchored']);
@@ -60,7 +61,7 @@ export function hasIssuedCredentialArtifacts(credential) {
 }
 
 export function canCreateDraft(user) {
-  return roleOf(user) === 'admin';
+  return DRAFT_CREATION_ROLES.has(roleOf(user));
 }
 
 export function canEditDraft(user, credential) {

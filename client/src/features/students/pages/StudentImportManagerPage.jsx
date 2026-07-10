@@ -38,6 +38,11 @@ import {
 } from '../../credentials/credentialsAPI';
 
 const PAGE_SIZE = 10;
+const CREATE_VC_ROLES = new Set([
+  'admin',
+  'super_admin',
+  'developer',
+]);
 
 const EMPTY_STUDENT_FORM = {
   studentNo: '',
@@ -1203,7 +1208,7 @@ export default function StudentImportManagerPage() {
   const navigate = useNavigate();
   const auth = useMemo(() => hasValidStoredAuth(), []);
   const currentRole = auth?.user?.role || '';
-  const canCreateVcDraft = currentRole === 'admin';
+  const canCreateVcDraft = CREATE_VC_ROLES.has(currentRole);
 
   const [students, setStudents] = useState([]);
   const [pagination, setPagination] = useState(EMPTY_PAGINATION);
