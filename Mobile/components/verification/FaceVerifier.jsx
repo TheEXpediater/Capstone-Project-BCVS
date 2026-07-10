@@ -25,7 +25,7 @@ import { Camera as FaceCamera } from "react-native-vision-camera-face-detector";
  * - Calls onClose() when user taps "‹ Back"
  */
 
-/* =================== CONFIG =================== */
+/* CONFIG */
 
 const REQUIRED_SUCCESSES = 3; // need 3
 const MAX_ATTEMPTS = 5; // out of 5 tries
@@ -78,7 +78,7 @@ const getAngles = (f) => {
   return { yaw: yaw ?? 0, pitch: pitch ?? 0, roll: roll ?? 0 };
 };
 
-/* =========== Direction arrow animation component =========== */
+/* Direction arrow animation component */
 
 function DirectionArrow({ target }) {
   const translate = useRef(new Animated.Value(0)).current;

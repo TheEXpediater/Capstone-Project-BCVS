@@ -2402,16 +2402,13 @@ export default function CredentialDraftsPage() {
   const [queueProcessing, setQueueProcessing] = useState(false);
   const [queueProcessResult, setQueueProcessResult] = useState(null);
   const [queueError, setQueueError] = useState('');
-<<<<<<< HEAD
   const [openedRouteDraftId, setOpenedRouteDraftId] = useState('');
-=======
   const [createVcModalOpen, setCreateVcModalOpen] = useState(false);
   const [createVcStudent, setCreateVcStudent] = useState(null);
   const [createVcSubmitting, setCreateVcSubmitting] = useState(false);
   const [createVcStudents, setCreateVcStudents] = useState([]);
   const [createVcStudentsLoading, setCreateVcStudentsLoading] = useState(false);
   const [createVcPickerOpen, setCreateVcPickerOpen] = useState(false);
->>>>>>> debc39457aea2953515c4ff15d60179d9938d485
 
   const loadDrafts = useCallback(async () => {
     try {
@@ -2627,25 +2624,15 @@ export default function CredentialDraftsPage() {
     setCreateVcModalOpen(true);
   }
 
-  function openCreateVcModal(student = null, students = []) {
-    setCreateVcStudent(student);
-    setCreateVcStudents(students);
-    setCreateVcModalOpen(true);
-    if (!students.length) {
-      loadCreateVcStudents();
-    }
-  }
-
   async function submitCreateVcDraft(payload) {
-    const targetStudent = createVcStudent || createVcStudents[0] || null;
-    if (!targetStudent?._id) {
+    if (!createVcStudent?._id) {
       setFeedback({ type: 'warning', text: 'Choose a student before creating a VC draft.' });
       return;
     }
 
     try {
       setCreateVcSubmitting(true);
-      await createCredentialDraftFromStudent(targetStudent._id, payload);
+      await createCredentialDraftFromStudent(createVcStudent._id, payload);
       setCreateVcModalOpen(false);
       setCreateVcStudent(null);
       setCreateVcStudents([]);
@@ -3696,11 +3683,9 @@ export default function CredentialDraftsPage() {
       ) : null}
       <CreateVcDraftModal
         open={createVcModalOpen}
-        title="Create VC Draft"
-        subtitle="Create a VC draft for a student from the registrar workspace."
+        mode="single"
         student={createVcStudent}
-        students={createVcStudents}
-        loading={loading || createVcStudentsLoading}
+        students={createVcStudent ? [createVcStudent] : []}
         submitting={createVcSubmitting}
         onClose={() => {
           setCreateVcModalOpen(false);
